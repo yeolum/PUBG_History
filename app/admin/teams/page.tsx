@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { TeamWithAliases } from '@/lib/types'
 import SearchModal from '@/components/admin/SearchModal'
+import CsvImportModal from '@/components/admin/CsvImportModal'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full'
 
@@ -42,6 +43,9 @@ export default function AdminTeamsPage() {
   // 새 팀 추가
   const [addingNew, setAddingNew] = useState(false)
   const [newTeam, setNewTeam] = useState({ name: '', short_name: '', nationality: '' })
+
+  // CSV 임포트
+  const [csvModal, setCsvModal] = useState(false)
 
   // 링크 모달 (다른 팀과 병합)
   const [mergeModal, setMergeModal] = useState<{ fromId: string; fromName: string } | null>(null)
@@ -151,12 +155,20 @@ export default function AdminTeamsPage() {
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">팀 관리</h1>
-        <button
-          onClick={() => setAddingNew(true)}
-          className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-sm px-4 py-2 rounded-lg"
-        >
-          + 새 팀
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => setCsvModal(true)}
+            className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium text-sm px-4 py-2 rounded-lg"
+          >
+            CSV 일괄 등록
+          </button>
+          <button
+            onClick={() => setAddingNew(true)}
+            className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-sm px-4 py-2 rounded-lg"
+          >
+            + 새 팀
+          </button>
+        </div>
       </div>
 
       {/* 검색 */}
@@ -294,6 +306,15 @@ export default function AdminTeamsPage() {
             </p>
           )}
         </div>
+      )}
+
+      {/* CSV 임포트 모달 */}
+      {csvModal && (
+        <CsvImportModal
+          type="teams"
+          onDone={() => load()}
+          onClose={() => setCsvModal(false)}
+        />
       )}
 
       {/* 병합 모달 */}

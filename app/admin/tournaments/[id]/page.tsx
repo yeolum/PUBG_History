@@ -18,9 +18,10 @@ export default function AdminTournamentDetailPage() {
   const [editMode, setEditMode] = useState(false)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState<Partial<Tournament>>({})
+  const [err, setErr] = useState('')
 
-  // 시리즈 추가 폼
   const [newSeriesName, setNewSeriesName] = useState('')
+  const [seriesAdding, setSeriesAdding] = useState(false)
   const [addingStage, setAddingStage] = useState<string | null>(null)
   const [newStageName, setNewStageName] = useState('')
   const [newStageType, setNewStageType] = useState('group')
@@ -45,7 +46,8 @@ export default function AdminTournamentDetailPage() {
   async function saveTournament() {
     if (!form.name?.trim()) return
     setSaving(true)
-    await supabase.from('tournaments').update({
+    setErr('')
+    const { error } = await supabase.from('tournaments').update({
       name: form.name,
       short_name: form.short_name || null,
       type: form.type,
@@ -57,6 +59,7 @@ export default function AdminTournamentDetailPage() {
       description: form.description || null,
     }).eq('id', id)
     setSaving(false)
+    if (error) { setErr('저장 실패: ' + error.message); return }
     setEditMode(false)
     load()
   }
@@ -69,10 +72,16 @@ export default function AdminTournamentDetailPage() {
 
   async function addSeries() {
     if (!newSeriesName.trim()) return
+    setSeriesAdding(true)
+    setErr('')
     const maxOrder = seriesList.length > 0 ? Math.max(...seriesList.map((s) => s.order_num)) + 1 : 0
-    await supabase.from('series').insert([{ tournament_id: id, name: newSeriesName.trim(), order_num: maxOrder }])
+    const { error } = await supabase
+      .from('series')
+      .insert([{ tournament_id: id, name: newSeriesName.trim(), order_num: maxOrder }])
+    setSeriesAdding(false)
+    if (error) { setErr('시리즈 추가 실패: ' + error.message); return }
     setNewSeriesName('')
-    load()
+    await load()
   }
 
   async function deleteSeries(seriesId: string) {
@@ -83,17 +92,19 @@ export default function AdminTournamentDetailPage() {
 
   async function addStage(seriesId: string) {
     if (!newStageName.trim()) return
+    setErr('')
     const s = seriesList.find((x) => x.id === seriesId)
     const maxOrder = s && s.stages.length > 0 ? Math.max(...s.stages.map((st) => st.order_num)) + 1 : 0
-    await supabase.from('stages').insert([{
+    const { error } = await supabase.from('stages').insert([{
       series_id: seriesId,
       name: newStageName.trim(),
       type: newStageType,
       order_num: maxOrder,
     }])
+    if (error) { setErr('스테이지 추가 실패: ' + error.message); return }
     setAddingStage(null)
     setNewStageName('')
-    load()
+    await load()
   }
 
   async function deleteStage(stageId: string) {
@@ -106,12 +117,18 @@ export default function AdminTournamentDetailPage() {
 
   return (
     <div className="p-8 max-w-4xl">
-      {/* 상단 네비게이션 */}
       <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
         <Link href="/admin/tournaments" className="hover:text-gray-600">대회 관리</Link>
         <span>/</span>
         <span className="text-gray-700">{tournament.name}</span>
       </div>
+
+      {err && (
+        <div className="mb-4 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg px-4 py-3 flex items-center justify-between">
+          {err}
+          <button onClick={() => setErr('')} className="text-red-400 hover:text-red-600 ml-4">✕</button>
+        </div>
+      )}
 
       {/* 대회 정보 */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
@@ -219,11 +236,13 @@ export default function AdminTournamentDetailPage() {
 
       {/* 시리즈 목록 */}
       <div>
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-gray-800">시리즈</h2>
-        </div>
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">시리즈</h2>
 
         <div className="space-y-4">
+          {seriesList.length === 0 && (
+            <p className="text-sm text-gray-400 text-center py-4">아직 시리즈가 없습니다. 아래에서 추가하세요.</p>
+          )}
+
           {seriesList.map((series) => (
             <div key={series.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-200">
@@ -232,7 +251,6 @@ export default function AdminTournamentDetailPage() {
                   className="text-xs text-red-400 hover:text-red-600">삭제</button>
               </div>
 
-              {/* 스테이지 목록 */}
               <div className="p-4 space-y-2">
                 {series.stages
                   .slice()
@@ -259,7 +277,6 @@ export default function AdminTournamentDetailPage() {
                     </div>
                   ))}
 
-                {/* 스테이지 추가 */}
                 {addingStage === series.id ? (
                   <div className="border border-dashed border-gray-300 rounded-lg p-3 flex gap-2 flex-wrap">
                     <input
@@ -297,17 +314,21 @@ export default function AdminTournamentDetailPage() {
 
           {/* 시리즈 추가 */}
           <div className="bg-white rounded-xl border border-dashed border-gray-300 p-4">
+            <p className="text-xs text-gray-400 mb-2">새 시리즈 추가 (예: 그룹 스테이지, 플레이오프, 파이널)</p>
             <div className="flex gap-2">
               <input
                 value={newSeriesName}
                 onChange={(e) => setNewSeriesName(e.target.value)}
-                placeholder="시리즈 이름 (예: 예선, 본선...)"
+                placeholder="시리즈 이름"
                 className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
                 onKeyDown={(e) => { if (e.key === 'Enter') addSeries() }}
               />
-              <button onClick={addSeries}
-                className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium text-sm px-4 py-2 rounded-lg">
-                + 시리즈 추가
+              <button
+                onClick={addSeries}
+                disabled={seriesAdding || !newSeriesName.trim()}
+                className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-medium text-sm px-4 py-2 rounded-lg whitespace-nowrap"
+              >
+                {seriesAdding ? '추가 중...' : '+ 시리즈 추가'}
               </button>
             </div>
           </div>
