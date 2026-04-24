@@ -5,6 +5,7 @@ import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Tournament, Series, Stage, Match, TournamentStatus, TournamentType } from '@/lib/types'
+import ImageUpload from '@/components/admin/ImageUpload'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
@@ -57,6 +58,7 @@ export default function AdminTournamentDetailPage() {
       prize_pool: form.prize_pool || null,
       status: form.status,
       description: form.description || null,
+      banner_url: form.banner_url ?? null,
     }).eq('id', id)
     setSaving(false)
     if (error) { setErr('저장 실패: ' + error.message); return }
@@ -208,8 +210,23 @@ export default function AdminTournamentDetailPage() {
               <label className="text-xs text-gray-500 block mb-1">설명</label>
               <textarea value={form.description ?? ''} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} className={INPUT_CLS} />
             </div>
+            <div className="col-span-2">
+              <ImageUpload
+                currentUrl={form.banner_url ?? null}
+                storagePath={`tournaments/${id}/banner`}
+                onUpdate={(url) => setForm((f) => ({ ...f, banner_url: url ?? undefined }))}
+                shape="wide"
+                size="lg"
+                label="대회 로고 / 배너"
+              />
+            </div>
           </div>
         ) : (
+          <div className="space-y-4">
+            {tournament.banner_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={tournament.banner_url} alt="banner" className="rounded-lg max-h-40 object-contain border border-gray-100" />
+            )}
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
             {[
               ['상태', tournament.status === 'upcoming' ? '예정' : tournament.status === 'ongoing' ? '진행중' : '종료'],
@@ -230,6 +247,7 @@ export default function AdminTournamentDetailPage() {
                 <span className="text-gray-600">{tournament.description}</span>
               </div>
             )}
+          </div>
           </div>
         )}
       </div>

@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { TeamWithAliases } from '@/lib/types'
 import SearchModal from '@/components/admin/SearchModal'
 import CsvImportModal from '@/components/admin/CsvImportModal'
+import ImageUpload from '@/components/admin/ImageUpload'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full'
 
@@ -14,6 +15,7 @@ interface Row {
   short_name: string
   nationality: string
   description: string
+  logo_url: string | null
   aliases: string[]          // 현재 DB에 저장된 별칭
   _aliasInput: string        // 새 별칭 입력
   _dirty: boolean
@@ -26,6 +28,7 @@ function toRow(t: TeamWithAliases): Row {
     short_name: t.short_name ?? '',
     nationality: t.nationality ?? '',
     description: t.description ?? '',
+    logo_url: t.logo_url ?? null,
     aliases: t.team_aliases?.map((a) => a.alias) ?? [],
     _aliasInput: '',
     _dirty: false,
@@ -38,6 +41,7 @@ export default function AdminTeamsPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [filterNation, setFilterNation] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // 새 팀 추가
@@ -73,9 +77,14 @@ export default function AdminTeamsPage() {
       short_name: row.short_name.trim() || null,
       nationality: row.nationality.trim() || null,
       description: row.description.trim() || null,
+      logo_url: row.logo_url,
     }).eq('id', row.id)
     setSaving(null)
     setRows((rs) => rs.map((r) => r.id === row.id ? { ...r, _dirty: false } : r))
+  }
+
+  function updateLogo(id: string, url: string | null) {
+    setRows((rs) => rs.map((r) => r.id === id ? { ...r, logo_url: url, _dirty: true } : r))
   }
 
   async function addAlias(row: Row) {
@@ -146,10 +155,16 @@ export default function AdminTeamsPage() {
     load()
   }
 
-  const filtered = rows.filter((r) =>
-    r.name.toLowerCase().includes(search.toLowerCase()) ||
-    r.aliases.some((a) => a.toLowerCase().includes(search.toLowerCase()))
-  )
+  const nations = [...new Set(rows.map((r) => r.nationality).filter(Boolean))].sort() as string[]
+
+  const filtered = rows.filter((r) => {
+    const q = search.toLowerCase()
+    const matchSearch = !q ||
+      r.name.toLowerCase().includes(q) ||
+      r.aliases.some((a) => a.toLowerCase().includes(q))
+    const matchNation = !filterNation || r.nationality === filterNation
+    return matchSearch && matchNation
+  })
 
   return (
     <div className="p-8">
@@ -171,14 +186,31 @@ export default function AdminTeamsPage() {
         </div>
       </div>
 
-      {/* 검색 */}
-      <div className="mb-4">
+      {/* 검색 + 필터 */}
+      <div className="mb-4 flex gap-2 flex-wrap">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="팀명 또는 별칭 검색..."
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
         />
+        <select
+          value={filterNation}
+          onChange={(e) => setFilterNation(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 text-gray-700"
+        >
+          <option value="">전체 국가</option>
+          {nations.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {(search || filterNation) && (
+          <button
+            onClick={() => { setSearch(''); setFilterNation('') }}
+            className="text-xs text-gray-400 hover:text-gray-600 px-3 py-2 border border-gray-200 rounded-lg"
+          >
+            필터 초기화
+          </button>
+        )}
+        <span className="text-xs text-gray-400 self-center ml-1">{filtered.length}개</span>
       </div>
 
       {/* 새 팀 추가 폼 */}
@@ -216,7 +248,14 @@ export default function AdminTeamsPage() {
           {filtered.map((row) => (
             <div key={row.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               {/* 기본 정보 행 */}
-              <div className="grid grid-cols-[2fr_1fr_1fr_auto] gap-3 items-center px-4 py-3">
+              <div className="grid grid-cols-[auto_2fr_1fr_1fr_auto] gap-3 items-center px-4 py-3">
+                <ImageUpload
+                  currentUrl={row.logo_url}
+                  storagePath={`teams/${row.id}/logo`}
+                  onUpdate={(url) => updateLogo(row.id, url)}
+                  shape="square"
+                  size="sm"
+                />
                 <input
                   value={row.name}
                   onChange={(e) => updateRow(row.id, 'name', e.target.value)}

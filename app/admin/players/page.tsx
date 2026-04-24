@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { PlayerWithDetails } from '@/lib/types'
 import SearchModal from '@/components/admin/SearchModal'
 import CsvImportModal from '@/components/admin/CsvImportModal'
+import ImageUpload from '@/components/admin/ImageUpload'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full'
 
@@ -16,6 +17,7 @@ interface Row {
   birth_date: string
   team_id: string
   team_name: string
+  profile_pic: string | null
   aliases: string[]
   _aliasInput: string
   _dirty: boolean
@@ -30,6 +32,7 @@ function toRow(p: PlayerWithDetails): Row {
     birth_date: p.birth_date ?? '',
     team_id: p.team_id ?? '',
     team_name: p.teams?.name ?? '',
+    profile_pic: p.profile_pic ?? null,
     aliases: p.player_aliases?.map((a) => a.alias) ?? [],
     _aliasInput: '',
     _dirty: false,
@@ -42,6 +45,8 @@ export default function AdminPlayersPage() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [filterNation, setFilterNation] = useState('')
+  const [filterTeam, setFilterTeam] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   // 새 선수 추가
@@ -81,9 +86,14 @@ export default function AdminPlayersPage() {
       nationality: row.nationality.trim() || null,
       birth_date: row.birth_date || null,
       team_id: row.team_id || null,
+      profile_pic: row.profile_pic,
     }).eq('id', row.id)
     setSaving(null)
     setRows((rs) => rs.map((r) => r.id === row.id ? { ...r, _dirty: false } : r))
+  }
+
+  function updateProfilePic(id: string, url: string | null) {
+    setRows((rs) => rs.map((r) => r.id === id ? { ...r, profile_pic: url, _dirty: true } : r))
   }
 
   async function addAlias(row: Row) {
@@ -153,12 +163,20 @@ export default function AdminPlayersPage() {
     load()
   }
 
-  const filtered = rows.filter((r) =>
-    r.nickname.toLowerCase().includes(search.toLowerCase()) ||
-    (r.real_name && r.real_name.toLowerCase().includes(search.toLowerCase())) ||
-    r.team_name.toLowerCase().includes(search.toLowerCase()) ||
-    r.aliases.some((a) => a.toLowerCase().includes(search.toLowerCase()))
-  )
+  const nations = [...new Set(rows.map((r) => r.nationality).filter(Boolean))].sort() as string[]
+  const teams = [...new Set(rows.map((r) => r.team_name).filter(Boolean))].sort() as string[]
+
+  const filtered = rows.filter((r) => {
+    const q = search.toLowerCase()
+    const matchSearch = !q ||
+      r.nickname.toLowerCase().includes(q) ||
+      (r.real_name && r.real_name.toLowerCase().includes(q)) ||
+      r.team_name.toLowerCase().includes(q) ||
+      r.aliases.some((a) => a.toLowerCase().includes(q))
+    const matchNation = !filterNation || r.nationality === filterNation
+    const matchTeam = !filterTeam || r.team_name === filterTeam
+    return matchSearch && matchNation && matchTeam
+  })
 
   return (
     <div className="p-8">
@@ -180,13 +198,39 @@ export default function AdminPlayersPage() {
         </div>
       </div>
 
-      <div className="mb-4">
+      {/* 검색 + 필터 */}
+      <div className="mb-4 flex gap-2 flex-wrap">
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="닉네임, 실명, 팀명, 별칭 검색..."
-          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+          placeholder="닉네임, 실명, 별칭 검색..."
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-yellow-400"
         />
+        <select
+          value={filterTeam}
+          onChange={(e) => setFilterTeam(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 text-gray-700"
+        >
+          <option value="">전체 팀</option>
+          {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select
+          value={filterNation}
+          onChange={(e) => setFilterNation(e.target.value)}
+          className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 text-gray-700"
+        >
+          <option value="">전체 국가</option>
+          {nations.map((n) => <option key={n} value={n}>{n}</option>)}
+        </select>
+        {(search || filterTeam || filterNation) && (
+          <button
+            onClick={() => { setSearch(''); setFilterTeam(''); setFilterNation('') }}
+            className="text-xs text-gray-400 hover:text-gray-600 px-3 py-2 border border-gray-200 rounded-lg"
+          >
+            필터 초기화
+          </button>
+        )}
+        <span className="text-xs text-gray-400 self-center ml-1">{filtered.length}명</span>
       </div>
 
       {/* 새 선수 추가 */}
@@ -223,7 +267,15 @@ export default function AdminPlayersPage() {
         <div className="space-y-2">
           {filtered.map((row) => (
             <div key={row.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="grid grid-cols-[2fr_1.5fr_1fr_1fr_1fr_auto] gap-2 items-center px-4 py-3 text-sm">
+              <div className="grid grid-cols-[auto_2fr_1.5fr_1fr_1fr_1fr_auto] gap-2 items-center px-4 py-3 text-sm">
+                {/* 프로필 사진 */}
+                <ImageUpload
+                  currentUrl={row.profile_pic}
+                  storagePath={`players/${row.id}/avatar`}
+                  onUpdate={(url) => updateProfilePic(row.id, url)}
+                  shape="square"
+                  size="sm"
+                />
                 {/* 닉네임 */}
                 <input
                   value={row.nickname}
