@@ -28,8 +28,15 @@ function serviceClient() {
   )
 }
 
+// 가장 많이 등장하는 값 반환
+function majority(values: string[]): string | null {
+  if (values.length === 0) return null
+  const counts: Record<string, number> = {}
+  for (const v of values) counts[v] = (counts[v] ?? 0) + 1
+  return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+}
+
 export async function POST(req: NextRequest) {
-  // 인증 확인
   const user = await getAuthUser()
   if (!user) {
     return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
@@ -90,7 +97,6 @@ export async function POST(req: NextRequest) {
   try {
     matchData = await fetchPubgMatch(pubgMatchId, 'kakao')
   } catch (err) {
-    // 오류 상태로 업데이트
     await db
       .from('matches')
       .update({ status: 'error', error_msg: err instanceof Error ? err.message : 'API 오류' })
@@ -108,56 +114,41 @@ export async function POST(req: NextRequest) {
     error_msg: null,
   }).eq('id', matchRecord.id)
 
-  // 팀/선수 이름 → DB ID 매핑 (aliases 포함)
-  const { data: teamAliases } = await db.from('team_aliases').select('alias, team_id')
-  const { data: teams } = await db.from('teams').select('id, name')
-  const { data: playerAliases } = await db.from('player_aliases').select('alias, player_id')
-  const { data: players } = await db.from('players').select('id, nickname')
+  // ── 이름 → ID 룩업 맵 구성 (별칭 포함, 대소문자 무시) ──
+  const [
+    { data: teamAliasRows },
+    { data: teamRows },
+    { data: playerAliasRows },
+    { data: playerRows },
+  ] = await Promise.all([
+    db.from('team_aliases').select('alias, team_id'),
+    db.from('teams').select('id, name'),
+    db.from('player_aliases').select('alias, player_id'),
+    db.from('players').select('id, nickname, team_id'),
+  ])
 
-  // 이름 → ID 룩업 맵 생성
-  const teamLookup: Record<string, string> = {}
-  for (const t of teams ?? []) teamLookup[t.name.toLowerCase()] = t.id
-  for (const a of teamAliases ?? []) teamLookup[a.alias.toLowerCase()] = a.team_id
+  // 팀 이름 → team_id (정식명 + 별칭)
+  const teamByName: Record<string, string> = {}
+  for (const t of teamRows ?? []) teamByName[t.name.toLowerCase()] = t.id
+  for (const a of teamAliasRows ?? []) teamByName[a.alias.toLowerCase()] = a.team_id
 
-  const playerLookup: Record<string, string> = {}
-  for (const p of players ?? []) playerLookup[p.nickname.toLowerCase()] = p.id
-  for (const a of playerAliases ?? []) playerLookup[a.alias.toLowerCase()] = a.player_id
+  // 선수 닉네임 → player_id (정식 닉네임 + 별칭)
+  const playerById: Record<string, string> = {}
+  for (const p of playerRows ?? []) playerById[p.nickname.toLowerCase()] = p.id
+  for (const a of playerAliasRows ?? []) playerById[a.alias.toLowerCase()] = a.player_id
 
-  // 팀 결과 삽입
-  const teamResultInserts = matchData.rosters.map((roster) => {
-    const teamId = teamLookup[roster.pubgRosterId.toLowerCase()] ?? null
-    // Roster ID 대신 참가자 이름으로 팀 매핑 시도
-    const firstPlayer = roster.participants[0]?.pubgPlayerName ?? ''
-    const teamIdByPlayer = playerLookup[firstPlayer.toLowerCase()]
-      ? null  // 선수로는 팀 ID 못 구함, 별도 처리
-      : null
-
-    return {
-      match_id: matchRecord.id,
-      team_id: teamId ?? teamIdByPlayer ?? null,
-      pubg_roster_id: roster.pubgRosterId,
-      pubg_team_name: null as string | null,  // PUBG API에서 팀 이름 직접 제공 안 함
-      placement: roster.placement,
-      total_kills: roster.totalKills,
-      total_damage: roster.participants.reduce((s, p) => s + p.damageDealt, 0),
-    }
-  })
-
-  if (teamResultInserts.length > 0) {
-    await db.from('match_team_results').insert(teamResultInserts)
+  // player_id → team_id (현재 소속 팀)
+  const playerTeam: Record<string, string> = {}
+  for (const p of playerRows ?? []) {
+    if (p.team_id) playerTeam[p.id] = p.team_id
   }
 
-  // 선수 스탯 삽입 (roster별로 placement 포함)
-  const playerStatInserts = matchData.rosters.flatMap((roster) => {
-    // 이 roster에 연결된 team_id 찾기
-    const rosterTeamId = teamResultInserts.find(
-      (t) => t.pubg_roster_id === roster.pubgRosterId
-    )?.team_id ?? null
-
-    return roster.participants.map((p) => ({
+  // ── 선수 스탯 먼저 준비 (roster별 선수 → player_id 매핑) ──
+  const playerStatInserts = matchData.rosters.flatMap((roster) =>
+    roster.participants.map((p) => ({
       match_id: matchRecord.id,
-      player_id: playerLookup[p.pubgPlayerName.toLowerCase()] ?? null,
-      team_id: rosterTeamId,
+      player_id: playerById[p.pubgPlayerName.toLowerCase()] ?? null,
+      team_id: null as string | null,  // 아래 팀 해소 후 채움
       pubg_account_id: p.pubgAccountId,
       pubg_player_name: p.pubgPlayerName,
       kills: p.kills,
@@ -169,21 +160,64 @@ export async function POST(req: NextRequest) {
       walk_distance: p.walkDistance,
       ride_distance: p.rideDistance,
       placement: roster.placement,
+      _rosterId: roster.pubgRosterId,  // 내부 계산용, DB엔 안 들어감
     }))
+  )
+
+  // ── 팀 결과 준비: 선수 소속 팀으로 역추적 ──
+  const teamResultInserts = matchData.rosters.map((roster) => {
+    const participants = roster.participants
+
+    // 이 로스터 선수들의 player_id 수집
+    const resolvedPlayerIds = participants
+      .map((p) => playerById[p.pubgPlayerName.toLowerCase()])
+      .filter((id): id is string => !!id)
+
+    // player_id → team_id 로 팀 후보 수집 후 다수결
+    const teamCandidates = resolvedPlayerIds
+      .map((pid) => playerTeam[pid])
+      .filter((tid): tid is string => !!tid)
+
+    const resolvedTeamId = majority(teamCandidates)
+
+    // 팀 이름 힌트: 선수 닉네임 목록 (미매핑 시 관리자가 누구인지 알 수 있도록)
+    const playerNames = participants.map((p) => p.pubgPlayerName).join(', ')
+
+    return {
+      match_id: matchRecord.id,
+      team_id: resolvedTeamId ?? null,
+      pubg_roster_id: roster.pubgRosterId,
+      pubg_team_name: playerNames,  // 선수 이름 목록을 팀 힌트로 사용
+      placement: roster.placement,
+      total_kills: roster.totalKills,
+      total_damage: participants.reduce((s, p) => s + p.damageDealt, 0),
+    }
   })
 
-  if (playerStatInserts.length > 0) {
-    await db.from('match_player_stats').insert(playerStatInserts)
+  // 팀 결과 → team_id를 선수 스탯에도 반영
+  for (const stat of playerStatInserts) {
+    const rosterResult = teamResultInserts.find((t) => t.pubg_roster_id === stat._rosterId)
+    stat.team_id = rosterResult?.team_id ?? null
   }
 
-  // 미매핑 팀/선수 집계
-  const unmatchedTeams = teamResultInserts
-    .filter((t) => !t.team_id)
-    .map((t) => t.pubg_roster_id)
+  // DB 삽입 (_rosterId 제거)
+  const cleanStats = playerStatInserts.map(({ _rosterId: _, ...rest }) => rest)
 
-  const unmatchedPlayers = playerStatInserts
-    .filter((p) => !p.player_id)
-    .map((p) => p.pubg_player_name)
+  if (teamResultInserts.length > 0) {
+    await db.from('match_team_results').insert(teamResultInserts)
+  }
+  if (cleanStats.length > 0) {
+    await db.from('match_player_stats').insert(cleanStats)
+  }
+
+  // 미매핑 집계
+  const unmatchedTeamNames = teamResultInserts
+    .filter((t) => !t.team_id)
+    .map((t) => t.pubg_team_name ?? '')  // 선수 이름 목록
+
+  const unmatchedPlayerNames = [...new Set(
+    cleanStats.filter((p) => !p.player_id).map((p) => p.pubg_player_name ?? '')
+  )]
 
   return NextResponse.json({
     success: true,
@@ -191,8 +225,8 @@ export async function POST(req: NextRequest) {
     map: matchData.map,
     duration: matchData.duration,
     teamsImported: teamResultInserts.length,
-    playersImported: playerStatInserts.length,
-    unmatchedTeams,
-    unmatchedPlayers: [...new Set(unmatchedPlayers)],
+    playersImported: cleanStats.length,
+    unmatchedTeams: unmatchedTeamNames,
+    unmatchedPlayers: unmatchedPlayerNames,
   })
 }

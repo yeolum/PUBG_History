@@ -279,18 +279,30 @@ export default function StageMatchesPage() {
                           .slice()
                           .sort((a, b) => (a.placement ?? 99) - (b.placement ?? 99))
                           .map((r) => (
-                            <div key={r.id} className="flex items-center gap-2 text-sm">
-                              <span className="font-mono text-gray-400 w-5 text-xs">{r.placement}</span>
-                              <span className={`flex-1 font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                {r.teams?.name ?? r.pubg_team_name ?? '-'}
-                              </span>
-                              <span className="text-xs text-gray-400">{r.total_kills}킬</span>
+                            <div key={r.id} className="flex items-start gap-2 text-sm">
+                              <span className="font-mono text-gray-400 w-5 text-xs mt-0.5">{r.placement}</span>
+                              <div className="flex-1 min-w-0">
+                                {r.team_id ? (
+                                  <span className="font-medium text-gray-800">{r.teams?.name ?? '-'}</span>
+                                ) : (
+                                  <div>
+                                    <span className="text-xs font-medium text-orange-500">미연결</span>
+                                    {/* pubg_team_name에 선수 이름 목록이 담겨 있음 */}
+                                    {r.pubg_team_name && (
+                                      <p className="text-xs text-gray-400 truncate" title={r.pubg_team_name}>
+                                        {r.pubg_team_name}
+                                      </p>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                              <span className="text-xs text-gray-400 shrink-0">{r.total_kills}킬</span>
                               {!r.team_id && (
                                 <button
                                   onClick={() => setLinkModal({ type: 'team', targetName: r.pubg_team_name ?? '', matchId: match.id, rowId: r.id })}
-                                  className="text-xs bg-orange-100 text-orange-600 hover:bg-orange-200 px-2 py-0.5 rounded font-medium"
+                                  className="text-xs bg-orange-100 text-orange-600 hover:bg-orange-200 px-2 py-0.5 rounded font-medium shrink-0"
                                 >
-                                  링크
+                                  팀 연결
                                 </button>
                               )}
                             </div>
@@ -300,44 +312,68 @@ export default function StageMatchesPage() {
 
                     {/* 선수 스탯 */}
                     <div>
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">선수 스탯 (상위 10)</p>
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-xs">
-                          <thead>
-                            <tr className="text-gray-400 border-b border-gray-100">
-                              <th className="text-left pb-1.5">선수</th>
-                              <th className="text-right pb-1.5">킬</th>
-                              <th className="text-right pb-1.5">데미지</th>
-                              <th className="pb-1.5 w-12" />
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {match.match_player_stats
-                              .slice()
-                              .sort((a, b) => (b.damage_dealt ?? 0) - (a.damage_dealt ?? 0))
-                              .slice(0, 10)
-                              .map((s) => (
-                                <tr key={s.id} className="border-b border-gray-50 last:border-0">
-                                  <td className={`py-1 font-medium ${s.player_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                    {s.players?.nickname ?? s.pubg_player_name ?? '-'}
-                                  </td>
-                                  <td className="py-1 text-right text-gray-500">{s.kills}</td>
-                                  <td className="py-1 text-right text-gray-500">{Number(s.damage_dealt).toFixed(0)}</td>
-                                  <td className="py-1 text-right">
-                                    {!s.player_id && (
-                                      <button
-                                        onClick={() => setLinkModal({ type: 'player', targetName: s.pubg_player_name ?? '', matchId: match.id, rowId: s.id })}
-                                        className="text-xs bg-orange-100 text-orange-600 hover:bg-orange-200 px-1.5 py-0.5 rounded"
-                                      >
-                                        링크
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
-                              ))}
-                          </tbody>
-                        </table>
-                      </div>
+                      {(() => {
+                        const unlinked = match.match_player_stats.filter((s) => !s.player_id)
+                        const linked = match.match_player_stats.filter((s) => s.player_id)
+                        const sorted = [
+                          ...unlinked.sort((a, b) => (b.damage_dealt ?? 0) - (a.damage_dealt ?? 0)),
+                          ...linked.sort((a, b) => (b.damage_dealt ?? 0) - (a.damage_dealt ?? 0)),
+                        ]
+                        return (
+                          <>
+                            <div className="flex items-center justify-between mb-3">
+                              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">선수 스탯</p>
+                              {unlinked.length > 0 && (
+                                <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-medium">
+                                  미연결 {unlinked.length}명
+                                </span>
+                              )}
+                            </div>
+                            <div className="overflow-x-auto max-h-64 overflow-y-auto">
+                              <table className="w-full text-xs">
+                                <thead className="sticky top-0 bg-white">
+                                  <tr className="text-gray-400 border-b border-gray-100">
+                                    <th className="text-left pb-1.5">선수 (PUBG 이름)</th>
+                                    <th className="text-right pb-1.5">킬</th>
+                                    <th className="text-right pb-1.5">데미지</th>
+                                    <th className="pb-1.5 w-14" />
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {sorted.map((s) => (
+                                    <tr key={s.id} className={`border-b border-gray-50 last:border-0 ${!s.player_id ? 'bg-orange-50' : ''}`}>
+                                      <td className="py-1">
+                                        <div>
+                                          <span className={`font-medium ${s.player_id ? 'text-gray-800' : 'text-orange-700'}`}>
+                                            {s.pubg_player_name ?? '-'}
+                                          </span>
+                                          {s.player_id && s.players?.nickname !== s.pubg_player_name && (
+                                            <span className="ml-1 text-gray-400">→ {s.players?.nickname}</span>
+                                          )}
+                                        </div>
+                                      </td>
+                                      <td className="py-1 text-right text-gray-500">{s.kills}</td>
+                                      <td className="py-1 text-right text-gray-500">{Number(s.damage_dealt).toFixed(0)}</td>
+                                      <td className="py-1 text-right">
+                                        {!s.player_id ? (
+                                          <button
+                                            onClick={() => setLinkModal({ type: 'player', targetName: s.pubg_player_name ?? '', matchId: match.id, rowId: s.id })}
+                                            className="text-xs bg-orange-100 text-orange-600 hover:bg-orange-200 px-1.5 py-0.5 rounded font-medium"
+                                          >
+                                            연결
+                                          </button>
+                                        ) : (
+                                          <span className="text-gray-300">✓</span>
+                                        )}
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </>
+                        )
+                      })()}
                     </div>
                   </div>
                 </div>
