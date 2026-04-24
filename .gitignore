@@ -1,0 +1,21 @@
+# Dependencies
+/node_modules
+
+# Next.js
+/.next/
+/out/
+
+# Environment variables (절대 커밋하지 마세요)
+.env
+.env.local
+.env.*.local
+
+# Vercel
+/.vercel
+
+# Debug
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
