@@ -128,7 +128,7 @@ export default function AdminTournamentDetailPage() {
     load()
   }
 
-  async function linkTeam(pubgTeamName: string, teamId: string, displayName: string | null) {
+  async function linkTeam(pubgTeamName: string, teamId: string, displayName: string | null, entityName: string) {
     const allMatches = stageList.flatMap((s) => s.matches)
     const allMatchIds = allMatches.map((m) => m.id)
 
@@ -165,7 +165,7 @@ export default function AdminTournamentDetailPage() {
       }
     }
 
-    const aliasesToUpsert = [pubgTeamName, ...(displayName && displayName !== pubgTeamName ? [displayName] : [])]
+    const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
     for (const alias of aliasesToUpsert) {
       await supabase.from('team_aliases').upsert(
         [{ team_id: teamId, alias }],
@@ -176,7 +176,7 @@ export default function AdminTournamentDetailPage() {
     load()
   }
 
-  async function linkPlayer(pubgPlayerName: string, playerId: string, displayName: string | null) {
+  async function linkPlayer(pubgPlayerName: string, playerId: string, displayName: string | null, entityName: string) {
     const allMatchIds = stageList.flatMap((s) => s.matches.map((m) => m.id))
 
     // Update player_id first
@@ -195,7 +195,7 @@ export default function AdminTournamentDetailPage() {
         .eq('pubg_player_name', pubgPlayerName)
     }
 
-    const aliasesToUpsert = [pubgPlayerName, ...(displayName && displayName !== pubgPlayerName ? [displayName] : [])]
+    const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
     for (const alias of aliasesToUpsert) {
       await supabase.from('player_aliases').upsert(
         [{ player_id: playerId, alias }],
@@ -515,7 +515,7 @@ export default function AdminTournamentDetailPage() {
                                       <td className="py-1 text-gray-400 font-mono">{i + 1}</td>
                                       <td className="py-1">
                                         <span className={`font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                          {r.display_name ?? r.pubg_team_name ?? r.teams?.name ?? '-'}
+                                          {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
                                         </span>
                                         {r.team_id && r.teams?.name && (
                                           <span className="ml-1 text-[10px] text-gray-400">→ {r.teams.name}</span>
@@ -659,9 +659,9 @@ export default function AdminTournamentDetailPage() {
           matchCount={linkModal.matchCount}
           onConfirm={(displayName) => {
             if (linkModal.type === 'team') {
-              linkTeam(linkModal.pubgName, linkModal.entityId, displayName)
+              linkTeam(linkModal.pubgName, linkModal.entityId, displayName, linkModal.entityName)
             } else {
-              linkPlayer(linkModal.pubgName, linkModal.entityId, displayName)
+              linkPlayer(linkModal.pubgName, linkModal.entityId, displayName, linkModal.entityName)
             }
           }}
           onClose={() => setLinkModal(null)}

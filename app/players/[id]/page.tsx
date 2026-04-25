@@ -96,8 +96,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   // --- Find final stage per tournament ---
   for (const [, te] of tourMap) {
     const stages = [...te.stages.values()]
-    const final = stages.find((s) => s.type === 'grand_final')
-      ?? stages.sort((a, b) => b.order_num - a.order_num)[0]
+    const final = stages.find((s) => s.type === 'grand_final') ?? null
     if (final) {
       te.finalStageId = final.id
       te.finalStageName = final.name

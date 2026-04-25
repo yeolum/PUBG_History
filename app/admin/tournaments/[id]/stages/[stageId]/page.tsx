@@ -49,7 +49,7 @@ function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
         statMap.set(key, {
           key,
           teamId: r.team_id ?? null,
-          teamName: r.pubg_team_name ?? r.teams?.name ?? '?',
+          teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
           matchesPlayed: 0,
           totalPts: 0,
           totalPlacementPts: 0,
@@ -150,17 +150,20 @@ export default function StageMatchesPage() {
     load()
   }
 
-  async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null) {
+  async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null, entityName: string) {
     await supabase.from('match_team_results')
       .update({ team_id: teamId, display_name: displayName })
       .eq('id', teamResultId)
 
     const row = matches.find((m) => m.id === matchId)?.match_team_results.find((r) => r.id === teamResultId)
-    if (pubgTeamName) {
+    const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
+    for (const alias of aliasesToUpsert) {
       await supabase.from('team_aliases').upsert(
-        [{ team_id: teamId, alias: pubgTeamName }],
+        [{ team_id: teamId, alias }],
         { onConflict: 'alias', ignoreDuplicates: true }
       )
+    }
+    if (pubgTeamName) {
       await supabase
         .from('match_player_stats')
         .update({ team_id: teamId })
@@ -172,14 +175,15 @@ export default function StageMatchesPage() {
     load()
   }
 
-  async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null) {
+  async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null, entityName: string) {
     await supabase.from('match_player_stats')
       .update({ player_id: playerId, display_name: displayName })
       .eq('id', statId)
 
-    if (pubgPlayerName) {
+    const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
+    for (const alias of aliasesToUpsert) {
       await supabase.from('player_aliases').upsert(
-        [{ player_id: playerId, alias: pubgPlayerName }],
+        [{ player_id: playerId, alias }],
         { onConflict: 'alias', ignoreDuplicates: true }
       )
     }
@@ -371,7 +375,7 @@ export default function StageMatchesPage() {
                             <td className="py-1.5 text-gray-400 font-mono">{i + 1}</td>
                             <td className="py-1.5">
                               <span className={`font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                {r.display_name ?? r.pubg_team_name ?? r.teams?.name ?? '-'}
+                                {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
                               </span>
                               {r.team_id && r.teams?.name && (
                                 <span className="ml-1 text-[10px] text-gray-400">→ {r.teams.name}</span>
@@ -495,9 +499,9 @@ export default function StageMatchesPage() {
           matchCount={1}
           onConfirm={(displayName) => {
             if (linkModal.type === 'team') {
-              linkTeam(linkModal.matchId, linkModal.rowId, linkModal.entityId, displayName, linkModal.pubgName)
+              linkTeam(linkModal.matchId, linkModal.rowId, linkModal.entityId, displayName, linkModal.pubgName, linkModal.entityName)
             } else {
-              linkPlayer(linkModal.rowId, linkModal.entityId, displayName, linkModal.pubgName)
+              linkPlayer(linkModal.rowId, linkModal.entityId, displayName, linkModal.pubgName, linkModal.entityName)
             }
           }}
           onClose={() => setLinkModal(null)}
