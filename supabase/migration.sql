@@ -15,6 +15,12 @@ CREATE TABLE IF NOT EXISTS tournament_prize_config (
 );
 
 -- =====================================================
+-- Migration: stage mapping for prize config rows
+-- =====================================================
+ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS stage_id UUID REFERENCES stages(id) ON DELETE SET NULL;
+ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS stage_rank INT;
+
+-- =====================================================
 -- Migration: display_name for historical team/player name in match results
 -- Supabase SQL Editor에서 실행하세요
 -- =====================================================

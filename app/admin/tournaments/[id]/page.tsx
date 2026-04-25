@@ -40,7 +40,7 @@ export default function AdminTournamentDetailPage() {
   const [editingStageId, setEditingStageId] = useState<string | null>(null)
   const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group' })
 
-  type PrizeRow = { rank: number; teamId: string | null; teamName: string; prize: string; pgs: string; pgc: string }
+  type PrizeRow = { rank: number; stageId: string; stageRank: number; prize: string; pgs: string; pgc: string }
   const [prizeRows, setPrizeRows] = useState<PrizeRow[]>([])
   const [savingPrize, setSavingPrize] = useState(false)
 
@@ -61,7 +61,7 @@ export default function AdminTournamentDetailPage() {
         .select('*, matches(*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname)))')
         .eq('tournament_id', id)
         .order('order_num'),
-      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points').eq('tournament_id', id).order('rank'),
+      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
     ])
     if (!t) { router.push('/admin/tournaments'); return }
     setTournament(t as Tournament)
@@ -69,23 +69,35 @@ export default function AdminTournamentDetailPage() {
     const stageData = (s ?? []) as StageFull[]
     setStageList(stageData)
 
-    // Initialize prize rows from grand_final standings + existing config
-    const prizeConfig = (pc ?? []) as { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }[]
+    // Count distinct teams across all stages to determine row count
+    const allTeamKeys = new Set<string>()
+    for (const stage of stageData) {
+      for (const match of stage.matches) {
+        for (const r of match.match_team_results) {
+          const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+          allTeamKeys.add(key)
+        }
+      }
+    }
+    const totalTeams = Math.max(allTeamKeys.size, 16)
+
+    const prizeConfig = (pc ?? []) as { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; stage_rank: number | null }[]
     const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
     const finalStage = stageData.find((stage) => stage.type === 'grand_final')
-    if (finalStage) {
-      const standings = computeGrandFinalStandings(finalStage)
-      setPrizeRows(standings.map((st) => ({
-        rank: st.rank,
-        teamId: st.teamId,
-        teamName: st.teamName,
-        prize: prizeByRank.get(st.rank)?.prize ?? '',
-        pgs: prizeByRank.get(st.rank)?.pgs_points?.toString() ?? '',
-        pgc: prizeByRank.get(st.rank)?.pgc_points?.toString() ?? '',
-      })))
-    } else {
-      setPrizeRows([])
+
+    const rows: PrizeRow[] = []
+    for (let rank = 1; rank <= totalTeams; rank++) {
+      const existing = prizeByRank.get(rank)
+      rows.push({
+        rank,
+        stageId: existing?.stage_id ?? (finalStage?.id ?? ''),
+        stageRank: existing?.stage_rank ?? rank,
+        prize: existing?.prize ?? '',
+        pgs: existing?.pgs_points?.toString() ?? '',
+        pgc: existing?.pgc_points?.toString() ?? '',
+      })
     }
+    setPrizeRows(rows)
   }, [id, supabase, router])
 
   useEffect(() => { load() }, [load])
@@ -155,30 +167,6 @@ export default function AdminTournamentDetailPage() {
     load()
   }
 
-  function computeGrandFinalStandings(stage: StageFull) {
-    const ptsMap = new Map<string, { teamId: string | null; teamName: string; pts: number; placePts: number }>()
-    for (const match of stage.matches) {
-      if (match.status !== 'imported') continue
-      for (const r of match.match_team_results) {
-        const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
-        if (!ptsMap.has(key)) {
-          ptsMap.set(key, {
-            teamId: r.team_id ?? null,
-            teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
-            pts: 0, placePts: 0,
-          })
-        }
-        const e = ptsMap.get(key)!
-        const pp = calcPlacementPts(r.placement ?? 99)
-        e.pts += pp + (r.total_kills ?? 0)
-        e.placePts += pp
-      }
-    }
-    return [...ptsMap.values()]
-      .sort((a, b) => b.pts !== a.pts ? b.pts - a.pts : b.placePts - a.placePts)
-      .map((e, i) => ({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
-  }
-
   async function savePrizeConfig() {
     setSavingPrize(true)
     await supabase.from('tournaments').update({
@@ -190,10 +178,12 @@ export default function AdminTournamentDetailPage() {
     await supabase.from('tournament_prize_config').delete().eq('tournament_id', id)
 
     const rows = prizeRows
-      .filter((r) => r.prize || r.pgs || r.pgc)
+      .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
       .map((r) => ({
         tournament_id: id,
         rank: r.rank,
+        stage_id: r.stageId || null,
+        stage_rank: r.stageRank || null,
         prize: r.prize || null,
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
@@ -730,84 +720,101 @@ export default function AdminTournamentDetailPage() {
           )}
         </div>
 
-        {prizeRows.length === 0 ? (
-          <p className="text-sm text-gray-400">Import matches into the Final stage to enable prize configuration.</p>
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-            {/* Column toggles */}
-            <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6">
-              {([
-                { key: 'has_prize' as const, label: 'Prize Money' },
-                { key: 'has_pgs_points' as const, label: 'PGS Points' },
-                { key: 'has_pgc_points' as const, label: 'PGC Points' },
-              ] as const).map(({ key, label }) => (
-                <label key={key} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={!!form[key]}
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
-                    className="rounded"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-4 py-2 w-10">#</th>
-                    <th className="text-left px-4 py-2">Team</th>
-                    {form.has_prize && <th className="text-right px-4 py-2">Prize</th>}
-                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
-                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {prizeRows.map((row, i) => (
-                    <tr key={row.rank} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-2 text-gray-400 font-mono text-xs">{row.rank}</td>
-                      <td className="px-4 py-2 font-medium text-gray-800">{row.teamName}</td>
-                      {form.has_prize && (
-                        <td className="px-4 py-2 text-right">
-                          <input
-                            value={row.prize}
-                            onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: e.target.value } : r))}
-                            placeholder="e.g. $5,000"
-                            className="text-right w-32 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                          />
-                        </td>
-                      )}
-                      {form.has_pgs_points && (
-                        <td className="px-4 py-2 text-right">
-                          <input
-                            type="number"
-                            value={row.pgs}
-                            onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
-                            placeholder="0"
-                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                          />
-                        </td>
-                      )}
-                      {form.has_pgc_points && (
-                        <td className="px-4 py-2 text-right">
-                          <input
-                            type="number"
-                            value={row.pgc}
-                            onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
-                            placeholder="0"
-                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                          />
-                        </td>
-                      )}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {/* Column toggles */}
+          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6">
+            {([
+              { key: 'has_prize' as const, label: 'Prize Money' },
+              { key: 'has_pgs_points' as const, label: 'PGS Points' },
+              { key: 'has_pgc_points' as const, label: 'PGC Points' },
+            ] as const).map(({ key, label }) => (
+              <label key={key} className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={!!form[key]}
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
+                  className="rounded"
+                />
+                {label}
+              </label>
+            ))}
           </div>
-        )}
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-400 border-b border-gray-100">
+                  <th className="text-left px-4 py-2 w-10">#</th>
+                  <th className="text-left px-4 py-2">Stage</th>
+                  <th className="text-left px-4 py-2 w-24">Stage Rank</th>
+                  {form.has_prize && <th className="text-right px-4 py-2">Prize</th>}
+                  {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
+                  {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {prizeRows.map((row, i) => (
+                  <tr key={row.rank} className="border-b border-gray-50 last:border-0">
+                    <td className="px-4 py-2 text-gray-400 font-mono text-xs">{row.rank}</td>
+                    <td className="px-4 py-2">
+                      <select
+                        value={row.stageId}
+                        onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
+                        className="w-40 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                      >
+                        <option value="">— none —</option>
+                        {stageList.map((stage) => (
+                          <option key={stage.id} value={stage.id}>{stage.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-4 py-2">
+                      <input
+                        type="number"
+                        min={1}
+                        value={row.stageRank}
+                        onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageRank: parseInt(e.target.value) || 1 } : r))}
+                        className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                      />
+                    </td>
+                    {form.has_prize && (
+                      <td className="px-4 py-2 text-right">
+                        <input
+                          value={row.prize}
+                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: e.target.value } : r))}
+                          placeholder="e.g. $5,000"
+                          className="text-right w-32 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        />
+                      </td>
+                    )}
+                    {form.has_pgs_points && (
+                      <td className="px-4 py-2 text-right">
+                        <input
+                          type="number"
+                          value={row.pgs}
+                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
+                          placeholder="0"
+                          className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        />
+                      </td>
+                    )}
+                    {form.has_pgc_points && (
+                      <td className="px-4 py-2 text-right">
+                        <input
+                          type="number"
+                          value={row.pgc}
+                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
+                          placeholder="0"
+                          className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        />
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       {linkModal?.phase === 1 && (

@@ -23,7 +23,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }] = await Promise.all([
     supabase.from('tournaments').select('*').eq('id', id).single(),
     supabase.from('stages').select('*, matches(*)').eq('tournament_id', id).order('order_num'),
-    supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points').eq('tournament_id', id).order('rank'),
+    supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
   ])
 
   if (!tournament) notFound()
@@ -72,36 +72,61 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     })
   )
 
-  // Compute grand_final rank board
-  type RankEntry = { key: string; teamId: string | null; teamName: string; totalPts: number; placePts: number; rank: number }
-  const rankBoard: RankEntry[] = []
-  const grandFinalStage = stagesList.find((s) => s.type === 'grand_final')
+  // Compute per-stage standings
+  type StandingsEntry = { teamId: string | null; teamName: string }
+  const stageStandingsMap = new Map<string, StandingsEntry[]>()
 
-  if (grandFinalStage) {
-    const ptsMap = new Map<string, Omit<RankEntry, 'rank'>>()
-    for (const m of grandFinalStage.matches) {
+  for (const stage of stagesList) {
+    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number }>()
+    for (const m of stage.matches) {
       if (m.status !== 'imported') continue
       for (const r of resultsByMatch[m.id] ?? []) {
-        const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const row = r as any
+        const key = row.team_id ?? `pubg:${row.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
           ptsMap.set(key, {
-            key,
-            teamId: r.team_id ?? null,
-            teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
-            totalPts: 0,
-            placePts: 0,
+            teamId: row.team_id ?? null,
+            teamName: row.display_name ?? row.teams?.name ?? row.pubg_team_name ?? '?',
+            totalPts: 0, placePts: 0,
           })
         }
         const e = ptsMap.get(key)!
-        const pp = calcPlacementPts(r.placement ?? 99)
-        e.totalPts += pp + (r.total_kills ?? 0)
+        const pp = calcPlacementPts(row.placement ?? 99)
+        e.totalPts += pp + (row.total_kills ?? 0)
         e.placePts += pp
       }
     }
     const sorted = [...ptsMap.values()].sort((a, b) =>
       b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
     )
-    rankBoard.push(...sorted.map((e, i) => ({ ...e, rank: i + 1 })))
+    stageStandingsMap.set(stage.id, sorted)
+  }
+
+  // Build rank board from prize_config stage mapping, or fall back to grand_final standings
+  type RankEntry = { teamId: string | null; teamName: string; rank: number }
+  const rankBoard: RankEntry[] = []
+
+  const hasStageMapping = prizeConfig.some((p) => p.stage_id != null && p.stage_rank != null)
+
+  if (hasStageMapping) {
+    for (const pc of prizeConfig) {
+      if (!pc.stage_id || !pc.stage_rank) continue
+      const standings = stageStandingsMap.get(pc.stage_id) ?? []
+      const entry = standings[pc.stage_rank - 1]
+      if (entry) {
+        rankBoard.push({ rank: pc.rank, teamId: entry.teamId, teamName: entry.teamName })
+      }
+    }
+    rankBoard.sort((a, b) => a.rank - b.rank)
+  } else {
+    const grandFinalStage = stagesList.find((s) => s.type === 'grand_final')
+    if (grandFinalStage) {
+      const standings = stageStandingsMap.get(grandFinalStage.id) ?? []
+      standings.forEach((e, i) => {
+        rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName })
+      })
+    }
   }
 
   return (
@@ -146,7 +171,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
                     <th className="text-left px-5 py-2 w-10">#</th>
                     <th className="text-left px-5 py-2">Team</th>
-                    <th className="text-right px-5 py-2">Pts</th>
                     {t.has_prize && <th className="text-right px-5 py-2">Prize</th>}
                     {t.has_pgs_points && <th className="text-right px-5 py-2">PGS</th>}
                     {t.has_pgc_points && <th className="text-right px-5 py-2">PGC</th>}
@@ -156,7 +180,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                   {rankBoard.map((row) => {
                     const pc = prizeByRank.get(row.rank)
                     return (
-                      <tr key={row.key} className="border-b border-gray-50 last:border-0">
+                      <tr key={row.rank} className="border-b border-gray-50 last:border-0">
                         <td className="px-5 py-2.5 text-gray-400 font-mono text-xs">{row.rank}</td>
                         <td className="px-5 py-2.5 font-medium text-gray-800">
                           {row.teamId ? (
@@ -167,7 +191,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                             <span>{row.teamName}</span>
                           )}
                         </td>
-                        <td className="px-5 py-2.5 text-right font-bold text-gray-900">{row.totalPts}</td>
                         {t.has_prize && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.prize ?? '-'}</td>}
                         {t.has_pgs_points && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.pgs_points ?? '-'}</td>}
                         {t.has_pgc_points && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.pgc_points ?? '-'}</td>}
