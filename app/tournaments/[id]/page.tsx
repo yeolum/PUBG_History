@@ -32,41 +32,45 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const t = tournament as Tournament
   const stagesList = (stagesData ?? []) as (Stage & { matches: Match[] })[]
 
-  const allMatchIds = stagesList.flatMap((s) =>
-    s.matches.filter((m) => m.status === 'imported').map((m) => m.id)
-  )
-
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resultsByMatch: Record<string, any[]> = {}
   const damageByMatch: Record<string, { placement: number; damage_dealt: number }[]> = {}
 
-  if (allMatchIds.length > 0) {
-    const [{ data: trData }, { data: pdData }] = await Promise.all([
-      supabase
-        .from('match_team_results')
-        .select('*, teams(id, name, short_name)')
-        .in('match_id', allMatchIds)
-        .order('placement'),
-      supabase
-        .from('match_player_stats')
-        .select('match_id, placement, damage_dealt')
-        .in('match_id', allMatchIds),
-    ])
+  // Query per-stage in parallel to avoid Supabase's 1000-row default limit
+  await Promise.all(
+    stagesList.map(async (stage) => {
+      const stageMatchIds = stage.matches
+        .filter((m) => m.status === 'imported')
+        .map((m) => m.id)
+      if (stageMatchIds.length === 0) return
 
-    for (const r of trData ?? []) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const row = r as any
-      if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
-      resultsByMatch[row.match_id].push(row)
-    }
+      const [{ data: trData }, { data: pdData }] = await Promise.all([
+        supabase
+          .from('match_team_results')
+          .select('*, teams(id, name, short_name)')
+          .in('match_id', stageMatchIds)
+          .order('placement'),
+        supabase
+          .from('match_player_stats')
+          .select('match_id, placement, damage_dealt')
+          .in('match_id', stageMatchIds),
+      ])
 
-    for (const d of pdData ?? []) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const row = d as any
-      if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
-      damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt) })
-    }
-  }
+      for (const r of trData ?? []) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const row = r as any
+        if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
+        resultsByMatch[row.match_id].push(row)
+      }
+
+      for (const d of pdData ?? []) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const row = d as any
+        if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
+        damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt) })
+      }
+    })
+  )
 
   return (
     <>
