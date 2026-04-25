@@ -2,9 +2,10 @@ import { createClient } from '@/lib/supabase/server'
 import Header from '@/components/Header'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import type { Tournament, Stage, Match } from '@/lib/types'
+import type { Tournament, Stage, Match, TournamentPrizeConfig } from '@/lib/types'
 import type { Metadata } from 'next'
-import MatchStageView from './MatchStageView'
+import { calcPlacementPts } from '@/lib/scoring'
+import TournamentStagesView from './TournamentStagesView'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -19,18 +20,17 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const { id } = await params
   const supabase = await createClient()
 
-  const [{ data: tournament }, { data: stagesData }] = await Promise.all([
+  const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }] = await Promise.all([
     supabase.from('tournaments').select('*').eq('id', id).single(),
-    supabase
-      .from('stages')
-      .select('*, matches(*)')
-      .eq('tournament_id', id)
-      .order('order_num'),
+    supabase.from('stages').select('*, matches(*)').eq('tournament_id', id).order('order_num'),
+    supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points').eq('tournament_id', id).order('rank'),
   ])
 
   if (!tournament) notFound()
   const t = tournament as Tournament
   const stagesList = (stagesData ?? []) as (Stage & { matches: Match[] })[]
+  const prizeConfig = (prizeConfigData ?? []) as TournamentPrizeConfig[]
+  const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resultsByMatch: Record<string, any[]> = {}
@@ -72,6 +72,38 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     })
   )
 
+  // Compute grand_final rank board
+  type RankEntry = { key: string; teamId: string | null; teamName: string; totalPts: number; placePts: number; rank: number }
+  const rankBoard: RankEntry[] = []
+  const grandFinalStage = stagesList.find((s) => s.type === 'grand_final')
+
+  if (grandFinalStage) {
+    const ptsMap = new Map<string, Omit<RankEntry, 'rank'>>()
+    for (const m of grandFinalStage.matches) {
+      if (m.status !== 'imported') continue
+      for (const r of resultsByMatch[m.id] ?? []) {
+        const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+        if (!ptsMap.has(key)) {
+          ptsMap.set(key, {
+            key,
+            teamId: r.team_id ?? null,
+            teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
+            totalPts: 0,
+            placePts: 0,
+          })
+        }
+        const e = ptsMap.get(key)!
+        const pp = calcPlacementPts(r.placement ?? 99)
+        e.totalPts += pp + (r.total_kills ?? 0)
+        e.placePts += pp
+      }
+    }
+    const sorted = [...ptsMap.values()].sort((a, b) =>
+      b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
+    )
+    rankBoard.push(...sorted.map((e, i) => ({ ...e, rank: i + 1 })))
+  }
+
   return (
     <>
       <Header />
@@ -102,22 +134,63 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           </div>
         </div>
 
+        {/* Final Standings / Rank Board */}
+        {rankBoard.length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-8">
+            <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
+              <h2 className="font-semibold text-gray-800">Final Standings</h2>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 border-b border-gray-100">
+                    <th className="text-left px-5 py-2 w-10">#</th>
+                    <th className="text-left px-5 py-2">Team</th>
+                    <th className="text-right px-5 py-2">Pts</th>
+                    {t.has_prize && <th className="text-right px-5 py-2">Prize</th>}
+                    {t.has_pgs_points && <th className="text-right px-5 py-2">PGS</th>}
+                    {t.has_pgc_points && <th className="text-right px-5 py-2">PGC</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {rankBoard.map((row) => {
+                    const pc = prizeByRank.get(row.rank)
+                    return (
+                      <tr key={row.key} className="border-b border-gray-50 last:border-0">
+                        <td className="px-5 py-2.5 text-gray-400 font-mono text-xs">{row.rank}</td>
+                        <td className="px-5 py-2.5 font-medium text-gray-800">
+                          {row.teamId ? (
+                            <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">
+                              {row.teamName}
+                            </Link>
+                          ) : (
+                            <span>{row.teamName}</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-2.5 text-right font-bold text-gray-900">{row.totalPts}</td>
+                        {t.has_prize && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.prize ?? '-'}</td>}
+                        {t.has_pgs_points && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.pgs_points ?? '-'}</td>}
+                        {t.has_pgc_points && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.pgc_points ?? '-'}</td>}
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Stage Tabs + Scoreboards */}
         {stagesList.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
             No stage information available
           </div>
         ) : (
-          <div className="space-y-6">
-            {stagesList.map((stage) => (
-              <MatchStageView
-                key={stage.id}
-                stage={stage}
-                matches={stage.matches}
-                resultsByMatch={resultsByMatch}
-                damageByMatch={damageByMatch}
-              />
-            ))}
-          </div>
+          <TournamentStagesView
+            stages={stagesList}
+            resultsByMatch={resultsByMatch}
+            damageByMatch={damageByMatch}
+          />
         )}
       </main>
     </>
