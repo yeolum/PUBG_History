@@ -74,26 +74,15 @@ CREATE TABLE tournaments (
 );
 
 -- =====================================================
--- 시리즈 (Series) - 대회 내 단계
+-- 스테이지 (Stages) - 대회 내 단계
 -- =====================================================
-CREATE TABLE series (
+CREATE TABLE stages (
   id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
   name          TEXT NOT NULL,
   order_num     INTEGER DEFAULT 0,
+  type          TEXT DEFAULT 'group',  -- 'group' | 'playoff' | 'grand_final'
   created_at    TIMESTAMPTZ DEFAULT NOW()
-);
-
--- =====================================================
--- 스테이지 (Stages) - 시리즈 내 단계
--- =====================================================
-CREATE TABLE stages (
-  id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  series_id UUID NOT NULL REFERENCES series(id) ON DELETE CASCADE,
-  name      TEXT NOT NULL,
-  order_num INTEGER DEFAULT 0,
-  type      TEXT DEFAULT 'group',  -- 'group' | 'playoff' | 'grand_final'
-  created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- =====================================================
@@ -158,8 +147,7 @@ CREATE TABLE match_player_stats (
 -- =====================================================
 CREATE INDEX idx_team_aliases_alias ON team_aliases(alias);
 CREATE INDEX idx_player_aliases_alias ON player_aliases(alias);
-CREATE INDEX idx_series_tournament ON series(tournament_id);
-CREATE INDEX idx_stages_series ON stages(series_id);
+CREATE INDEX idx_stages_tournament ON stages(tournament_id);
 CREATE INDEX idx_matches_stage ON matches(stage_id);
 CREATE INDEX idx_matches_pubg_id ON matches(pubg_match_id);
 CREATE INDEX idx_match_team_results_match ON match_team_results(match_id);
@@ -193,7 +181,6 @@ ALTER TABLE team_aliases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE players ENABLE ROW LEVEL SECURITY;
 ALTER TABLE player_aliases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tournaments ENABLE ROW LEVEL SECURITY;
-ALTER TABLE series ENABLE ROW LEVEL SECURITY;
 ALTER TABLE stages ENABLE ROW LEVEL SECURITY;
 ALTER TABLE matches ENABLE ROW LEVEL SECURITY;
 ALTER TABLE match_team_results ENABLE ROW LEVEL SECURITY;
@@ -205,7 +192,6 @@ CREATE POLICY "public read team_aliases" ON team_aliases FOR SELECT USING (true)
 CREATE POLICY "public read players" ON players FOR SELECT USING (true);
 CREATE POLICY "public read player_aliases" ON player_aliases FOR SELECT USING (true);
 CREATE POLICY "public read tournaments" ON tournaments FOR SELECT USING (true);
-CREATE POLICY "public read series" ON series FOR SELECT USING (true);
 CREATE POLICY "public read stages" ON stages FOR SELECT USING (true);
 CREATE POLICY "public read matches" ON matches FOR SELECT USING (true);
 CREATE POLICY "public read match_team_results" ON match_team_results FOR SELECT USING (true);
@@ -217,7 +203,6 @@ CREATE POLICY "auth write team_aliases" ON team_aliases FOR ALL USING (auth.role
 CREATE POLICY "auth write players" ON players FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "auth write player_aliases" ON player_aliases FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "auth write tournaments" ON tournaments FOR ALL USING (auth.role() = 'authenticated');
-CREATE POLICY "auth write series" ON series FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "auth write stages" ON stages FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "auth write matches" ON matches FOR ALL USING (auth.role() = 'authenticated');
 CREATE POLICY "auth write match_team_results" ON match_team_results FOR ALL USING (auth.role() = 'authenticated');
@@ -225,35 +210,50 @@ CREATE POLICY "auth write match_player_stats" ON match_player_stats FOR ALL USIN
 
 -- =====================================================
 -- 스테이지 팀 순위 뷰 (매치 데이터 집계)
+-- 순위 점수: 1~8위 = 10,6,5,4,3,2,1,1 / 9위 이하 = 0
+-- team_id 미연결 팀도 pubg_team_name(팀태그)로 집계
 -- =====================================================
 CREATE VIEW stage_team_standings AS
 SELECT
   s.id AS stage_id,
   s.name AS stage_name,
   mtr.team_id,
-  t.name AS team_name,
-  t.short_name AS team_short_name,
+  COALESCE(t.name, mtr.pubg_team_name) AS team_name,
+  COALESCE(t.short_name, mtr.pubg_team_name) AS team_short_name,
   COUNT(DISTINCT m.id) AS matches_played,
   SUM(mtr.total_kills) AS total_kills,
   ROUND(SUM(mtr.total_damage)::numeric, 1) AS total_damage,
-  AVG(mtr.placement) AS avg_placement,
-  -- 표준 PUBG 점수: 순위 포인트 + 킬 포인트
+  ROUND(AVG(mtr.placement)::numeric, 2) AS avg_placement,
   SUM(
     CASE mtr.placement
-      WHEN 1 THEN 15
-      WHEN 2 THEN 12
-      WHEN 3 THEN 10
-      WHEN 4 THEN 8
-      WHEN 5 THEN 6
-      WHEN 6 THEN 4
-      WHEN 7 THEN 2
-      ELSE 1
+      WHEN 1 THEN 10
+      WHEN 2 THEN 6
+      WHEN 3 THEN 5
+      WHEN 4 THEN 4
+      WHEN 5 THEN 3
+      WHEN 6 THEN 2
+      WHEN 7 THEN 1
+      WHEN 8 THEN 1
+      ELSE 0
+    END
+  ) AS placement_points,
+  SUM(
+    CASE mtr.placement
+      WHEN 1 THEN 10
+      WHEN 2 THEN 6
+      WHEN 3 THEN 5
+      WHEN 4 THEN 4
+      WHEN 5 THEN 3
+      WHEN 6 THEN 2
+      WHEN 7 THEN 1
+      WHEN 8 THEN 1
+      ELSE 0
     END + mtr.total_kills
   ) AS total_points
 FROM stages s
 JOIN matches m ON m.stage_id = s.id AND m.status = 'imported'
 JOIN match_team_results mtr ON mtr.match_id = m.id
 LEFT JOIN teams t ON t.id = mtr.team_id
-WHERE mtr.team_id IS NOT NULL
-GROUP BY s.id, s.name, mtr.team_id, t.name, t.short_name
+WHERE mtr.team_id IS NOT NULL OR mtr.pubg_team_name IS NOT NULL
+GROUP BY s.id, s.name, mtr.team_id, t.name, t.short_name, mtr.pubg_team_name
 ORDER BY total_points DESC;

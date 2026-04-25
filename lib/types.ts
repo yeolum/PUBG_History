@@ -68,17 +68,9 @@ export interface Tournament {
   updated_at: string
 }
 
-export interface Series {
-  id: string
-  tournament_id: string
-  name: string
-  order_num: number
-  created_at: string
-}
-
 export interface Stage {
   id: string
-  series_id: string
+  tournament_id: string
   name: string
   order_num: number
   type: StageType
@@ -137,13 +129,14 @@ export interface MatchPlayerStat {
 export interface StageTeamStanding {
   stage_id: string
   stage_name: string
-  team_id: string
+  team_id: string | null
   team_name: string
   team_short_name: string | null
   matches_played: number
   total_kills: number
   total_damage: number
   avg_placement: number
+  placement_points: number
   total_points: number
 }
 

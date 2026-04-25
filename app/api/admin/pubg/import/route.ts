@@ -28,12 +28,21 @@ function serviceClient() {
   )
 }
 
-// 가장 많이 등장하는 값 반환
 function majority(values: string[]): string | null {
   if (values.length === 0) return null
   const counts: Record<string, number> = {}
   for (const v of values) counts[v] = (counts[v] ?? 0) + 1
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
+}
+
+// DNS_Heaven → "DNS" (언더스코어 앞 태그 추출)
+function extractTeamTag(playerNames: string[]): string | null {
+  if (playerNames.length === 0) return null
+  const tags = playerNames.map((name) => {
+    const idx = name.indexOf('_')
+    return idx > 0 ? name.substring(0, idx) : name
+  })
+  return majority(tags)
 }
 
 export async function POST(req: NextRequest) {
@@ -95,7 +104,7 @@ export async function POST(req: NextRequest) {
   // PUBG API 호출
   let matchData
   try {
-    matchData = await fetchPubgMatch(pubgMatchId, 'kakao')
+    matchData = await fetchPubgMatch(pubgMatchId, 'tournament')
   } catch (err) {
     await db
       .from('matches')
@@ -164,30 +173,33 @@ export async function POST(req: NextRequest) {
     }))
   )
 
-  // ── 팀 결과 준비: 선수 소속 팀으로 역추적 ──
+  // ── 팀 결과 준비: 선수 닉네임 태그로 팀 추적 ──
   const teamResultInserts = matchData.rosters.map((roster) => {
     const participants = roster.participants
+    const playerNames = participants.map((p) => p.pubgPlayerName)
 
-    // 이 로스터 선수들의 player_id 수집
-    const resolvedPlayerIds = participants
-      .map((p) => playerById[p.pubgPlayerName.toLowerCase()])
-      .filter((id): id is string => !!id)
+    // 선수 이름에서 팀 태그 추출 (DNS_Heaven → "DNS")
+    const teamTag = extractTeamTag(playerNames) ?? playerNames.join(', ')
 
-    // player_id → team_id 로 팀 후보 수집 후 다수결
-    const teamCandidates = resolvedPlayerIds
-      .map((pid) => playerTeam[pid])
-      .filter((tid): tid is string => !!tid)
+    // 1차: 태그로 팀 DB 조회
+    let resolvedTeamId: string | null = teamByName[teamTag.toLowerCase()] ?? null
 
-    const resolvedTeamId = majority(teamCandidates)
-
-    // 팀 이름 힌트: 선수 닉네임 목록 (미매핑 시 관리자가 누구인지 알 수 있도록)
-    const playerNames = participants.map((p) => p.pubgPlayerName).join(', ')
+    // 2차: 태그 미매핑 시 선수 소속 팀으로 역추적
+    if (!resolvedTeamId) {
+      const resolvedPlayerIds = playerNames
+        .map((n) => playerById[n.toLowerCase()])
+        .filter((id): id is string => !!id)
+      const teamCandidates = resolvedPlayerIds
+        .map((pid) => playerTeam[pid])
+        .filter((tid): tid is string => !!tid)
+      resolvedTeamId = majority(teamCandidates) ?? null
+    }
 
     return {
       match_id: matchRecord.id,
-      team_id: resolvedTeamId ?? null,
+      team_id: resolvedTeamId,
       pubg_roster_id: roster.pubgRosterId,
-      pubg_team_name: playerNames,  // 선수 이름 목록을 팀 힌트로 사용
+      pubg_team_name: teamTag,  // 팀 태그 (예: "DNS")
       placement: roster.placement,
       total_kills: roster.totalKills,
       total_damage: participants.reduce((s, p) => s + p.damageDealt, 0),
