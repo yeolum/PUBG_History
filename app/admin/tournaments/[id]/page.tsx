@@ -457,7 +457,7 @@ export default function AdminTournamentDetailPage() {
                                             const matchCount = stageList.flatMap((s) => s.matches).filter((m) =>
                                               m.match_team_results.some((tr) => tr.pubg_team_name === pubgName)
                                             ).length
-                                            setLinkModal({ type: 'team', pubgName, matchCount })
+                                            setLinkModal({ phase: 1, type: 'team', pubgName, matchCount })
                                           }}
                                           className="text-[10px] text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 border border-gray-200 hover:border-yellow-400 rounded"
                                         >
@@ -508,7 +508,7 @@ export default function AdminTournamentDetailPage() {
                                                 const matchCount = stageList.flatMap((st) => st.matches).filter((m) =>
                                                   m.match_player_stats.some((ps) => ps.pubg_player_name === pubgName)
                                                 ).length
-                                                setLinkModal({ type: 'player', pubgName, matchCount })
+                                                setLinkModal({ phase: 1, type: 'player', pubgName, matchCount })
                                               }}
                                               className="text-[10px] text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 border border-gray-200 hover:border-yellow-400 rounded"
                                             >
