@@ -64,8 +64,18 @@ export interface Tournament {
   status: TournamentStatus
   banner_url: string | null
   description: string | null
+  has_prize: boolean
+  has_pgs_points: boolean
+  has_pgc_points: boolean
   created_at: string
   updated_at: string
+}
+
+export interface TournamentPrizeConfig {
+  rank: number
+  prize: string | null
+  pgs_points: number | null
+  pgc_points: number | null
 }
 
 export interface Stage {
