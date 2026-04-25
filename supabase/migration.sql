@@ -1,4 +1,11 @@
 -- =====================================================
+-- Migration: display_name for historical team/player name in match results
+-- Supabase SQL Editor에서 실행하세요
+-- =====================================================
+ALTER TABLE match_team_results ADD COLUMN IF NOT EXISTS display_name TEXT;
+ALTER TABLE match_player_stats ADD COLUMN IF NOT EXISTS display_name TEXT;
+
+-- =====================================================
 -- Migration: series 제거, stages를 tournament에 직접 연결
 -- Supabase SQL Editor에서 실행하세요
 -- =====================================================

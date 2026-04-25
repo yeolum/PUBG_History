@@ -11,6 +11,7 @@ interface TeamResult {
   match_id: string
   team_id: string | null
   pubg_team_name: string | null
+  display_name: string | null
   placement: number | null
   total_kills: number | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,7 +73,7 @@ function computeStandings(
         statMap.set(key, {
           key,
           teamId: r.team_id,
-          teamName: r.pubg_team_name ?? r.teams?.name ?? '?',
+          teamName: r.display_name ?? r.pubg_team_name ?? r.teams?.name ?? '?',
           matchesPlayed: 0,
           totalPts: 0,
           totalPlacementPts: 0,
@@ -237,7 +238,7 @@ export default function MatchStageView({ stage, matches, resultsByMatch, damageB
                       <td className="px-4 py-2 font-medium text-gray-800">
                         {r.team_id ? (
                           <Link href={`/teams/${r.team_id}`} className="hover:text-yellow-600">
-                            {r.pubg_team_name ?? r.teams?.name ?? '-'}
+                            {r.display_name ?? r.pubg_team_name ?? r.teams?.name ?? '-'}
                           </Link>
                         ) : (
                           <span>{r.pubg_team_name ?? '-'}</span>

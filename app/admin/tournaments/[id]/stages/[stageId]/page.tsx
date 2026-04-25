@@ -8,6 +8,7 @@ import type { Stage, Match, MatchTeamResult, MatchPlayerStat } from '@/lib/types
 import { getMapDisplayName } from '@/lib/pubg-api'
 import { calcPlacementPts } from '@/lib/scoring'
 import SearchModal from '@/components/admin/SearchModal'
+import DisplayNameModal from '@/components/admin/DisplayNameModal'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
@@ -94,12 +95,11 @@ export default function StageMatchesPage() {
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
 
-  const [linkModal, setLinkModal] = useState<{
-    type: 'team' | 'player'
-    targetName: string
-    matchId: string
-    rowId: string
-  } | null>(null)
+  const [linkModal, setLinkModal] = useState<
+    | { phase: 1; type: 'team' | 'player'; pubgName: string; matchId: string; rowId: string }
+    | { phase: 2; type: 'team' | 'player'; pubgName: string; matchId: string; rowId: string; entityId: string; entityName: string }
+    | null
+  >(null)
 
   const load = useCallback(async () => {
     const [{ data: s }, { data: m }] = await Promise.all([
@@ -150,16 +150,15 @@ export default function StageMatchesPage() {
     load()
   }
 
-  async function linkTeam(matchId: string, teamResultId: string, teamId: string) {
-    const row = matches
-      .find((m) => m.id === matchId)
-      ?.match_team_results.find((r) => r.id === teamResultId)
+  async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null) {
+    await supabase.from('match_team_results')
+      .update({ team_id: teamId, display_name: displayName })
+      .eq('id', teamResultId)
 
-    await supabase.from('match_team_results').update({ team_id: teamId }).eq('id', teamResultId)
-
-    if (row?.pubg_team_name) {
+    const row = matches.find((m) => m.id === matchId)?.match_team_results.find((r) => r.id === teamResultId)
+    if (pubgTeamName) {
       await supabase.from('team_aliases').upsert(
-        [{ team_id: teamId, alias: row.pubg_team_name }],
+        [{ team_id: teamId, alias: pubgTeamName }],
         { onConflict: 'alias', ignoreDuplicates: true }
       )
       await supabase
@@ -167,22 +166,20 @@ export default function StageMatchesPage() {
         .update({ team_id: teamId })
         .eq('match_id', matchId)
         .is('team_id', null)
-        .eq('placement', row.placement ?? -1)
+        .eq('placement', row?.placement ?? -1)
     }
     setLinkModal(null)
     load()
   }
 
-  async function linkPlayer(matchId: string, statId: string, playerId: string) {
-    const row = matches
-      .find((m) => m.id === matchId)
-      ?.match_player_stats.find((s) => s.id === statId)
+  async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null) {
+    await supabase.from('match_player_stats')
+      .update({ player_id: playerId, display_name: displayName })
+      .eq('id', statId)
 
-    await supabase.from('match_player_stats').update({ player_id: playerId }).eq('id', statId)
-
-    if (row?.pubg_player_name) {
+    if (pubgPlayerName) {
       await supabase.from('player_aliases').upsert(
-        [{ player_id: playerId, alias: row.pubg_player_name }],
+        [{ player_id: playerId, alias: pubgPlayerName }],
         { onConflict: 'alias', ignoreDuplicates: true }
       )
     }
@@ -374,9 +371,9 @@ export default function StageMatchesPage() {
                             <td className="py-1.5 text-gray-400 font-mono">{i + 1}</td>
                             <td className="py-1.5">
                               <span className={`font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                {r.pubg_team_name ?? r.teams?.name ?? '-'}
+                                {r.display_name ?? r.pubg_team_name ?? r.teams?.name ?? '-'}
                               </span>
-                              {r.team_id && r.teams?.name && r.pubg_team_name && r.pubg_team_name !== r.teams.name && (
+                              {r.team_id && r.teams?.name && (
                                 <span className="ml-1 text-[10px] text-gray-400">→ {r.teams.name}</span>
                               )}
                             </td>
@@ -387,8 +384,9 @@ export default function StageMatchesPage() {
                             <td className="py-1.5 text-right">
                               <button
                                 onClick={() => setLinkModal({
+                                  phase: 1,
                                   type: 'team',
-                                  targetName: r.pubg_team_name ?? r.teams?.name ?? '',
+                                  pubgName: r.pubg_team_name ?? r.teams?.name ?? '',
                                   matchId: selectedMatchData.id,
                                   rowId: r.id,
                                 })}
@@ -438,10 +436,10 @@ export default function StageMatchesPage() {
                                     <td className="py-1">
                                       <div>
                                         <span className={`font-medium ${s.player_id ? 'text-gray-800' : 'text-orange-700'}`}>
-                                          {s.pubg_player_name ?? '-'}
+                                          {s.display_name ?? s.pubg_player_name ?? '-'}
                                         </span>
-                                        {s.player_id && s.players?.nickname !== s.pubg_player_name && (
-                                          <span className="ml-1 text-gray-400">→ {s.players?.nickname}</span>
+                                        {s.player_id && s.players?.nickname && (
+                                          <span className="ml-1 text-xs text-gray-400">→ {s.players.nickname}</span>
                                         )}
                                       </div>
                                     </td>
@@ -450,8 +448,9 @@ export default function StageMatchesPage() {
                                     <td className="py-1 text-right">
                                       <button
                                         onClick={() => setLinkModal({
+                                          phase: 1,
                                           type: 'player',
-                                          targetName: s.pubg_player_name ?? '',
+                                          pubgName: s.pubg_player_name ?? '',
                                           matchId: selectedMatchData.id,
                                           rowId: s.id,
                                         })}
@@ -476,16 +475,29 @@ export default function StageMatchesPage() {
         </>
       )}
 
-      {linkModal && (
+      {linkModal?.phase === 1 && (
         <SearchModal
           type={linkModal.type}
-          targetName={linkModal.targetName}
+          targetName={linkModal.pubgName}
           onConfirm={(entityId, entityName) => {
-            void entityName
+            setLinkModal({ ...linkModal, phase: 2, entityId, entityName })
+          }}
+          onClose={() => setLinkModal(null)}
+        />
+      )}
+
+      {linkModal?.phase === 2 && (
+        <DisplayNameModal
+          type={linkModal.type}
+          entityId={linkModal.entityId}
+          entityName={linkModal.entityName}
+          pubgName={linkModal.pubgName}
+          matchCount={1}
+          onConfirm={(displayName) => {
             if (linkModal.type === 'team') {
-              linkTeam(linkModal.matchId, linkModal.rowId, entityId)
+              linkTeam(linkModal.matchId, linkModal.rowId, linkModal.entityId, displayName, linkModal.pubgName)
             } else {
-              linkPlayer(linkModal.matchId, linkModal.rowId, entityId)
+              linkPlayer(linkModal.rowId, linkModal.entityId, displayName, linkModal.pubgName)
             }
           }}
           onClose={() => setLinkModal(null)}

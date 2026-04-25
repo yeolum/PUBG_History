@@ -98,6 +98,7 @@ export interface MatchTeamResult {
   team_id: string | null
   pubg_roster_id: string | null
   pubg_team_name: string | null
+  display_name: string | null
   placement: number | null
   total_kills: number
   total_damage: number
@@ -112,6 +113,7 @@ export interface MatchPlayerStat {
   team_id: string | null
   pubg_account_id: string | null
   pubg_player_name: string | null
+  display_name: string | null
   kills: number
   assists: number
   knocks: number
