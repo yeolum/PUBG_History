@@ -37,6 +37,8 @@ export default function AdminTournamentDetailPage() {
   const [addingStage, setAddingStage] = useState(false)
   const [newStageName, setNewStageName] = useState('')
   const [newStageType, setNewStageType] = useState('group')
+  const [editingStageId, setEditingStageId] = useState<string | null>(null)
+  const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group' })
 
   // selected match per stage for inline linking UI
   const [selectedMatchByStage, setSelectedMatchByStage] = useState<Record<string, string | null>>({})
@@ -108,6 +110,17 @@ export default function AdminTournamentDetailPage() {
     await load()
   }
 
+  async function saveStage(stageId: string) {
+    if (!editStageForm.name.trim()) return
+    const { error } = await supabase.from('stages').update({
+      name: editStageForm.name.trim(),
+      type: editStageForm.type,
+    }).eq('id', stageId)
+    if (error) { setErr('Failed to update stage: ' + error.message); return }
+    setEditingStageId(null)
+    load()
+  }
+
   async function deleteStage(stageId: string) {
     if (!confirm('Delete this stage and all its matches?')) return
     await supabase.from('stages').delete().eq('id', stageId)
@@ -125,11 +138,21 @@ export default function AdminTournamentDetailPage() {
         .map((r) => ({ matchId: m.id, placement: r.placement }))
     )
 
+    // Update team_id first (always works even without display_name migration)
     await supabase
       .from('match_team_results')
-      .update({ team_id: teamId, display_name: displayName })
+      .update({ team_id: teamId })
       .in('match_id', allMatchIds)
       .eq('pubg_team_name', pubgTeamName)
+
+    // Update display_name separately (requires ALTER TABLE migration to be run)
+    if (displayName !== null) {
+      await supabase
+        .from('match_team_results')
+        .update({ display_name: displayName })
+        .in('match_id', allMatchIds)
+        .eq('pubg_team_name', pubgTeamName)
+    }
 
     for (const { matchId, placement } of affectedRows) {
       if (placement != null) {
@@ -142,10 +165,13 @@ export default function AdminTournamentDetailPage() {
       }
     }
 
-    await supabase.from('team_aliases').upsert(
-      [{ team_id: teamId, alias: pubgTeamName }],
-      { onConflict: 'alias', ignoreDuplicates: true }
-    )
+    const aliasesToUpsert = [pubgTeamName, ...(displayName && displayName !== pubgTeamName ? [displayName] : [])]
+    for (const alias of aliasesToUpsert) {
+      await supabase.from('team_aliases').upsert(
+        [{ team_id: teamId, alias }],
+        { onConflict: 'alias', ignoreDuplicates: true }
+      )
+    }
     setLinkModal(null)
     load()
   }
@@ -153,16 +179,29 @@ export default function AdminTournamentDetailPage() {
   async function linkPlayer(pubgPlayerName: string, playerId: string, displayName: string | null) {
     const allMatchIds = stageList.flatMap((s) => s.matches.map((m) => m.id))
 
+    // Update player_id first
     await supabase
       .from('match_player_stats')
-      .update({ player_id: playerId, display_name: displayName })
+      .update({ player_id: playerId })
       .in('match_id', allMatchIds)
       .eq('pubg_player_name', pubgPlayerName)
 
-    await supabase.from('player_aliases').upsert(
-      [{ player_id: playerId, alias: pubgPlayerName }],
-      { onConflict: 'alias', ignoreDuplicates: true }
-    )
+    // Update display_name separately
+    if (displayName !== null) {
+      await supabase
+        .from('match_player_stats')
+        .update({ display_name: displayName })
+        .in('match_id', allMatchIds)
+        .eq('pubg_player_name', pubgPlayerName)
+    }
+
+    const aliasesToUpsert = [pubgPlayerName, ...(displayName && displayName !== pubgPlayerName ? [displayName] : [])]
+    for (const alias of aliasesToUpsert) {
+      await supabase.from('player_aliases').upsert(
+        [{ player_id: playerId, alias }],
+        { onConflict: 'alias', ignoreDuplicates: true }
+      )
+    }
     setLinkModal(null)
     load()
   }
@@ -354,25 +393,60 @@ export default function AdminTournamentDetailPage() {
               return (
                 <div key={stage.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                   {/* Stage header row */}
-                  <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-medium text-gray-800">{stage.name}</span>
-                      <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                        {stage.type === 'group' ? 'Group' : stage.type === 'playoff' ? 'Playoff' : 'Final'}
-                      </span>
-                      <span className="text-xs text-gray-400">{stage.matches.length} matches</span>
-                    </div>
-                    <div className="flex gap-3 items-center">
-                      <Link
-                        href={`/admin/tournaments/${id}/stages/${stage.id}`}
-                        className="text-xs font-medium text-yellow-600 hover:text-yellow-700"
+                  {editingStageId === stage.id ? (
+                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 flex-wrap">
+                      <input
+                        autoFocus
+                        value={editStageForm.name}
+                        onChange={(e) => setEditStageForm((f) => ({ ...f, name: e.target.value }))}
+                        onKeyDown={(e) => { if (e.key === 'Enter') saveStage(stage.id) }}
+                        className="flex-1 min-w-0 text-sm border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                      />
+                      <select
+                        value={editStageForm.type}
+                        onChange={(e) => setEditStageForm((f) => ({ ...f, type: e.target.value }))}
+                        className="text-xs border border-gray-300 rounded px-2 py-1"
                       >
-                        Import →
-                      </Link>
-                      <button onClick={() => deleteStage(stage.id)}
-                        className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                        <option value="group">Group</option>
+                        <option value="playoff">Playoff</option>
+                        <option value="grand_final">Final</option>
+                      </select>
+                      <button onClick={() => saveStage(stage.id)}
+                        className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-2 py-1 rounded">
+                        Save
+                      </button>
+                      <button onClick={() => setEditingStageId(null)}
+                        className="text-xs text-gray-400 hover:text-gray-600 px-1">
+                        Cancel
+                      </button>
                     </div>
-                  </div>
+                  ) : (
+                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-medium text-gray-800">{stage.name}</span>
+                        <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
+                          {stage.type === 'group' ? 'Group' : stage.type === 'playoff' ? 'Playoff' : 'Final'}
+                        </span>
+                        <span className="text-xs text-gray-400">{stage.matches.length} matches</span>
+                      </div>
+                      <div className="flex gap-3 items-center">
+                        <button
+                          onClick={() => { setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type }) }}
+                          className="text-xs text-blue-500 hover:text-blue-700"
+                        >
+                          Edit
+                        </button>
+                        <Link
+                          href={`/admin/tournaments/${id}/stages/${stage.id}`}
+                          className="text-xs font-medium text-yellow-600 hover:text-yellow-700"
+                        >
+                          Import →
+                        </Link>
+                        <button onClick={() => deleteStage(stage.id)}
+                          className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                      </div>
+                    </div>
+                  )}
 
                   {/* Match tabs + inline linking */}
                   {importedMatches.length > 0 && (
