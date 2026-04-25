@@ -9,7 +9,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params
   const supabase = await createClient()
   const { data } = await supabase.from('players').select('nickname').eq('id', id).single()
-  return { title: data?.nickname ?? '선수' }
+  return { title: data?.nickname ?? 'Player' }
 }
 
 export default async function PlayerDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -24,10 +24,9 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   if (!player) notFound()
   const aliases = (aliasesData ?? []) as PlayerAlias[]
 
-  // 선수 매치 기록
   const { data: statsData } = await supabase
     .from('match_player_stats')
-    .select('*, matches(match_date, map, stages(name, series(name, tournaments(id, name))))')
+    .select('*, matches(match_date, map, stages(name, tournaments(id, name)))')
     .eq('player_id', id)
     .order('created_at', { ascending: false })
     .limit(30)
@@ -44,11 +43,10 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       <Header />
       <main className="max-w-6xl mx-auto px-4 py-10 w-full">
         <div className="mb-6">
-          <Link href="/players" className="text-sm text-gray-400 hover:text-gray-600">← 선수 목록</Link>
+          <Link href="/players" className="text-sm text-gray-400 hover:text-gray-600">← Players</Link>
         </div>
 
         <div className="grid gap-8 lg:grid-cols-[1fr_2fr]">
-          {/* 프로필 */}
           <aside>
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <div className="w-20 h-20 bg-gray-100 rounded-full mb-4 flex items-center justify-center overflow-hidden">
@@ -71,7 +69,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
               )}
               {team && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs font-medium text-gray-400 mb-2">소속 팀</p>
+                  <p className="text-xs font-medium text-gray-400 mb-2">Current Team</p>
                   <Link href={`/teams/${team.id}`} className="flex items-center gap-2 hover:text-yellow-600">
                     {team.logo_url && (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -83,7 +81,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
               )}
               {aliases.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs font-medium text-gray-400 mb-2">이전 닉네임 / 별칭</p>
+                  <p className="text-xs font-medium text-gray-400 mb-2">Former Nicknames / Aliases</p>
                   <div className="flex flex-wrap gap-1">
                     {aliases.map((a) => (
                       <span key={a.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
@@ -95,33 +93,30 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
               )}
             </div>
 
-            {/* 통산 스탯 요약 */}
             {stats.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-6 mt-4">
-                <h2 className="text-sm font-semibold text-gray-700 mb-3">통산 스탯</h2>
+                <h2 className="text-sm font-semibold text-gray-700 mb-3">Career Stats</h2>
                 <div className="grid grid-cols-2 gap-3">
-                  <StatBox label="경기 수" value={stats.length} />
-                  <StatBox label="총 킬" value={totalKills} />
-                  <StatBox label="평균 데미지" value={avgDamage.toFixed(0)} />
-                  <StatBox label="평균 킬" value={(totalKills / stats.length).toFixed(1)} />
+                  <StatBox label="Matches" value={stats.length} />
+                  <StatBox label="Total Kills" value={totalKills} />
+                  <StatBox label="Avg Damage" value={avgDamage.toFixed(0)} />
+                  <StatBox label="Avg Kills" value={(totalKills / stats.length).toFixed(1)} />
                 </div>
               </div>
             )}
           </aside>
 
-          {/* 매치 기록 */}
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">매치 기록</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
             {stats.length === 0 ? (
-              <p className="text-gray-400 text-sm">기록된 매치가 없습니다</p>
+              <p className="text-gray-400 text-sm">No match records</p>
             ) : (
               <div className="space-y-2">
                 {stats.map((s) => {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const m = s.matches as any
                   const stageInfo = m?.stages
-                  const seriesInfo = stageInfo?.series
-                  const tourInfo = seriesInfo?.tournaments
+                  const tourInfo = stageInfo?.tournaments
                   return (
                     <div key={s.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3">
                       <div className="flex items-start justify-between mb-2">
@@ -131,27 +126,25 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
                               {tourInfo.name}
                             </Link>
                           )}
-                          <p className="text-xs text-gray-400">
-                            {seriesInfo?.name} / {stageInfo?.name}
-                          </p>
+                          <p className="text-xs text-gray-400">{stageInfo?.name}</p>
                         </div>
-                        <span className="text-sm font-bold text-gray-700">{s.placement}위</span>
+                        <span className="text-sm font-bold text-gray-700">#{s.placement}</span>
                       </div>
                       <div className="grid grid-cols-4 gap-2 text-xs text-center">
                         <div>
-                          <p className="text-gray-400">킬</p>
+                          <p className="text-gray-400">Kills</p>
                           <p className="font-semibold text-gray-800">{s.kills}</p>
                         </div>
                         <div>
-                          <p className="text-gray-400">어시스트</p>
+                          <p className="text-gray-400">Assists</p>
                           <p className="font-semibold text-gray-800">{s.assists}</p>
                         </div>
                         <div>
-                          <p className="text-gray-400">넉다운</p>
+                          <p className="text-gray-400">Knocks</p>
                           <p className="font-semibold text-gray-800">{s.knocks}</p>
                         </div>
                         <div>
-                          <p className="text-gray-400">데미지</p>
+                          <p className="text-gray-400">Damage</p>
                           <p className="font-semibold text-gray-800">{Number(s.damage_dealt).toFixed(0)}</p>
                         </div>
                       </div>

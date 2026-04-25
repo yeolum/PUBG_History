@@ -2,7 +2,6 @@ import type { PubgMatchData, PubgRoster, PubgParticipant } from './types'
 
 const PUBG_API_BASE = 'https://api.pubg.com'
 
-// PUBG API 응답에서 match 데이터 파싱
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parsePubgMatch(apiResponse: any): PubgMatchData {
   const { data, included } = apiResponse
@@ -10,7 +9,6 @@ function parsePubgMatch(apiResponse: any): PubgMatchData {
   const matchAttr = data.attributes
   const pubgMatchId: string = data.id
 
-  // included 배열을 타입별로 분류
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const byType: Record<string, any[]> = {}
   for (const item of included) {
@@ -64,9 +62,9 @@ function parsePubgMatch(apiResponse: any): PubgMatchData {
   }
 }
 
-export async function fetchPubgMatch(matchId: string, platform = 'kakao'): Promise<PubgMatchData> {
+export async function fetchPubgMatch(matchId: string, platform = 'tournament'): Promise<PubgMatchData> {
   const apiKey = process.env.PUBG_API_KEY
-  if (!apiKey) throw new Error('PUBG_API_KEY가 설정되지 않았습니다')
+  if (!apiKey) throw new Error('PUBG_API_KEY is not set')
 
   const url = `${PUBG_API_BASE}/shards/${platform}/matches/${matchId}`
   const res = await fetch(url, {
@@ -78,9 +76,9 @@ export async function fetchPubgMatch(matchId: string, platform = 'kakao'): Promi
   })
 
   if (!res.ok) {
-    if (res.status === 404) throw new Error(`Match ${matchId}를 찾을 수 없습니다`)
-    if (res.status === 429) throw new Error('API 요청 한도 초과. 잠시 후 다시 시도하세요')
-    throw new Error(`PUBG API 오류: ${res.status} ${res.statusText}`)
+    if (res.status === 404) throw new Error(`Match ${matchId} not found`)
+    if (res.status === 429) throw new Error('API rate limit exceeded. Please try again later')
+    throw new Error(`PUBG API error: ${res.status} ${res.statusText}`)
   }
 
   const data = await res.json()

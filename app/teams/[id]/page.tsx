@@ -9,7 +9,7 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
   const { id } = await params
   const supabase = await createClient()
   const { data } = await supabase.from('teams').select('name').eq('id', id).single()
-  return { title: data?.name ?? '팀' }
+  return { title: data?.name ?? 'Team' }
 }
 
 export default async function TeamDetailPage({ params }: { params: Promise<{ id: string }> }) {
@@ -27,10 +27,9 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const players = (playersData ?? []) as Player[]
   const aliases = (aliasesData ?? []) as TeamAlias[]
 
-  // 이 팀이 참여한 대회 결과
   const { data: matchResults } = await supabase
     .from('match_team_results')
-    .select('*, matches(match_date, map, stages(name, series(name, tournaments(id, name))))')
+    .select('*, matches(match_date, map, stages(name, tournaments(id, name)))')
     .eq('team_id', id)
     .order('created_at', { ascending: false })
     .limit(20)
@@ -40,11 +39,10 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
       <Header />
       <main className="max-w-6xl mx-auto px-4 py-10 w-full">
         <div className="mb-6">
-          <Link href="/teams" className="text-sm text-gray-400 hover:text-gray-600">← 팀 목록</Link>
+          <Link href="/teams" className="text-sm text-gray-400 hover:text-gray-600">← Teams</Link>
         </div>
 
         <div className="grid gap-8 lg:grid-cols-[1fr_2fr]">
-          {/* 팀 프로필 */}
           <aside>
             <div className="bg-white rounded-xl border border-gray-200 p-6">
               <div className="w-20 h-20 bg-gray-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
@@ -67,7 +65,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
               )}
               {aliases.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
-                  <p className="text-xs font-medium text-gray-400 mb-2">이전 이름 / 별칭</p>
+                  <p className="text-xs font-medium text-gray-400 mb-2">Former Names / Aliases</p>
                   <div className="flex flex-wrap gap-1">
                     {aliases.map((a) => (
                       <span key={a.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
@@ -79,10 +77,9 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
               )}
             </div>
 
-            {/* 현재 로스터 */}
             {players.length > 0 && (
               <div className="bg-white rounded-xl border border-gray-200 p-6 mt-4">
-                <h2 className="text-sm font-semibold text-gray-700 mb-3">현재 로스터</h2>
+                <h2 className="text-sm font-semibold text-gray-700 mb-3">Current Roster</h2>
                 <ul className="space-y-2">
                   {players.map((p) => (
                     <li key={p.id}>
@@ -99,19 +96,17 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
             )}
           </aside>
 
-          {/* 대회 결과 */}
           <div>
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">대회 기록</h2>
+            <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
             {(matchResults ?? []).length === 0 ? (
-              <p className="text-gray-400 text-sm">기록된 대회 결과가 없습니다</p>
+              <p className="text-gray-400 text-sm">No tournament results recorded</p>
             ) : (
               <div className="space-y-2">
                 {(matchResults ?? []).map((r) => {
                   // eslint-disable-next-line @typescript-eslint/no-explicit-any
                   const m = r.matches as any
                   const stageInfo = m?.stages
-                  const seriesInfo = stageInfo?.series
-                  const tourInfo = seriesInfo?.tournaments
+                  const tourInfo = stageInfo?.tournaments
                   return (
                     <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
                       <div>
@@ -120,13 +115,11 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
                             {tourInfo.name}
                           </Link>
                         )}
-                        <p className="text-xs text-gray-400">
-                          {seriesInfo?.name} / {stageInfo?.name}
-                        </p>
+                        <p className="text-xs text-gray-400">{stageInfo?.name}</p>
                       </div>
                       <div className="text-right">
-                        <p className="text-base font-bold text-gray-900">{r.placement}위</p>
-                        <p className="text-xs text-gray-400">{r.total_kills}킬</p>
+                        <p className="text-base font-bold text-gray-900">#{r.placement}</p>
+                        <p className="text-xs text-gray-400">{r.total_kills} kills</p>
                       </div>
                     </div>
                   )

@@ -20,7 +20,7 @@ function LoginForm() {
     try {
       const { error } = await supabase.auth.signInWithPassword({ email, password })
       if (error) {
-        setError('이메일 또는 비밀번호가 올바르지 않습니다')
+        setError('Invalid email or password')
         return
       }
       const redirectTo = searchParams.get('redirectTo') ?? '/admin'
@@ -34,7 +34,7 @@ function LoginForm() {
   return (
     <form onSubmit={handleLogin} className="bg-gray-800 rounded-2xl p-8 shadow-xl space-y-4">
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1">이메일</label>
+        <label className="block text-xs font-medium text-gray-400 mb-1">Email</label>
         <input
           type="email"
           value={email}
@@ -46,7 +46,7 @@ function LoginForm() {
         />
       </div>
       <div>
-        <label className="block text-xs font-medium text-gray-400 mb-1">비밀번호</label>
+        <label className="block text-xs font-medium text-gray-400 mb-1">Password</label>
         <input
           type="password"
           value={password}
@@ -68,7 +68,7 @@ function LoginForm() {
         disabled={loading}
         className="w-full bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-gray-900 font-semibold rounded-lg py-2.5 text-sm transition-colors"
       >
-        {loading ? '로그인 중...' : '로그인'}
+        {loading ? 'Signing in...' : 'Sign In'}
       </button>
     </form>
   )
@@ -80,13 +80,13 @@ export default function AdminLoginPage() {
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
           <h1 className="text-2xl font-bold text-yellow-400">PUBG History</h1>
-          <p className="text-gray-400 text-sm mt-2">관리자 로그인</p>
+          <p className="text-gray-400 text-sm mt-2">Admin Login</p>
         </div>
         <Suspense fallback={<div className="bg-gray-800 rounded-2xl p-8 h-48" />}>
           <LoginForm />
         </Suspense>
         <p className="text-center text-xs text-gray-600 mt-6">
-          Supabase Auth로 관리자 계정을 생성하세요
+          Create admin account via Supabase Auth
         </p>
       </div>
     </div>

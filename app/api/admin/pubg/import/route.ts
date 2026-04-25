@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { fetchPubgMatch } from '@/lib/pubg-api'
+import { getSuffix } from '@/lib/scoring'
 import { cookies } from 'next/headers'
 
 async function getAuthUser() {
@@ -35,7 +36,7 @@ function majority(values: string[]): string | null {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
 }
 
-// DNS_Heaven → "DNS" (언더스코어 앞 태그 추출)
+// Extract team tag from player names: ["DNS_Heaven", "DNS_Kill"] → "DNS"
 function extractTeamTag(playerNames: string[]): string | null {
   if (playerNames.length === 0) return null
   const tags = playerNames.map((name) => {
@@ -48,24 +49,24 @@ function extractTeamTag(playerNames: string[]): string | null {
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) {
-    return NextResponse.json({ error: '인증이 필요합니다' }, { status: 401 })
+    return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
   }
 
   let body: { stageId?: string; pubgMatchId?: string }
   try {
     body = await req.json()
   } catch {
-    return NextResponse.json({ error: '잘못된 요청 형식' }, { status: 400 })
+    return NextResponse.json({ error: 'Invalid request format' }, { status: 400 })
   }
 
   const { stageId, pubgMatchId } = body
   if (!stageId || !pubgMatchId) {
-    return NextResponse.json({ error: 'stageId와 pubgMatchId가 필요합니다' }, { status: 400 })
+    return NextResponse.json({ error: 'stageId and pubgMatchId are required' }, { status: 400 })
   }
 
   const db = serviceClient()
 
-  // 중복 확인
+  // Duplicate check
   const { data: existing } = await db
     .from('matches')
     .select('id')
@@ -73,10 +74,10 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (existing) {
-    return NextResponse.json({ error: '이미 임포트된 Match ID입니다' }, { status: 409 })
+    return NextResponse.json({ error: 'Match ID already imported' }, { status: 409 })
   }
 
-  // matches 레코드 생성 (pending 상태)
+  // Create match record in pending status
   const orderRes = await db
     .from('matches')
     .select('order_num')
@@ -98,22 +99,22 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (insertErr || !matchRecord) {
-    return NextResponse.json({ error: '매치 레코드 생성 실패' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to create match record' }, { status: 500 })
   }
 
-  // PUBG API 호출
+  // Call PUBG API
   let matchData
   try {
     matchData = await fetchPubgMatch(pubgMatchId, 'tournament')
   } catch (err) {
     await db
       .from('matches')
-      .update({ status: 'error', error_msg: err instanceof Error ? err.message : 'API 오류' })
+      .update({ status: 'error', error_msg: err instanceof Error ? err.message : 'API error' })
       .eq('id', matchRecord.id)
-    return NextResponse.json({ error: err instanceof Error ? err.message : 'PUBG API 오류' }, { status: 500 })
+    return NextResponse.json({ error: err instanceof Error ? err.message : 'PUBG API error' }, { status: 500 })
   }
 
-  // 매치 메타 업데이트
+  // Update match metadata
   await db.from('matches').update({
     match_date: matchData.matchDate,
     map: matchData.map,
@@ -123,7 +124,7 @@ export async function POST(req: NextRequest) {
     error_msg: null,
   }).eq('id', matchRecord.id)
 
-  // ── 이름 → ID 룩업 맵 구성 (별칭 포함, 대소문자 무시) ──
+  // Build name → ID lookup maps (including aliases, case-insensitive)
   const [
     { data: teamAliasRows },
     { data: teamRows },
@@ -136,28 +137,49 @@ export async function POST(req: NextRequest) {
     db.from('players').select('id, nickname, team_id'),
   ])
 
-  // 팀 이름 → team_id (정식명 + 별칭)
+  // team name/alias → team_id
   const teamByName: Record<string, string> = {}
   for (const t of teamRows ?? []) teamByName[t.name.toLowerCase()] = t.id
   for (const a of teamAliasRows ?? []) teamByName[a.alias.toLowerCase()] = a.team_id
 
-  // 선수 닉네임 → player_id (정식 닉네임 + 별칭)
+  // player nickname/alias → player_id (exact match)
   const playerById: Record<string, string> = {}
   for (const p of playerRows ?? []) playerById[p.nickname.toLowerCase()] = p.id
   for (const a of playerAliasRows ?? []) playerById[a.alias.toLowerCase()] = a.player_id
 
-  // player_id → team_id (현재 소속 팀)
+  // player suffix → player_id[] (may have multiple matches)
+  const playerBySuffix: Record<string, string[]> = {}
+  const addSuffix = (name: string, playerId: string) => {
+    const suf = getSuffix(name).toLowerCase()
+    if (!playerBySuffix[suf]) playerBySuffix[suf] = []
+    if (!playerBySuffix[suf].includes(playerId)) playerBySuffix[suf].push(playerId)
+  }
+  for (const p of playerRows ?? []) addSuffix(p.nickname, p.id)
+  for (const a of playerAliasRows ?? []) addSuffix(a.alias, a.player_id)
+
+  // player_id → team_id (current team membership)
   const playerTeam: Record<string, string> = {}
   for (const p of playerRows ?? []) {
     if (p.team_id) playerTeam[p.id] = p.team_id
   }
 
-  // ── 선수 스탯 먼저 준비 (roster별 선수 → player_id 매핑) ──
+  function resolvePlayerId(pubgName: string): string | null {
+    // 1. Exact name/alias match
+    const exact = playerById[pubgName.toLowerCase()]
+    if (exact) return exact
+    // 2. Suffix match (unambiguous only)
+    const suf = getSuffix(pubgName).toLowerCase()
+    const candidates = playerBySuffix[suf] ?? []
+    if (candidates.length === 1) return candidates[0]
+    return null
+  }
+
+  // Prepare player stat rows
   const playerStatInserts = matchData.rosters.flatMap((roster) =>
     roster.participants.map((p) => ({
       match_id: matchRecord.id,
-      player_id: playerById[p.pubgPlayerName.toLowerCase()] ?? null,
-      team_id: null as string | null,  // 아래 팀 해소 후 채움
+      player_id: resolvePlayerId(p.pubgPlayerName),
+      team_id: null as string | null,
       pubg_account_id: p.pubgAccountId,
       pubg_player_name: p.pubgPlayerName,
       kills: p.kills,
@@ -169,22 +191,22 @@ export async function POST(req: NextRequest) {
       walk_distance: p.walkDistance,
       ride_distance: p.rideDistance,
       placement: roster.placement,
-      _rosterId: roster.pubgRosterId,  // 내부 계산용, DB엔 안 들어감
+      _rosterId: roster.pubgRosterId,
     }))
   )
 
-  // ── 팀 결과 준비: 선수 닉네임 태그로 팀 추적 ──
+  // Prepare team result rows
   const teamResultInserts = matchData.rosters.map((roster) => {
     const participants = roster.participants
     const playerNames = participants.map((p) => p.pubgPlayerName)
 
-    // 선수 이름에서 팀 태그 추출 (DNS_Heaven → "DNS")
+    // Extract team tag from player names: "DNS_Heaven" → "DNS"
     const teamTag = extractTeamTag(playerNames) ?? playerNames.join(', ')
 
-    // 1차: 태그로 팀 DB 조회
+    // 1st: look up team by tag
     let resolvedTeamId: string | null = teamByName[teamTag.toLowerCase()] ?? null
 
-    // 2차: 태그 미매핑 시 선수 소속 팀으로 역추적
+    // 2nd: fall back to known player → team membership
     if (!resolvedTeamId) {
       const resolvedPlayerIds = playerNames
         .map((n) => playerById[n.toLowerCase()])
@@ -199,20 +221,19 @@ export async function POST(req: NextRequest) {
       match_id: matchRecord.id,
       team_id: resolvedTeamId,
       pubg_roster_id: roster.pubgRosterId,
-      pubg_team_name: teamTag,  // 팀 태그 (예: "DNS")
+      pubg_team_name: teamTag,
       placement: roster.placement,
       total_kills: roster.totalKills,
       total_damage: participants.reduce((s, p) => s + p.damageDealt, 0),
     }
   })
 
-  // 팀 결과 → team_id를 선수 스탯에도 반영
+  // Propagate team_id to player stats
   for (const stat of playerStatInserts) {
     const rosterResult = teamResultInserts.find((t) => t.pubg_roster_id === stat._rosterId)
     stat.team_id = rosterResult?.team_id ?? null
   }
 
-  // DB 삽입 (_rosterId 제거)
   const cleanStats = playerStatInserts.map(({ _rosterId: _, ...rest }) => rest)
 
   if (teamResultInserts.length > 0) {
@@ -222,10 +243,9 @@ export async function POST(req: NextRequest) {
     await db.from('match_player_stats').insert(cleanStats)
   }
 
-  // 미매핑 집계
   const unmatchedTeamNames = teamResultInserts
     .filter((t) => !t.team_id)
-    .map((t) => t.pubg_team_name ?? '')  // 선수 이름 목록
+    .map((t) => t.pubg_team_name ?? '')
 
   const unmatchedPlayerNames = [...new Set(
     cleanStats.filter((p) => !p.player_id).map((p) => p.pubg_player_name ?? '')

@@ -5,10 +5,10 @@ import { createClient } from '@/lib/supabase/client'
 
 interface Props {
   currentUrl: string | null
-  storagePath: string          // e.g. "teams/uuid/logo"
+  storagePath: string
   onUpdate: (url: string | null) => void
-  shape?: 'square' | 'wide'   // square=팀/선수, wide=대회 배너
-  size?: 'sm' | 'lg'          // sm=리스트 행, lg=상세 페이지
+  shape?: 'square' | 'wide'
+  size?: 'sm' | 'lg'
   label?: string
 }
 
@@ -27,20 +27,18 @@ export default function ImageUpload({ currentUrl, storagePath, onUpdate, shape =
     const ext = file.name.split('.').pop() ?? 'jpg'
     const path = `${storagePath}.${ext}`
 
-    // 기존 파일 덮어쓰기 (upsert)
     const { error } = await supabase.storage.from(BUCKET).upload(path, file, {
       upsert: true,
       contentType: file.type,
     })
 
     if (error) {
-      alert('업로드 실패: ' + error.message)
+      alert('Upload failed: ' + error.message)
       setUploading(false)
       return
     }
 
     const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
-    // 캐시 버스팅: 쿼리스트링 추가
     const publicUrl = data.publicUrl + '?t=' + Date.now()
     setPreviewUrl(publicUrl)
     onUpdate(publicUrl)
@@ -53,7 +51,6 @@ export default function ImageUpload({ currentUrl, storagePath, onUpdate, shape =
     onUpdate(null)
   }
 
-  // ── 큰 업로드 영역 (대회 배너) ──
   if (size === 'lg') {
     return (
       <div className="space-y-2">
@@ -70,23 +67,23 @@ export default function ImageUpload({ currentUrl, storagePath, onUpdate, shape =
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-400 bg-gray-50">
               <span className="text-2xl mb-1">+</span>
-              <span className="text-xs">{uploading ? '업로드 중...' : '클릭하여 업로드'}</span>
+              <span className="text-xs">{uploading ? 'Uploading...' : 'Click to upload'}</span>
             </div>
           )}
           {uploading && (
             <div className="absolute inset-0 bg-white/70 flex items-center justify-center text-xs text-gray-500">
-              업로드 중...
+              Uploading...
             </div>
           )}
           {previewUrl && !uploading && (
             <div className="absolute inset-0 bg-black/0 hover:bg-black/20 transition-colors flex items-center justify-center opacity-0 hover:opacity-100">
-              <span className="text-white text-xs font-medium bg-black/50 px-2 py-1 rounded">변경</span>
+              <span className="text-white text-xs font-medium bg-black/50 px-2 py-1 rounded">Change</span>
             </div>
           )}
         </div>
         {previewUrl && (
           <button onClick={handleRemove} className="text-xs text-red-400 hover:text-red-600">
-            이미지 제거
+            Remove image
           </button>
         )}
         <input
@@ -100,13 +97,12 @@ export default function ImageUpload({ currentUrl, storagePath, onUpdate, shape =
     )
   }
 
-  // ── 소형 썸네일 (팀/선수 리스트 행) ──
   return (
     <div className="relative group">
       <button
         type="button"
         onClick={() => !uploading && inputRef.current?.click()}
-        title="클릭하여 이미지 변경"
+        title="Click to change image"
         className={`block rounded-lg overflow-hidden border border-gray-200 bg-gray-50 shrink-0
           ${shape === 'wide' ? 'w-16 h-10' : 'w-10 h-10'}`}
       >

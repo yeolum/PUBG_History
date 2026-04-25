@@ -4,9 +4,9 @@ import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
 
 const STATUS_LABEL: Record<string, string> = {
-  upcoming: '예정',
-  ongoing: '진행중',
-  completed: '종료',
+  upcoming: 'Upcoming',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
 }
 const STATUS_COLOR: Record<string, string> = {
   upcoming: 'bg-blue-100 text-blue-700',
@@ -33,14 +33,14 @@ export default async function HomePage() {
       <main className="max-w-6xl mx-auto px-4 py-10 w-full">
         <div className="mb-10">
           <h1 className="text-3xl font-bold text-gray-900">PUBG History</h1>
-          <p className="text-gray-500 mt-2">대회 기록, 팀 및 선수 프로필을 한눈에 확인하세요</p>
+          <p className="text-gray-500 mt-2">Tournament records, team and player profiles at a glance</p>
         </div>
 
         {ongoing.length > 0 && (
           <section className="mb-10">
             <h2 className="text-xl font-semibold text-gray-800 mb-4 flex items-center gap-2">
               <span className="w-2 h-2 rounded-full bg-green-500 inline-block" />
-              진행 중인 대회
+              Ongoing Tournaments
             </h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {ongoing.map((t) => <TournamentCard key={t.id} t={t} />)}
@@ -50,7 +50,7 @@ export default async function HomePage() {
 
         {upcoming.length > 0 && (
           <section className="mb-10">
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">예정된 대회</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Upcoming Tournaments</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {upcoming.map((t) => <TournamentCard key={t.id} t={t} />)}
             </div>
@@ -59,7 +59,7 @@ export default async function HomePage() {
 
         {completed.length > 0 && (
           <section>
-            <h2 className="text-xl font-semibold text-gray-800 mb-4">종료된 대회</h2>
+            <h2 className="text-xl font-semibold text-gray-800 mb-4">Completed Tournaments</h2>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {completed.map((t) => <TournamentCard key={t.id} t={t} />)}
             </div>
@@ -68,8 +68,8 @@ export default async function HomePage() {
 
         {list.length === 0 && (
           <div className="text-center py-20 text-gray-400">
-            <p className="text-lg">등록된 대회가 없습니다</p>
-            <p className="text-sm mt-2">관리자 페이지에서 대회를 추가하세요</p>
+            <p className="text-lg">No tournaments registered</p>
+            <p className="text-sm mt-2">Add tournaments from the admin page</p>
           </div>
         )}
       </main>

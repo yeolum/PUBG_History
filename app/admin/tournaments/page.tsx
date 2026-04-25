@@ -5,9 +5,9 @@ import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
 
-export const metadata: Metadata = { title: '대회 관리' }
+export const metadata: Metadata = { title: 'Tournament Management' }
 
-const STATUS_LABEL: Record<string, string> = { upcoming: '예정', ongoing: '진행중', completed: '종료' }
+const STATUS_LABEL: Record<string, string> = { upcoming: 'Upcoming', ongoing: 'Ongoing', completed: 'Completed' }
 const STATUS_COLOR: Record<string, string> = {
   upcoming: 'bg-blue-100 text-blue-700',
   ongoing: 'bg-green-100 text-green-700',
@@ -26,28 +26,28 @@ export default async function AdminTournamentsPage() {
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-8">
-        <h1 className="text-2xl font-bold text-gray-900">대회 관리</h1>
+        <h1 className="text-2xl font-bold text-gray-900">Tournament Management</h1>
         <Link
           href="/admin/tournaments/new"
           className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-sm px-4 py-2 rounded-lg transition-colors"
         >
-          + 새 대회
+          + New Tournament
         </Link>
       </div>
 
       {tournaments.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
-          등록된 대회가 없습니다
+          No tournaments registered
         </div>
       ) : (
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           <table className="w-full text-sm">
             <thead className="bg-gray-50 border-b border-gray-200">
               <tr>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">상태</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">대회명</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">기간</th>
-                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">지역</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Status</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Name</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Period</th>
+                <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Region</th>
                 <th className="px-5 py-3" />
               </tr>
             </thead>
@@ -72,7 +72,7 @@ export default async function AdminTournamentsPage() {
                       href={`/admin/tournaments/${t.id}`}
                       className="text-xs font-medium text-yellow-600 hover:text-yellow-700"
                     >
-                      관리 →
+                      Manage →
                     </Link>
                   </td>
                 </tr>

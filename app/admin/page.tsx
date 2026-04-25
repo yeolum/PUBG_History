@@ -3,7 +3,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const dynamic = 'force-dynamic'
-export const metadata: Metadata = { title: '관리자 대시보드' }
+export const metadata: Metadata = { title: 'Admin Dashboard' }
 
 export default async function AdminDashboardPage() {
   const supabase = await createClient()
@@ -21,44 +21,41 @@ export default async function AdminDashboardPage() {
     supabase.from('matches').select('*', { count: 'exact', head: true }).eq('status', 'imported'),
     supabase
       .from('matches')
-      .select('id, pubg_match_id, match_date, status, stages(name, series(name, tournaments(name)))')
+      .select('id, pubg_match_id, match_date, status, stages(name, tournaments(name))')
       .order('created_at', { ascending: false })
       .limit(5),
   ])
 
   return (
     <div className="p-8">
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">대시보드</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-8">Dashboard</h1>
 
-      {/* 요약 카드 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-        <StatCard label="대회" value={tourCount ?? 0} href="/admin/tournaments" />
-        <StatCard label="팀" value={teamCount ?? 0} href="/admin/teams" />
-        <StatCard label="선수" value={playerCount ?? 0} href="/admin/players" />
-        <StatCard label="임포트된 매치" value={matchCount ?? 0} />
+        <StatCard label="Tournaments" value={tourCount ?? 0} href="/admin/tournaments" />
+        <StatCard label="Teams" value={teamCount ?? 0} href="/admin/teams" />
+        <StatCard label="Players" value={playerCount ?? 0} href="/admin/players" />
+        <StatCard label="Imported Matches" value={matchCount ?? 0} />
       </div>
 
-      {/* 최근 임포트된 매치 */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
-        <h2 className="text-base font-semibold text-gray-800 mb-4">최근 매치</h2>
+        <h2 className="text-base font-semibold text-gray-800 mb-4">Recent Matches</h2>
         {(recentMatches ?? []).length === 0 ? (
-          <p className="text-sm text-gray-400">임포트된 매치가 없습니다</p>
+          <p className="text-sm text-gray-400">No imported matches</p>
         ) : (
           <div className="space-y-2">
             {(recentMatches ?? []).map((m) => {
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
               const s = (m.stages as any)
-              const ser = s?.series
-              const t = ser?.tournaments
+              const t = s?.tournaments
               return (
                 <div key={m.id} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                   <div>
                     <p className="text-sm font-medium text-gray-800">{t?.name ?? '-'}</p>
-                    <p className="text-xs text-gray-400">{ser?.name} / {s?.name}</p>
+                    <p className="text-xs text-gray-400">{s?.name}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     {m.match_date && (
-                      <span className="text-xs text-gray-400">{new Date(m.match_date).toLocaleDateString('ko-KR')}</span>
+                      <span className="text-xs text-gray-400">{new Date(m.match_date).toLocaleDateString('en-US')}</span>
                     )}
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
                       m.status === 'imported' ? 'bg-green-100 text-green-700' :
@@ -72,11 +69,10 @@ export default async function AdminDashboardPage() {
         )}
       </div>
 
-      {/* 바로가기 */}
       <div className="grid sm:grid-cols-3 gap-4 mt-6">
-        <QuickLink href="/admin/tournaments/new" label="+ 새 대회 만들기" />
-        <QuickLink href="/admin/teams" label="팀 관리" />
-        <QuickLink href="/admin/players" label="선수 관리" />
+        <QuickLink href="/admin/tournaments/new" label="+ New Tournament" />
+        <QuickLink href="/admin/teams" label="Team Management" />
+        <QuickLink href="/admin/players" label="Player Management" />
       </div>
     </div>
   )

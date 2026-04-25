@@ -59,13 +59,13 @@ export default function AdminTournamentDetailPage() {
       banner_url: form.banner_url ?? null,
     }).eq('id', id)
     setSaving(false)
-    if (error) { setErr('저장 실패: ' + error.message); return }
+    if (error) { setErr('Save failed: ' + error.message); return }
     setEditMode(false)
     load()
   }
 
   async function deleteTournament() {
-    if (!confirm('이 대회를 삭제하시겠습니까? 모든 관련 데이터가 삭제됩니다.')) return
+    if (!confirm('Delete this tournament? All related data will be removed.')) return
     await supabase.from('tournaments').delete().eq('id', id)
     router.push('/admin/tournaments')
   }
@@ -80,24 +80,24 @@ export default function AdminTournamentDetailPage() {
       type: newStageType,
       order_num: maxOrder,
     }])
-    if (error) { setErr('스테이지 추가 실패: ' + error.message); return }
+    if (error) { setErr('Failed to add stage: ' + error.message); return }
     setAddingStage(false)
     setNewStageName('')
     await load()
   }
 
   async function deleteStage(stageId: string) {
-    if (!confirm('이 스테이지와 모든 매치를 삭제하시겠습니까?')) return
+    if (!confirm('Delete this stage and all its matches?')) return
     await supabase.from('stages').delete().eq('id', stageId)
     load()
   }
 
-  if (!tournament) return <div className="p-8 text-gray-400">로딩 중...</div>
+  if (!tournament) return <div className="p-8 text-gray-400">Loading...</div>
 
   return (
     <div className="p-8 max-w-4xl">
       <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
-        <Link href="/admin/tournaments" className="hover:text-gray-600">대회 관리</Link>
+        <Link href="/admin/tournaments" className="hover:text-gray-600">Tournaments</Link>
         <span>/</span>
         <span className="text-gray-700">{tournament.name}</span>
       </div>
@@ -109,7 +109,6 @@ export default function AdminTournamentDetailPage() {
         </div>
       )}
 
-      {/* 대회 정보 */}
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
         <div className="flex items-start justify-between mb-4">
           <h1 className="text-xl font-bold text-gray-900">{tournament.name}</h1>
@@ -118,22 +117,22 @@ export default function AdminTournamentDetailPage() {
               <>
                 <button onClick={() => setEditMode(true)}
                   className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700">
-                  수정
+                  Edit
                 </button>
                 <button onClick={deleteTournament}
                   className="text-sm px-3 py-1.5 border border-red-200 rounded-lg hover:bg-red-50 text-red-600">
-                  삭제
+                  Delete
                 </button>
               </>
             ) : (
               <>
                 <button onClick={saveTournament} disabled={saving}
                   className="text-sm px-3 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium">
-                  {saving ? '저장...' : '저장'}
+                  {saving ? 'Saving...' : 'Save'}
                 </button>
                 <button onClick={() => { setEditMode(false); setForm(tournament) }}
                   className="text-sm px-3 py-1.5 border border-gray-300 rounded-lg hover:bg-gray-50 text-gray-700">
-                  취소
+                  Cancel
                 </button>
               </>
             )}
@@ -143,48 +142,48 @@ export default function AdminTournamentDetailPage() {
         {editMode ? (
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
-              <label className="text-xs text-gray-500 block mb-1">대회명</label>
+              <label className="text-xs text-gray-500 block mb-1">Tournament Name</label>
               <input value={form.name ?? ''} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">약어</label>
+              <label className="text-xs text-gray-500 block mb-1">Tag</label>
               <input value={form.short_name ?? ''} onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">상태</label>
+              <label className="text-xs text-gray-500 block mb-1">Status</label>
               <select value={form.status ?? 'upcoming'} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as TournamentStatus }))} className={INPUT_CLS}>
-                <option value="upcoming">예정</option>
-                <option value="ongoing">진행중</option>
-                <option value="completed">종료</option>
+                <option value="upcoming">Upcoming</option>
+                <option value="ongoing">Ongoing</option>
+                <option value="completed">Completed</option>
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">형식</label>
+              <label className="text-xs text-gray-500 block mb-1">Format</label>
               <select value={form.type ?? 'online'} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as TournamentType }))} className={INPUT_CLS}>
-                <option value="online">온라인</option>
+                <option value="online">Online</option>
                 <option value="lan">LAN</option>
-                <option value="regional">지역</option>
-                <option value="global">글로벌</option>
+                <option value="regional">Regional</option>
+                <option value="global">Global</option>
               </select>
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">지역</label>
+              <label className="text-xs text-gray-500 block mb-1">Region</label>
               <input value={form.region ?? ''} onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">시작일</label>
+              <label className="text-xs text-gray-500 block mb-1">Start Date</label>
               <input type="date" value={form.start_date ?? ''} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">종료일</label>
+              <label className="text-xs text-gray-500 block mb-1">End Date</label>
               <input type="date" value={form.end_date ?? ''} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">상금</label>
+              <label className="text-xs text-gray-500 block mb-1">Prize Pool</label>
               <input value={form.prize_pool ?? ''} onChange={(e) => setForm((f) => ({ ...f, prize_pool: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div className="col-span-2">
-              <label className="text-xs text-gray-500 block mb-1">설명</label>
+              <label className="text-xs text-gray-500 block mb-1">Description</label>
               <textarea value={form.description ?? ''} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} rows={2} className={INPUT_CLS} />
             </div>
             <div className="col-span-2">
@@ -194,7 +193,7 @@ export default function AdminTournamentDetailPage() {
                 onUpdate={(url) => setForm((f) => ({ ...f, banner_url: url ?? undefined }))}
                 shape="wide"
                 size="lg"
-                label="대회 로고 / 배너"
+                label="Tournament Logo / Banner"
               />
             </div>
           </div>
@@ -206,21 +205,21 @@ export default function AdminTournamentDetailPage() {
             )}
           <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
             {[
-              ['상태', tournament.status === 'upcoming' ? '예정' : tournament.status === 'ongoing' ? '진행중' : '종료'],
-              ['형식', tournament.type],
-              ['지역', tournament.region ?? '-'],
-              ['상금', tournament.prize_pool ?? '-'],
-              ['기간', `${tournament.start_date ?? '?'} ~ ${tournament.end_date ?? '?'}`],
-              ['약어', tournament.short_name ?? '-'],
+              ['Status', tournament.status === 'upcoming' ? 'Upcoming' : tournament.status === 'ongoing' ? 'Ongoing' : 'Completed'],
+              ['Format', tournament.type],
+              ['Region', tournament.region ?? '-'],
+              ['Prize Pool', tournament.prize_pool ?? '-'],
+              ['Period', `${tournament.start_date ?? '?'} ~ ${tournament.end_date ?? '?'}`],
+              ['Tag', tournament.short_name ?? '-'],
             ].map(([k, v]) => (
               <div key={k} className="flex gap-2">
-                <span className="text-gray-400 w-16 shrink-0">{k}</span>
+                <span className="text-gray-400 w-20 shrink-0">{k}</span>
                 <span className="text-gray-800">{v}</span>
               </div>
             ))}
             {tournament.description && (
               <div className="col-span-2 flex gap-2">
-                <span className="text-gray-400 w-16 shrink-0">설명</span>
+                <span className="text-gray-400 w-20 shrink-0">Description</span>
                 <span className="text-gray-600">{tournament.description}</span>
               </div>
             )}
@@ -229,13 +228,12 @@ export default function AdminTournamentDetailPage() {
         )}
       </div>
 
-      {/* 스테이지 목록 */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">스테이지</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-4">Stages</h2>
 
         <div className="space-y-2">
           {stageList.length === 0 && !addingStage && (
-            <p className="text-sm text-gray-400 text-center py-4">아직 스테이지가 없습니다.</p>
+            <p className="text-sm text-gray-400 text-center py-4">No stages yet.</p>
           )}
 
           {stageList
@@ -246,19 +244,19 @@ export default function AdminTournamentDetailPage() {
                 <div>
                   <span className="text-sm font-medium text-gray-800">{stage.name}</span>
                   <span className="ml-2 text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
-                    {stage.type === 'group' ? '그룹' : stage.type === 'playoff' ? '플레이오프' : '파이널'}
+                    {stage.type === 'group' ? 'Group' : stage.type === 'playoff' ? 'Playoff' : 'Final'}
                   </span>
-                  <span className="ml-2 text-xs text-gray-400">{stage.matches.length}경기</span>
+                  <span className="ml-2 text-xs text-gray-400">{stage.matches.length} matches</span>
                 </div>
                 <div className="flex gap-3">
                   <Link
                     href={`/admin/tournaments/${id}/stages/${stage.id}`}
                     className="text-xs font-medium text-yellow-600 hover:text-yellow-700"
                   >
-                    매치 관리 →
+                    Manage →
                   </Link>
                   <button onClick={() => deleteStage(stage.id)}
-                    className="text-xs text-red-400 hover:text-red-600">삭제</button>
+                    className="text-xs text-red-400 hover:text-red-600">Delete</button>
                 </div>
               </div>
             ))}
@@ -269,29 +267,29 @@ export default function AdminTournamentDetailPage() {
                 autoFocus
                 value={newStageName}
                 onChange={(e) => setNewStageName(e.target.value)}
-                placeholder="스테이지 이름"
+                placeholder="Stage name"
                 className="flex-1 border border-gray-300 rounded px-2 py-1 text-sm min-w-0"
                 onKeyDown={(e) => { if (e.key === 'Enter') addStage() }}
               />
               <select value={newStageType} onChange={(e) => setNewStageType(e.target.value)}
                 className="border border-gray-300 rounded px-2 py-1 text-sm">
-                <option value="group">그룹</option>
-                <option value="playoff">플레이오프</option>
-                <option value="grand_final">파이널</option>
+                <option value="group">Group</option>
+                <option value="playoff">Playoff</option>
+                <option value="grand_final">Final</option>
               </select>
               <button onClick={addStage}
                 className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 text-xs font-medium px-3 py-1 rounded">
-                추가
+                Add
               </button>
               <button onClick={() => { setAddingStage(false); setNewStageName('') }}
-                className="text-xs text-gray-400 hover:text-gray-600 px-2">취소</button>
+                className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
             </div>
           ) : (
             <button
               onClick={() => { setAddingStage(true); setNewStageName(''); setNewStageType('group') }}
               className="w-full border border-dashed border-gray-300 rounded-lg py-2.5 text-sm text-gray-400 hover:text-gray-600 hover:border-gray-400 transition-colors bg-white"
             >
-              + 스테이지 추가
+              + Add Stage
             </button>
           )}
         </div>

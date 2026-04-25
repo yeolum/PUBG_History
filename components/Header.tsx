@@ -1,9 +1,9 @@
 import Link from 'next/link'
 
 const NAV = [
-  { href: '/tournaments', label: '대회' },
-  { href: '/teams', label: '팀' },
-  { href: '/players', label: '선수' },
+  { href: '/tournaments', label: 'Tournaments' },
+  { href: '/teams', label: 'Teams' },
+  { href: '/players', label: 'Players' },
 ]
 
 export default function Header() {

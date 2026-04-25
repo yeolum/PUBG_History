@@ -11,7 +11,7 @@ interface SearchResult {
 
 interface SearchModalProps {
   type: 'team' | 'player'
-  targetName: string       // 연결할 원본 이름 (PUBG API 이름)
+  targetName: string
   onConfirm: (id: string, name: string) => void
   onClose: () => void
 }
@@ -64,11 +64,10 @@ export default function SearchModal({ type, targetName, onConfirm, onClose }: Se
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" onClick={(e) => e.stopPropagation()}>
         <div className="mb-4">
           <h3 className="text-lg font-semibold text-gray-900">
-            {type === 'team' ? '팀' : '선수'} 연결
+            Link {type === 'team' ? 'Team' : 'Player'}
           </h3>
           <p className="text-sm text-gray-500 mt-1">
-            <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-yellow-700">{targetName}</span>을
-            기존 {type === 'team' ? '팀' : '선수'}에 연결합니다
+            Link <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-yellow-700">{targetName}</span> to an existing {type}
           </p>
         </div>
 
@@ -77,14 +76,14 @@ export default function SearchModal({ type, targetName, onConfirm, onClose }: Se
           type="text"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder={`${type === 'team' ? '팀' : '선수'} 이름 검색...`}
+          placeholder={`Search ${type} name...`}
           className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 mb-3"
         />
 
         <div className="min-h-[120px] max-h-60 overflow-y-auto">
-          {loading && <p className="text-sm text-gray-400 py-4 text-center">검색 중...</p>}
+          {loading && <p className="text-sm text-gray-400 py-4 text-center">Searching...</p>}
           {!loading && results.length === 0 && query.trim() && (
-            <p className="text-sm text-gray-400 py-4 text-center">검색 결과 없음</p>
+            <p className="text-sm text-gray-400 py-4 text-center">No results found</p>
           )}
           {results.map((r) => (
             <button
@@ -102,7 +101,7 @@ export default function SearchModal({ type, targetName, onConfirm, onClose }: Se
 
         <div className="mt-4 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 text-sm text-gray-600 hover:text-gray-800">
-            취소
+            Cancel
           </button>
         </div>
       </div>

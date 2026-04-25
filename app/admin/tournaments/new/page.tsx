@@ -28,7 +28,7 @@ export default function NewTournamentPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.name.trim()) { setError('대회명을 입력하세요'); return }
+    if (!form.name.trim()) { setError('Tournament name is required'); return }
     setSaving(true)
     setError('')
     try {
@@ -47,7 +47,7 @@ export default function NewTournamentPage() {
       if (error) throw error
       router.push(`/admin/tournaments/${data.id}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : '저장 실패')
+      setError(err instanceof Error ? err.message : 'Failed to save')
     } finally {
       setSaving(false)
     }
@@ -55,67 +55,67 @@ export default function NewTournamentPage() {
 
   return (
     <div className="p-8 max-w-2xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-8">새 대회 만들기</h1>
+      <h1 className="text-2xl font-bold text-gray-900 mb-8">New Tournament</h1>
 
       <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        <Field label="대회명 *">
+        <Field label="Tournament Name *">
           <input
             value={form.name}
             onChange={(e) => set('name', e.target.value)}
-            placeholder="예: PUBG Global Series 2025"
+            placeholder="e.g. PUBG Global Series 2025"
             className={INPUT_CLS}
             required
           />
         </Field>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="약어 (태그)">
+          <Field label="Tag">
             <input value={form.short_name} onChange={(e) => set('short_name', e.target.value)}
               placeholder="PGS25" className={INPUT_CLS} />
           </Field>
-          <Field label="형식">
+          <Field label="Format">
             <select value={form.type} onChange={(e) => set('type', e.target.value)} className={INPUT_CLS}>
-              <option value="online">온라인</option>
+              <option value="online">Online</option>
               <option value="lan">LAN</option>
-              <option value="regional">지역 대회</option>
-              <option value="global">글로벌</option>
+              <option value="regional">Regional</option>
+              <option value="global">Global</option>
             </select>
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="지역">
+          <Field label="Region">
             <input value={form.region} onChange={(e) => set('region', e.target.value)}
               placeholder="Korea, Global..." className={INPUT_CLS} />
           </Field>
-          <Field label="상금">
+          <Field label="Prize Pool">
             <input value={form.prize_pool} onChange={(e) => set('prize_pool', e.target.value)}
               placeholder="$1,000,000" className={INPUT_CLS} />
           </Field>
         </div>
 
         <div className="grid grid-cols-2 gap-4">
-          <Field label="시작일">
+          <Field label="Start Date">
             <input type="date" value={form.start_date} onChange={(e) => set('start_date', e.target.value)}
               className={INPUT_CLS} />
           </Field>
-          <Field label="종료일">
+          <Field label="End Date">
             <input type="date" value={form.end_date} onChange={(e) => set('end_date', e.target.value)}
               className={INPUT_CLS} />
           </Field>
         </div>
 
-        <Field label="상태">
+        <Field label="Status">
           <select value={form.status} onChange={(e) => set('status', e.target.value)} className={INPUT_CLS}>
-            <option value="upcoming">예정</option>
-            <option value="ongoing">진행중</option>
-            <option value="completed">종료</option>
+            <option value="upcoming">Upcoming</option>
+            <option value="ongoing">Ongoing</option>
+            <option value="completed">Completed</option>
           </select>
         </Field>
 
-        <Field label="설명">
+        <Field label="Description">
           <textarea value={form.description} onChange={(e) => set('description', e.target.value)}
-            rows={3} placeholder="대회에 대한 설명..." className={INPUT_CLS} />
+            rows={3} placeholder="Tournament description..." className={INPUT_CLS} />
         </Field>
 
         {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{error}</p>}
@@ -123,10 +123,10 @@ export default function NewTournamentPage() {
         <div className="flex gap-3 pt-2">
           <button type="submit" disabled={saving}
             className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-gray-900 font-semibold px-6 py-2 rounded-lg text-sm transition-colors">
-            {saving ? '저장 중...' : '대회 만들기'}
+            {saving ? 'Saving...' : 'Create Tournament'}
           </button>
           <button type="button" onClick={() => router.back()}
-            className="px-6 py-2 text-sm text-gray-600 hover:text-gray-800">취소</button>
+            className="px-6 py-2 text-sm text-gray-600 hover:text-gray-800">Cancel</button>
         </div>
       </form>
     </div>
