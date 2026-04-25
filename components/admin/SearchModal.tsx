@@ -12,11 +12,12 @@ interface SearchResult {
 interface SearchModalProps {
   type: 'team' | 'player'
   targetName: string
+  subtext?: string
   onConfirm: (id: string, name: string) => void
   onClose: () => void
 }
 
-export default function SearchModal({ type, targetName, onConfirm, onClose }: SearchModalProps) {
+export default function SearchModal({ type, targetName, subtext, onConfirm, onClose }: SearchModalProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -69,6 +70,9 @@ export default function SearchModal({ type, targetName, onConfirm, onClose }: Se
           <p className="text-sm text-gray-500 mt-1">
             Link <span className="font-mono bg-gray-100 px-1.5 py-0.5 rounded text-yellow-700">{targetName}</span> to an existing {type}
           </p>
+          {subtext && (
+            <p className="text-xs text-blue-600 mt-1">{subtext}</p>
+          )}
         </div>
 
         <input

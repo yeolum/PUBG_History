@@ -42,9 +42,8 @@ export default function AdminTournamentDetailPage() {
 
   const [linkModal, setLinkModal] = useState<{
     type: 'team' | 'player'
-    targetName: string
-    matchId: string
-    rowId: string
+    pubgName: string
+    matchCount: number
   } | null>(null)
 
   const load = useCallback(async () => {
@@ -115,44 +114,58 @@ export default function AdminTournamentDetailPage() {
     load()
   }
 
-  async function linkTeam(matchId: string, teamResultId: string, teamId: string) {
-    const row = stageList
-      .flatMap((s) => s.matches)
-      .find((m) => m.id === matchId)
-      ?.match_team_results.find((r) => r.id === teamResultId)
+  async function linkTeam(pubgTeamName: string, teamId: string) {
+    const allMatches = stageList.flatMap((s) => s.matches)
+    const allMatchIds = allMatches.map((m) => m.id)
 
-    await supabase.from('match_team_results').update({ team_id: teamId }).eq('id', teamResultId)
+    // Collect (matchId, placement) for every row sharing this PUBG team name
+    const affectedRows = allMatches.flatMap((m) =>
+      m.match_team_results
+        .filter((r) => r.pubg_team_name === pubgTeamName)
+        .map((r) => ({ matchId: m.id, placement: r.placement }))
+    )
 
-    if (row?.pubg_team_name) {
-      await supabase.from('team_aliases').upsert(
-        [{ team_id: teamId, alias: row.pubg_team_name }],
-        { onConflict: 'alias', ignoreDuplicates: true }
-      )
-      await supabase
-        .from('match_player_stats')
-        .update({ team_id: teamId })
-        .eq('match_id', matchId)
-        .is('team_id', null)
-        .eq('placement', row.placement ?? -1)
+    // Link all team result rows with this name across the tournament
+    await supabase
+      .from('match_team_results')
+      .update({ team_id: teamId })
+      .in('match_id', allMatchIds)
+      .eq('pubg_team_name', pubgTeamName)
+
+    // Update player stats for each affected match/placement pair
+    for (const { matchId, placement } of affectedRows) {
+      if (placement != null) {
+        await supabase
+          .from('match_player_stats')
+          .update({ team_id: teamId })
+          .eq('match_id', matchId)
+          .eq('placement', placement)
+          .is('team_id', null)
+      }
     }
+
+    await supabase.from('team_aliases').upsert(
+      [{ team_id: teamId, alias: pubgTeamName }],
+      { onConflict: 'alias', ignoreDuplicates: true }
+    )
     setLinkModal(null)
     load()
   }
 
-  async function linkPlayer(matchId: string, statId: string, playerId: string) {
-    const row = stageList
-      .flatMap((s) => s.matches)
-      .find((m) => m.id === matchId)
-      ?.match_player_stats.find((s) => s.id === statId)
+  async function linkPlayer(pubgPlayerName: string, playerId: string) {
+    const allMatchIds = stageList.flatMap((s) => s.matches.map((m) => m.id))
 
-    await supabase.from('match_player_stats').update({ player_id: playerId }).eq('id', statId)
+    // Link all player stat rows with this PUBG name across the tournament
+    await supabase
+      .from('match_player_stats')
+      .update({ player_id: playerId })
+      .in('match_id', allMatchIds)
+      .eq('pubg_player_name', pubgPlayerName)
 
-    if (row?.pubg_player_name) {
-      await supabase.from('player_aliases').upsert(
-        [{ player_id: playerId, alias: row.pubg_player_name }],
-        { onConflict: 'alias', ignoreDuplicates: true }
-      )
-    }
+    await supabase.from('player_aliases').upsert(
+      [{ player_id: playerId, alias: pubgPlayerName }],
+      { onConflict: 'alias', ignoreDuplicates: true }
+    )
     setLinkModal(null)
     load()
   }
@@ -441,12 +454,13 @@ export default function AdminTournamentDetailPage() {
                                       <td className="py-1 text-right font-bold text-gray-900">{r.matchPts}</td>
                                       <td className="py-1 text-right">
                                         <button
-                                          onClick={() => setLinkModal({
-                                            type: 'team',
-                                            targetName: r.pubg_team_name ?? r.teams?.name ?? '',
-                                            matchId: selectedMatch.id,
-                                            rowId: r.id,
-                                          })}
+                                          onClick={() => {
+                                            const pubgName = r.pubg_team_name ?? r.teams?.name ?? ''
+                                            const matchCount = stageList.flatMap((s) => s.matches).filter((m) =>
+                                              m.match_team_results.some((tr) => tr.pubg_team_name === pubgName)
+                                            ).length
+                                            setLinkModal({ type: 'team', pubgName, matchCount })
+                                          }}
                                           className="text-[10px] text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 border border-gray-200 hover:border-yellow-400 rounded"
                                         >
                                           Edit
@@ -491,12 +505,13 @@ export default function AdminTournamentDetailPage() {
                                           <td className="py-1 text-right text-gray-500">{Number(s.damage_dealt).toFixed(0)}</td>
                                           <td className="py-1 text-right">
                                             <button
-                                              onClick={() => setLinkModal({
-                                                type: 'player',
-                                                targetName: s.pubg_player_name ?? '',
-                                                matchId: selectedMatch.id,
-                                                rowId: s.id,
-                                              })}
+                                              onClick={() => {
+                                                const pubgName = s.pubg_player_name ?? ''
+                                                const matchCount = stageList.flatMap((st) => st.matches).filter((m) =>
+                                                  m.match_player_stats.some((ps) => ps.pubg_player_name === pubgName)
+                                                ).length
+                                                setLinkModal({ type: 'player', pubgName, matchCount })
+                                              }}
                                               className="text-[10px] text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 border border-gray-200 hover:border-yellow-400 rounded"
                                             >
                                               {s.player_id ? 'Edit' : 'Link'}
@@ -554,13 +569,13 @@ export default function AdminTournamentDetailPage() {
       {linkModal && (
         <SearchModal
           type={linkModal.type}
-          targetName={linkModal.targetName}
-          onConfirm={(entityId, entityName) => {
-            void entityName
+          targetName={linkModal.pubgName}
+          subtext={linkModal.matchCount > 1 ? `Will link across all ${linkModal.matchCount} matches in this tournament` : undefined}
+          onConfirm={(entityId) => {
             if (linkModal.type === 'team') {
-              linkTeam(linkModal.matchId, linkModal.rowId, entityId)
+              linkTeam(linkModal.pubgName, entityId)
             } else {
-              linkPlayer(linkModal.matchId, linkModal.rowId, entityId)
+              linkPlayer(linkModal.pubgName, entityId)
             }
           }}
           onClose={() => setLinkModal(null)}
