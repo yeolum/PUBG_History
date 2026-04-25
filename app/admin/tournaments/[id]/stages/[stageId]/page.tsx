@@ -48,7 +48,7 @@ function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
         statMap.set(key, {
           key,
           teamId: r.team_id ?? null,
-          teamName: r.teams?.name ?? r.pubg_team_name ?? '?',
+          teamName: r.pubg_team_name ?? r.teams?.name ?? '?',
           matchesPlayed: 0,
           totalPts: 0,
           totalPlacementPts: 0,
@@ -373,10 +373,11 @@ export default function StageMatchesPage() {
                           <tr key={r.id} className="border-b border-gray-50 last:border-0">
                             <td className="py-1.5 text-gray-400 font-mono">{i + 1}</td>
                             <td className="py-1.5">
-                              {r.team_id ? (
-                                <span className="font-medium text-gray-800">{r.teams?.name ?? '-'}</span>
-                              ) : (
-                                <span className="text-orange-600 font-medium">{r.pubg_team_name ?? '-'}</span>
+                              <span className={`font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
+                                {r.pubg_team_name ?? r.teams?.name ?? '-'}
+                              </span>
+                              {r.team_id && r.teams?.name && r.pubg_team_name && r.pubg_team_name !== r.teams.name && (
+                                <span className="ml-1 text-[10px] text-gray-400">→ {r.teams.name}</span>
                               )}
                             </td>
                             <td className="py-1.5 text-right text-gray-500">{r.placement}</td>
