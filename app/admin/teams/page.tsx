@@ -89,8 +89,17 @@ export default function AdminTeamsPage() {
   }
 
   async function updateAliasLogo(teamId: string, alias: string, url: string | null) {
-    const { error } = await supabase.from('team_aliases').update({ logo_url: url }).eq('team_id', teamId).eq('alias', alias)
+    const { data, error } = await supabase
+      .from('team_aliases')
+      .update({ logo_url: url })
+      .eq('team_id', teamId)
+      .eq('alias', alias)
+      .select('logo_url')
     if (error) { alert('Failed to save alias logo: ' + error.message); return }
+    if (!data?.length) {
+      alert('Alias logo could not be saved.\nLikely cause: missing UPDATE policy on team_aliases.\nRun the latest migration SQL in Supabase dashboard.')
+      return
+    }
     setRows((rs) => rs.map((r) => r.id === teamId ? {
       ...r,
       aliases: r.aliases.map((a) => a.alias === alias ? { ...a, logo_url: url } : a),

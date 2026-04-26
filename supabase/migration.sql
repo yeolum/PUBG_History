@@ -61,6 +61,16 @@ ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS stage_rank INT;
 ALTER TABLE team_aliases ADD COLUMN IF NOT EXISTS logo_url TEXT;
 ALTER TABLE player_aliases ADD COLUMN IF NOT EXISTS profile_pic TEXT;
 
+-- RLS UPDATE policies for alias tables (required for admin logo save)
+-- If RLS is enabled on these tables, run the following:
+CREATE POLICY IF NOT EXISTS "team_aliases_update_auth"
+  ON team_aliases FOR UPDATE
+  USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY IF NOT EXISTS "player_aliases_update_auth"
+  ON player_aliases FOR UPDATE
+  USING (auth.uid() IS NOT NULL);
+
 -- =====================================================
 -- Migration: display_name for historical team/player name in match results
 -- Supabase SQL Editor에서 실행하세요
