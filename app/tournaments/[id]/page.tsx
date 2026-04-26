@@ -98,6 +98,21 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     }
   }
 
+  // Cross-reference alias logos via pubg_team_name:
+  // e.g. alias "DNS" has logo → also make it findable by displayed name "DNS Gaming" (teams.name)
+  for (const rows of Object.values(resultsByMatch)) {
+    for (const r of rows as AnyRow[]) {
+      if (!r.team_id || !r.pubg_team_name) continue
+      const aliasLogo = aliasLogoLookup[`${r.team_id}:${r.pubg_team_name}`]
+      if (!aliasLogo) continue
+      const displayedName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? ''
+      const displayKey = `${r.team_id}:${displayedName}`
+      if (!(displayKey in aliasLogoLookup)) {
+        aliasLogoLookup[displayKey] = aliasLogo
+      }
+    }
+  }
+
   // Roster query — players with nationality per team
   const allImportedMatchIds = stagesList.flatMap((s) =>
     s.matches.filter((m) => m.status === 'imported').map((m) => m.id)
@@ -116,7 +131,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
       if (r.team_id && !teamRosterMap.has(r.team_id)) {
-        const displayName = r.display_name ?? r.pubg_team_name ?? r.teams?.name ?? '?'
+        const displayName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
         const resolvedLogo = aliasLogoLookup[`${r.team_id}:${displayName}`] ?? aliasLogoLookup[`${r.team_id}:`] ?? null
         teamRosterMap.set(r.team_id, {
           name: displayName,
@@ -162,7 +177,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         if (!ptsMap.has(key)) {
           ptsMap.set(key, {
             teamId: row.team_id ?? null,
-            teamName: row.display_name ?? row.pubg_team_name ?? row.teams?.name ?? '?',
+            teamName: row.display_name ?? row.teams?.name ?? row.pubg_team_name ?? '?',
             totalPts: 0, placePts: 0,
           })
         }
