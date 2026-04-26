@@ -1,4 +1,39 @@
 -- =====================================================
+-- Migration: storage bucket for images (logos, banners, profile pics)
+-- =====================================================
+
+-- Create public 'images' bucket
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'images',
+  'images',
+  true,
+  5242880,  -- 5MB
+  ARRAY['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/svg+xml']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Public read (anyone can view uploaded images)
+CREATE POLICY IF NOT EXISTS "images_public_read"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'images');
+
+-- Authenticated upload
+CREATE POLICY IF NOT EXISTS "images_auth_insert"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'images');
+
+-- Authenticated update (upsert)
+CREATE POLICY IF NOT EXISTS "images_auth_update"
+  ON storage.objects FOR UPDATE
+  USING (bucket_id = 'images');
+
+-- Authenticated delete
+CREATE POLICY IF NOT EXISTS "images_auth_delete"
+  ON storage.objects FOR DELETE
+  USING (bucket_id = 'images');
+
+-- =====================================================
 -- Migration: tournament prize & points configuration
 -- =====================================================
 ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS has_prize BOOLEAN NOT NULL DEFAULT FALSE;
