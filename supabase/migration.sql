@@ -87,6 +87,22 @@ CREATE TABLE IF NOT EXISTS series (
 CREATE INDEX IF NOT EXISTS idx_series_tournament_v2 ON series(tournament_id);
 ALTER TABLE stages ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE SET NULL;
 
+CREATE POLICY "series_public_read"
+  ON series FOR SELECT
+  USING (true);
+
+CREATE POLICY "series_auth_insert"
+  ON series FOR INSERT
+  WITH CHECK (auth.uid() IS NOT NULL);
+
+CREATE POLICY "series_auth_update"
+  ON series FOR UPDATE
+  USING (auth.uid() IS NOT NULL);
+
+CREATE POLICY "series_auth_delete"
+  ON series FOR DELETE
+  USING (auth.uid() IS NOT NULL);
+
 -- =====================================================
 -- Migration: display_name for historical team/player name in match results
 -- Supabase SQL Editor에서 실행하세요
