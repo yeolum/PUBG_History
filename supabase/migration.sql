@@ -74,6 +74,20 @@ CREATE POLICY "player_aliases_update_auth"
   USING (auth.uid() IS NOT NULL);
 
 -- =====================================================
+-- Migration: series (optional grouping layer: Tournament → Series → Stage → Match)
+-- Supabase SQL Editor에서 실행하세요
+-- =====================================================
+CREATE TABLE IF NOT EXISTS series (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  order_num INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_series_tournament_v2 ON series(tournament_id);
+ALTER TABLE stages ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE SET NULL;
+
+-- =====================================================
 -- Migration: display_name for historical team/player name in match results
 -- Supabase SQL Editor에서 실행하세요
 -- =====================================================
@@ -106,6 +120,7 @@ DROP TABLE IF EXISTS series CASCADE;
 
 -- 6. 인덱스 업데이트
 DROP INDEX IF EXISTS idx_series_tournament;
+DROP INDEX IF EXISTS idx_series_tournament_v2;
 DROP INDEX IF EXISTS idx_stages_series;
 CREATE INDEX IF NOT EXISTS idx_stages_tournament ON stages(tournament_id);
 

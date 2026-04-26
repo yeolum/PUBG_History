@@ -8,6 +8,12 @@ import type { Stage, Match } from '@/lib/types'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
 
+interface SeriesItem {
+  id: string
+  name: string
+  order_num: number
+}
+
 interface RankEntry {
   rank: number
   teamId: string | null
@@ -23,6 +29,7 @@ interface PrizeConfigItem {
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
+  series: SeriesItem[]
   resultsByMatch: Record<string, AnyObj[]>
   damageByMatch: Record<string, { placement: number; damage_dealt: number }[]>
   rankBoard: RankEntry[]
@@ -60,6 +67,7 @@ function formatDateLabel(dateStr: string) {
 
 export default function TournamentStagesView({
   stages,
+  series,
   resultsByMatch,
   damageByMatch,
   rankBoard,
@@ -69,7 +77,24 @@ export default function TournamentStagesView({
   hasPgcPoints,
   aliasLogoLookup,
 }: Props) {
-  const [selectedStageId, setSelectedStageId] = useState<string>(stages[0]?.id ?? '')
+  // Group stages
+  const stagesBySeries = new Map<string, (Stage & { matches: Match[] })[]>()
+  const directStages: (Stage & { matches: Match[] })[] = []
+  for (const stage of stages) {
+    if (stage.series_id) {
+      if (!stagesBySeries.has(stage.series_id)) stagesBySeries.set(stage.series_id, [])
+      stagesBySeries.get(stage.series_id)!.push(stage)
+    } else {
+      directStages.push(stage)
+    }
+  }
+
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
+    () => stages[0]?.series_id ?? null
+  )
+  const [selectedStageId, setSelectedStageId] = useState<string>(
+    () => stages[0]?.id ?? ''
+  )
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
 
   if (stages.length === 0) {
@@ -103,34 +128,94 @@ export default function TournamentStagesView({
   const btnActive = 'bg-yellow-400 border-yellow-400 text-gray-900'
   const btnIdle = 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
 
+  function selectStage(stageId: string) {
+    setSelectedStageId(stageId)
+    setSelectedMatchId(null)
+  }
+
+  function toggleSeries(seriesId: string) {
+    if (selectedSeriesId === seriesId) {
+      setSelectedSeriesId(null)
+    } else {
+      setSelectedSeriesId(seriesId)
+      const first = stagesBySeries.get(seriesId)?.[0]
+      if (first) selectStage(first.id)
+    }
+  }
+
+  const stageTabCls = (isSelected: boolean) =>
+    `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+      isSelected
+        ? 'bg-yellow-400 border-yellow-400 text-gray-900'
+        : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
+    }`
+
+  const badgeCls = (isSelected: boolean) =>
+    `text-xs px-1.5 py-0.5 rounded ${isSelected ? 'bg-yellow-300 text-gray-800' : 'bg-gray-100 text-gray-400'}`
+
   return (
     <div>
-      {/* Stage tabs */}
-      <div className="flex flex-wrap gap-2 mb-3">
-        {stages.map((stage) => {
-          const isSelected = stage.id === selectedStageId
-          return (
-            <button
-              key={stage.id}
-              onClick={() => { setSelectedStageId(stage.id); setSelectedMatchId(null) }}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                isSelected
-                  ? 'bg-yellow-400 border-yellow-400 text-gray-900'
-                  : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
-              }`}
-            >
-              {stage.name}
-              <span className={`text-xs px-1.5 py-0.5 rounded ${
-                isSelected ? 'bg-yellow-300 text-gray-800' : 'bg-gray-100 text-gray-400'
-              }`}>
-                {STAGE_LABEL[stage.type] ?? stage.type}
-              </span>
-            </button>
-          )
-        })}
+      {/* Navigation */}
+      <div className="mb-3">
+        {/* Top row: series buttons + direct stage buttons */}
+        <div className="flex flex-wrap gap-2 mb-1.5">
+          {series.map((s) => {
+            const isExpanded = selectedSeriesId === s.id
+            const seriesStages = stagesBySeries.get(s.id) ?? []
+            const containsSelected = seriesStages.some((st) => st.id === selectedStageId)
+            const active = isExpanded || containsSelected
+            return (
+              <button
+                key={s.id}
+                onClick={() => toggleSeries(s.id)}
+                className={stageTabCls(active)}
+              >
+                {s.name}
+                <span className={badgeCls(active)}>{seriesStages.length}</span>
+              </button>
+            )
+          })}
+
+          {directStages.map((stage) => {
+            const isSelected = stage.id === selectedStageId
+            return (
+              <button
+                key={stage.id}
+                onClick={() => selectStage(stage.id)}
+                className={stageTabCls(isSelected)}
+              >
+                {stage.name}
+                <span className={badgeCls(isSelected)}>
+                  {STAGE_LABEL[stage.type] ?? stage.type}
+                </span>
+              </button>
+            )
+          })}
+        </div>
+
+        {/* Sub-row: stages within expanded series */}
+        {selectedSeriesId && stagesBySeries.has(selectedSeriesId) && (
+          <div className="flex flex-wrap gap-2 pl-4 border-l-2 border-yellow-400">
+            {(stagesBySeries.get(selectedSeriesId) ?? []).map((stage) => {
+              const isSelected = stage.id === selectedStageId
+              return (
+                <button
+                  key={stage.id}
+                  onClick={() => selectStage(stage.id)}
+                  className={stageTabCls(isSelected)}
+                >
+                  {stage.name}
+                  <span className={badgeCls(isSelected)}>
+                    {STAGE_LABEL[stage.type] ?? stage.type}
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        )}
       </div>
 
-      {/* Match buttons — full width, above cards */}
+      {/* Match buttons */}
       {importedMatches.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
           {matchGroups.map((group, gi) => (

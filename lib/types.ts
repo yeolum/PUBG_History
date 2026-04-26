@@ -82,9 +82,18 @@ export interface TournamentPrizeConfig {
   stage_rank: number | null
 }
 
+export interface Series {
+  id: string
+  tournament_id: string
+  name: string
+  order_num: number
+  created_at: string
+}
+
 export interface Stage {
   id: string
   tournament_id: string
+  series_id: string | null
   name: string
   order_num: number
   type: StageType

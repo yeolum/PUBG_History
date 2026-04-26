@@ -2,7 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import Header from '@/components/Header'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
-import type { Tournament, Stage, Match, TournamentPrizeConfig } from '@/lib/types'
+import type { Tournament, Stage, Match, TournamentPrizeConfig, Series } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
 import TournamentStagesView from './TournamentStagesView'
@@ -21,16 +21,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const { id } = await params
   const supabase = await createClient()
 
-  const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }] = await Promise.all([
+  const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
     supabase.from('tournaments').select('*').eq('id', id).single(),
     supabase.from('stages').select('*, matches(*)').eq('tournament_id', id).order('order_num'),
     supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
+    supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
   ])
 
   if (!tournament) notFound()
   const t = tournament as Tournament
   const stagesList = (stagesData ?? []) as (Stage & { matches: Match[] })[]
   const prizeConfig = (prizeConfigData ?? []) as TournamentPrizeConfig[]
+  const seriesList = (seriesData ?? []) as Series[]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resultsByMatch: Record<string, any[]> = {}
@@ -260,6 +262,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         ) : (
           <TournamentStagesView
             stages={stagesList}
+            series={seriesList}
             resultsByMatch={resultsByMatch}
             damageByMatch={damageByMatch}
             rankBoard={rankBoard}

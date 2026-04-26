@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
-import type { Tournament, Stage, Match, MatchTeamResult, MatchPlayerStat, TournamentStatus, TournamentType } from '@/lib/types'
+import type { Tournament, Stage, Match, MatchTeamResult, MatchPlayerStat, TournamentStatus, TournamentType, Series } from '@/lib/types'
 import ImageUpload from '@/components/admin/ImageUpload'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
@@ -34,11 +34,16 @@ export default function AdminTournamentDetailPage() {
   const [form, setForm] = useState<Partial<Tournament>>({})
   const [err, setErr] = useState('')
 
+  const [seriesList, setSeriesList] = useState<Series[]>([])
+  const [addingSeries, setAddingSeries] = useState(false)
+  const [newSeriesName, setNewSeriesName] = useState('')
+
   const [addingStage, setAddingStage] = useState(false)
   const [newStageName, setNewStageName] = useState('')
   const [newStageType, setNewStageType] = useState('group')
+  const [newSeriesId, setNewSeriesId] = useState('')
   const [editingStageId, setEditingStageId] = useState<string | null>(null)
-  const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group' })
+  const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group', seriesId: '' })
 
   type PrizeRow = { rank: number; stageId: string; stageRank: number; prize: string; pgs: string; pgc: string }
   const [prizeRows, setPrizeRows] = useState<PrizeRow[]>([])
@@ -54,7 +59,7 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: s }, { data: pc }] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
@@ -62,7 +67,9 @@ export default function AdminTournamentDetailPage() {
         .eq('tournament_id', id)
         .order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
+      supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
     ])
+    setSeriesList((ser ?? []) as Series[])
     if (!t) { router.push('/admin/tournaments'); return }
     setTournament(t as Tournament)
     setForm(t as Tournament)
@@ -142,10 +149,12 @@ export default function AdminTournamentDetailPage() {
       name: newStageName.trim(),
       type: newStageType,
       order_num: maxOrder,
+      series_id: newSeriesId || null,
     }])
     if (error) { setErr('Failed to add stage: ' + error.message); return }
     setAddingStage(false)
     setNewStageName('')
+    setNewSeriesId('')
     await load()
   }
 
@@ -154,6 +163,7 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('stages').update({
       name: editStageForm.name.trim(),
       type: editStageForm.type,
+      series_id: editStageForm.seriesId || null,
     }).eq('id', stageId)
     if (error) { setErr('Failed to update stage: ' + error.message); return }
     setEditingStageId(null)
@@ -164,6 +174,26 @@ export default function AdminTournamentDetailPage() {
     if (!confirm('Delete this stage and all its matches?')) return
     await supabase.from('stages').delete().eq('id', stageId)
     setSelectedMatchByStage((prev) => { const n = { ...prev }; delete n[stageId]; return n })
+    load()
+  }
+
+  async function addSeries() {
+    if (!newSeriesName.trim()) return
+    const maxOrder = seriesList.length > 0 ? Math.max(...seriesList.map((s) => s.order_num)) + 1 : 0
+    const { error } = await supabase.from('series').insert([{
+      tournament_id: id,
+      name: newSeriesName.trim(),
+      order_num: maxOrder,
+    }])
+    if (error) { setErr('Failed to add series: ' + error.message); return }
+    setAddingSeries(false)
+    setNewSeriesName('')
+    load()
+  }
+
+  async function deleteSeries(seriesId: string, seriesName: string) {
+    if (!confirm(`Delete series "${seriesName}"? Stages in this series will become standalone.`)) return
+    await supabase.from('series').delete().eq('id', seriesId)
     load()
   }
 
@@ -432,6 +462,57 @@ export default function AdminTournamentDetailPage() {
         )}
       </div>
 
+      {/* Series management */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">Series</h2>
+          {!addingSeries && (
+            <button
+              onClick={() => setAddingSeries(true)}
+              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1"
+            >
+              + Add Series
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2 items-center">
+          {seriesList.map((s) => (
+            <div key={s.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
+              <span className="text-sm text-gray-700">{s.name}</span>
+              <button
+                onClick={() => deleteSeries(s.id, s.name)}
+                className="text-gray-300 hover:text-red-500 text-sm leading-none ml-1"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+          {addingSeries && (
+            <div className="flex items-center gap-2">
+              <input
+                autoFocus
+                value={newSeriesName}
+                onChange={(e) => setNewSeriesName(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') addSeries() }}
+                placeholder="Series name"
+                className="border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-40"
+              />
+              <button onClick={addSeries}
+                className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-3 py-1.5 rounded-lg">
+                Add
+              </button>
+              <button onClick={() => { setAddingSeries(false); setNewSeriesName('') }}
+                className="text-xs text-gray-400 hover:text-gray-600 px-2">
+                Cancel
+              </button>
+            </div>
+          )}
+          {seriesList.length === 0 && !addingSeries && (
+            <p className="text-sm text-gray-400">No series — stages will appear as a flat list</p>
+          )}
+        </div>
+      </div>
+
       {/* Stages with inline match linking */}
       <div>
         <h2 className="text-lg font-semibold text-gray-800 mb-4">Stages</h2>
@@ -493,6 +574,18 @@ export default function AdminTournamentDetailPage() {
                         <option value="playoff">Playoff</option>
                         <option value="grand_final">Final</option>
                       </select>
+                      {seriesList.length > 0 && (
+                        <select
+                          value={editStageForm.seriesId}
+                          onChange={(e) => setEditStageForm((f) => ({ ...f, seriesId: e.target.value }))}
+                          className="text-xs border border-gray-300 rounded px-2 py-1"
+                        >
+                          <option value="">No Series</option>
+                          {seriesList.map((s) => (
+                            <option key={s.id} value={s.id}>{s.name}</option>
+                          ))}
+                        </select>
+                      )}
                       <button onClick={() => saveStage(stage.id)}
                         className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-2 py-1 rounded">
                         Save
@@ -509,11 +602,16 @@ export default function AdminTournamentDetailPage() {
                         <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
                           {stage.type === 'group' ? 'Group' : stage.type === 'playoff' ? 'Playoff' : 'Final'}
                         </span>
+                        {stage.series_id && (
+                          <span className="text-xs text-blue-500 bg-blue-50 px-1.5 py-0.5 rounded">
+                            {seriesList.find((s) => s.id === stage.series_id)?.name ?? 'Series'}
+                          </span>
+                        )}
                         <span className="text-xs text-gray-400">{stage.matches.length} matches</span>
                       </div>
                       <div className="flex gap-3 items-center">
                         <button
-                          onClick={() => { setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type }) }}
+                          onClick={() => { setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type, seriesId: stage.series_id ?? '' }) }}
                           className="text-xs text-blue-500 hover:text-blue-700"
                         >
                           Edit
@@ -702,11 +800,20 @@ export default function AdminTournamentDetailPage() {
                 <option value="playoff">Playoff</option>
                 <option value="grand_final">Final</option>
               </select>
+              {seriesList.length > 0 && (
+                <select value={newSeriesId} onChange={(e) => setNewSeriesId(e.target.value)}
+                  className="border border-gray-300 rounded px-2 py-1 text-sm">
+                  <option value="">No Series</option>
+                  {seriesList.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+              )}
               <button onClick={addStage}
                 className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 text-xs font-medium px-3 py-1 rounded">
                 Add
               </button>
-              <button onClick={() => { setAddingStage(false); setNewStageName('') }}
+              <button onClick={() => { setAddingStage(false); setNewStageName(''); setNewSeriesId('') }}
                 className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
             </div>
           ) : (
