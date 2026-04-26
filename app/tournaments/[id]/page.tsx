@@ -6,6 +6,7 @@ import type { Tournament, Stage, Match, TournamentPrizeConfig } from '@/lib/type
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
 import TournamentStagesView from './TournamentStagesView'
+import TournamentRoster from './TournamentRoster'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -30,7 +31,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const t = tournament as Tournament
   const stagesList = (stagesData ?? []) as (Stage & { matches: Match[] })[]
   const prizeConfig = (prizeConfigData ?? []) as TournamentPrizeConfig[]
-  const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resultsByMatch: Record<string, any[]> = {}
@@ -72,7 +72,52 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     })
   )
 
-  // Compute per-stage standings
+  // Roster query — players with nationality per team
+  const allImportedMatchIds = stagesList.flatMap((s) =>
+    s.matches.filter((m) => m.status === 'imported').map((m) => m.id)
+  )
+  const { data: rosterPlayerData } = allImportedMatchIds.length > 0
+    ? await supabase
+        .from('match_player_stats')
+        .select('team_id, player_id, players(id, nickname, nationality)')
+        .in('match_id', allImportedMatchIds)
+        .not('team_id', 'is', null)
+        .not('player_id', 'is', null)
+    : { data: [] }
+
+  // Build roster: teams from resultsByMatch, players from rosterPlayerData
+  const teamRosterMap = new Map<string, { name: string; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
+  for (const rows of Object.values(resultsByMatch)) {
+    for (const r of rows as AnyRow[]) {
+      if (r.team_id && !teamRosterMap.has(r.team_id)) {
+        teamRosterMap.set(r.team_id, {
+          name: r.teams?.name ?? r.display_name ?? r.pubg_team_name ?? '?',
+          players: new Map(),
+        })
+      }
+    }
+  }
+  for (const r of rosterPlayerData ?? []) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const row = r as any
+    const team = teamRosterMap.get(row.team_id)
+    if (team && row.player_id && row.players && !team.players.has(row.player_id)) {
+      team.players.set(row.player_id, {
+        id: row.player_id,
+        nickname: row.players.nickname,
+        nationality: row.players.nationality ?? null,
+      })
+    }
+  }
+  const roster = [...teamRosterMap.entries()]
+    .map(([teamId, team]) => ({
+      id: teamId,
+      name: team.name,
+      players: [...team.players.values()].sort((a, b) => a.nickname.localeCompare(b.nickname)),
+    }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  // Compute per-stage standings (for rank board)
   type StandingsEntry = { teamId: string | null; teamName: string }
   const stageStandingsMap = new Map<string, StandingsEntry[]>()
 
@@ -103,20 +148,17 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     stageStandingsMap.set(stage.id, sorted)
   }
 
-  // Build rank board from prize_config stage mapping, or fall back to grand_final standings
+  // Build rank board from prize_config stage mapping, or fall back to grand_final
   type RankEntry = { teamId: string | null; teamName: string; rank: number }
   const rankBoard: RankEntry[] = []
 
   const hasStageMapping = prizeConfig.some((p) => p.stage_id != null && p.stage_rank != null)
-
   if (hasStageMapping) {
     for (const pc of prizeConfig) {
       if (!pc.stage_id || !pc.stage_rank) continue
       const standings = stageStandingsMap.get(pc.stage_id) ?? []
       const entry = standings[pc.stage_rank - 1]
-      if (entry) {
-        rankBoard.push({ rank: pc.rank, teamId: entry.teamId, teamName: entry.teamName })
-      }
+      if (entry) rankBoard.push({ rank: pc.rank, teamId: entry.teamId, teamName: entry.teamName })
     }
     rankBoard.sort((a, b) => a.rank - b.rank)
   } else {
@@ -129,100 +171,64 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     }
   }
 
+  const prizeForStandings = prizeConfig.map((p) => ({
+    rank: p.rank,
+    prize: p.prize,
+    pgs_points: p.pgs_points,
+    pgc_points: p.pgc_points,
+  }))
+
   return (
     <>
       <Header />
-      <main className="max-w-6xl mx-auto px-4 py-10 w-full">
-        <div className="mb-8">
+      <main className="max-w-5xl mx-auto px-4 py-10 w-full">
+        {/* Tournament header */}
+        <div className="mb-6">
           <div className="flex items-center gap-3 mb-2">
             <Link href="/tournaments" className="text-sm text-gray-400 hover:text-gray-600">← Tournaments</Link>
           </div>
-          <div className="flex items-start gap-4">
-            <div className="flex-1">
-              <div className="flex items-center gap-3 mb-1">
-                <h1 className="text-2xl font-bold text-gray-900">{t.name}</h1>
-                {t.short_name && (
-                  <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-500">{t.short_name}</span>
-                )}
-                <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                  t.status === 'ongoing' ? 'bg-green-100 text-green-700' :
-                  t.status === 'upcoming' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
-                }`}>{STATUS_LABEL[t.status]}</span>
-              </div>
-              {t.region && <p className="text-sm text-gray-500">{t.region}</p>}
-              {(t.start_date || t.end_date) && (
-                <p className="text-sm text-gray-400 mt-1">{t.start_date ?? '?'} ~ {t.end_date ?? '?'}</p>
-              )}
-              {t.prize_pool && <p className="text-base font-semibold text-yellow-600 mt-1">{t.prize_pool}</p>}
-              {t.description && <p className="text-sm text-gray-600 mt-2">{t.description}</p>}
-            </div>
-          </div>
-        </div>
-
-        <div className="flex flex-col lg:flex-row gap-5 items-start">
-          {/* Final Standings — left column */}
-          {rankBoard.length > 0 && (
-            <div className="lg:w-64 w-full shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-3 py-2 w-8">#</th>
-                    <th className="text-left px-3 py-2">Team</th>
-                    {t.has_prize && <th className="text-right px-3 py-2">Prize</th>}
-                    {t.has_pgs_points && <th className="text-right px-3 py-2">PGS</th>}
-                    {t.has_pgc_points && <th className="text-right px-3 py-2">PGC</th>}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rankBoard.map((row) => {
-                    const pc = prizeByRank.get(row.rank)
-                    const rankColor =
-                      row.rank === 1 ? 'text-yellow-500 font-bold' :
-                      row.rank === 2 ? 'text-gray-400 font-semibold' :
-                      row.rank === 3 ? 'text-amber-600 font-semibold' :
-                      'text-gray-300'
-                    return (
-                      <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
-                        <td className={`px-3 py-2 font-mono text-xs ${rankColor}`}>{row.rank}</td>
-                        <td className="px-3 py-2 font-medium text-gray-800 text-xs leading-snug">
-                          {row.teamId ? (
-                            <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">
-                              {row.teamName}
-                            </Link>
-                          ) : (
-                            <span>{row.teamName}</span>
-                          )}
-                        </td>
-                        {t.has_prize && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.prize ?? '-'}</td>}
-                        {t.has_pgs_points && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgs_points ?? '-'}</td>}
-                        {t.has_pgc_points && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgc_points ?? '-'}</td>}
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-
-          {/* Stage Tabs + Scoreboards — right column */}
-          <div className="flex-1 min-w-0">
-            {stagesList.length === 0 ? (
-              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
-                No stage information available
-              </div>
-            ) : (
-              <TournamentStagesView
-                stages={stagesList}
-                resultsByMatch={resultsByMatch}
-                damageByMatch={damageByMatch}
-              />
+          <div className="flex items-center gap-3 mb-1">
+            <h1 className="text-2xl font-bold text-gray-900">{t.name}</h1>
+            {t.short_name && (
+              <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-500">{t.short_name}</span>
             )}
+            <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+              t.status === 'ongoing' ? 'bg-green-100 text-green-700' :
+              t.status === 'upcoming' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'
+            }`}>{STATUS_LABEL[t.status]}</span>
           </div>
+          {t.region && <p className="text-sm text-gray-500">{t.region}</p>}
+          {(t.start_date || t.end_date) && (
+            <p className="text-sm text-gray-400 mt-0.5">{t.start_date ?? '?'} ~ {t.end_date ?? '?'}</p>
+          )}
+          {t.prize_pool && <p className="text-base font-semibold text-yellow-600 mt-0.5">{t.prize_pool}</p>}
+          {t.description && <p className="text-sm text-gray-600 mt-1">{t.description}</p>}
         </div>
+
+        {/* Participant roster */}
+        <TournamentRoster roster={roster} />
+
+        {/* Stage view + Final Standings */}
+        {stagesList.length === 0 ? (
+          <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
+            No stage information available
+          </div>
+        ) : (
+          <TournamentStagesView
+            stages={stagesList}
+            resultsByMatch={resultsByMatch}
+            damageByMatch={damageByMatch}
+            rankBoard={rankBoard}
+            prizeConfig={prizeForStandings}
+            hasPrize={t.has_prize}
+            hasPgsPoints={t.has_pgs_points}
+            hasPgcPoints={t.has_pgc_points}
+          />
+        )}
       </main>
     </>
   )
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRow = Record<string, any>

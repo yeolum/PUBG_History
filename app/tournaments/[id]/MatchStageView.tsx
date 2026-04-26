@@ -1,22 +1,8 @@
 'use client'
 
-import { useState } from 'react'
 import Link from 'next/link'
-import { getMapDisplayName } from '@/lib/pubg-api'
 import { calcPlacementPts } from '@/lib/scoring'
 import type { Stage, Match } from '@/lib/types'
-
-interface TeamResult {
-  id: string
-  match_id: string
-  team_id: string | null
-  pubg_team_name: string | null
-  display_name: string | null
-  placement: number | null
-  total_kills: number | null
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  teams: any
-}
 
 interface PlayerDamage {
   placement: number
@@ -38,6 +24,7 @@ interface ComputedStanding {
 interface Props {
   stage: Stage
   matches: Match[]
+  selectedMatchId: string | null
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resultsByMatch: Record<string, any[]>
   damageByMatch: Record<string, PlayerDamage[]>
@@ -107,21 +94,15 @@ function computeStandings(
   })
 }
 
-function formatDate(dateStr: string) {
-  const d = new Date(dateStr)
-  return `${d.getMonth() + 1}/${d.getDate()}`
-}
+const rankStyle = (i: number) =>
+  i === 0 ? 'text-yellow-500 font-bold' :
+  i === 1 ? 'text-gray-400 font-semibold' :
+  i === 2 ? 'text-amber-600 font-semibold' : 'text-gray-300'
 
-export default function MatchStageView({ stage, matches, resultsByMatch, damageByMatch }: Props) {
-  const [viewMode, setViewMode] = useState<'total' | string>('total')
-
-  const importedMatches = [...matches]
-    .filter((m) => m.status === 'imported')
-    .sort((a, b) => a.order_num - b.order_num)
-
+export default function MatchStageView({ stage, matches, selectedMatchId, resultsByMatch, damageByMatch }: Props) {
   const standings = computeStandings(matches, resultsByMatch, damageByMatch)
 
-  const selectedMatch = viewMode !== 'total' ? matches.find((m) => m.id === viewMode) : null
+  const selectedMatch = selectedMatchId ? matches.find((m) => m.id === selectedMatchId) : null
   const selectedResults = selectedMatch ? (resultsByMatch[selectedMatch.id] ?? []) : []
 
   const perMatchSorted = selectedResults
@@ -137,73 +118,26 @@ export default function MatchStageView({ stage, matches, resultsByMatch, damageB
       return (a.placement ?? 99) - (b.placement ?? 99)
     })
 
-  // Group matches by date
-  const matchGroups: { date: string; matches: Match[] }[] = []
-  for (const match of importedMatches) {
-    const date = match.match_date ? match.match_date.split('T')[0] : ''
-    const existing = matchGroups.find((g) => g.date === date)
-    if (existing) existing.matches.push(match)
-    else matchGroups.push({ date, matches: [match] })
-  }
-
-  const btnBase = 'px-2.5 py-1 rounded-md text-xs font-medium border transition-colors'
-  const btnActive = 'bg-yellow-400 border-yellow-400 text-gray-900'
-  const btnIdle = 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
-
-  const rankColor = (i: number) =>
-    i === 0 ? 'text-yellow-500 font-bold' :
-    i === 1 ? 'text-gray-400 font-semibold' :
-    i === 2 ? 'text-amber-600 font-semibold' :
-    'text-gray-300'
+  const stageTypeLabel =
+    stage.type === 'group' ? 'Group' :
+    stage.type === 'playoff' ? 'Playoff' : 'Final'
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
       <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-sm text-gray-800">{stage.name}</span>
-          <span className="text-xs text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">
-            {stage.type === 'group' ? 'Group' : stage.type === 'playoff' ? 'Playoff' : 'Final'}
-          </span>
+          <span className="font-semibold text-sm text-gray-800">{stage.name}</span>
+          <span className="text-xs text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">{stageTypeLabel}</span>
         </div>
-        <span className="text-xs text-gray-400">{importedMatches.length} matches</span>
+        {selectedMatch && (
+          <span className="text-xs text-gray-400">
+            Match {matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num).findIndex(m => m.id === selectedMatch.id) + 1}
+            {selectedMatch.map && ` · ${selectedMatch.map.replace('Baltic_Main', 'Erangel').replace('Savage_Main', 'Sanhok').replace('Desert_Main', 'Miramar').replace('DihorOtok_Main', 'Vikendi').replace('Tiger_Main', 'Taego').replace('Kiki_Main', 'Deston').replace('Neon_Main', 'Rondo')}`}
+          </span>
+        )}
       </div>
 
-      {importedMatches.length > 0 && (
-        <div className="px-4 pt-3 pb-2 border-b border-gray-100 flex flex-wrap gap-1.5 items-center">
-          <button
-            onClick={() => setViewMode('total')}
-            className={`${btnBase} ${viewMode === 'total' ? btnActive : btnIdle} font-semibold`}
-          >
-            Total
-          </button>
-
-          {matchGroups.map((group) => (
-            <div key={group.date} className="flex items-center gap-1">
-              <span className="text-[10px] text-gray-300 select-none">|</span>
-              {group.date && (
-                <span className="text-[10px] text-gray-400 mr-0.5">{formatDate(group.date)}</span>
-              )}
-              {group.matches.map((match) => {
-                const idx = importedMatches.findIndex((m) => m.id === match.id)
-                return (
-                  <button
-                    key={match.id}
-                    onClick={() => setViewMode(match.id)}
-                    className={`${btnBase} ${viewMode === match.id ? btnActive : btnIdle}`}
-                  >
-                    M{idx + 1}
-                    {match.map && (
-                      <span className="ml-1 opacity-50">{getMapDisplayName(match.map)}</span>
-                    )}
-                  </button>
-                )
-              })}
-            </div>
-          ))}
-        </div>
-      )}
-
-      {viewMode === 'total' ? (
+      {selectedMatchId === null ? (
         standings.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -220,13 +154,11 @@ export default function MatchStageView({ stage, matches, resultsByMatch, damageB
               <tbody>
                 {standings.map((s, i) => (
                   <tr key={s.key} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
-                    <td className={`px-4 py-2 font-mono text-xs ${rankColor(i)}`}>{i + 1}</td>
+                    <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i)}`}>{i + 1}</td>
                     <td className="px-4 py-2 font-medium text-gray-800 text-xs">
                       {s.teamId ? (
                         <Link href={`/teams/${s.teamId}`} className="hover:text-yellow-600">{s.teamName}</Link>
-                      ) : (
-                        <span>{s.teamName}</span>
-                      )}
+                      ) : s.teamName}
                     </td>
                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matchesPlayed}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPlacementPts}</td>
@@ -255,15 +187,13 @@ export default function MatchStageView({ stage, matches, resultsByMatch, damageB
               <tbody>
                 {perMatchSorted.map((r, i) => (
                   <tr key={r.id} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
-                    <td className={`px-4 py-2 font-mono text-xs ${rankColor(i)}`}>{i + 1}</td>
+                    <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i)}`}>{i + 1}</td>
                     <td className="px-4 py-2 font-medium text-gray-800 text-xs">
                       {r.team_id ? (
                         <Link href={`/teams/${r.team_id}`} className="hover:text-yellow-600">
                           {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
                         </Link>
-                      ) : (
-                        <span>{r.pubg_team_name ?? '-'}</span>
-                      )}
+                      ) : (r.pubg_team_name ?? '-')}
                     </td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
