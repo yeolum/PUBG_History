@@ -96,7 +96,8 @@ export default function AdminPlayersPage() {
   }
 
   async function updateAliasProfilePic(playerId: string, alias: string, url: string | null) {
-    await supabase.from('player_aliases').update({ profile_pic: url }).eq('player_id', playerId).eq('alias', alias)
+    const { error } = await supabase.from('player_aliases').update({ profile_pic: url }).eq('player_id', playerId).eq('alias', alias)
+    if (error) { alert('Failed to save alias profile pic: ' + error.message); return }
     setRows((rs) => rs.map((r) => r.id === playerId ? {
       ...r,
       aliases: r.aliases.map((a) => a.alias === alias ? { ...a, profile_pic: url } : a),
