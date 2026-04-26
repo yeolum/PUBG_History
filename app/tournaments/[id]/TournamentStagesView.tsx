@@ -160,7 +160,7 @@ export default function TournamentStagesView({
       <div className="flex flex-col lg:flex-row gap-4 items-start">
         {/* Left: Final Standings */}
         {rankBoard.length > 0 && (
-          <div className="lg:w-56 w-full shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="lg:w-[21rem] w-full shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
               <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
             </div>

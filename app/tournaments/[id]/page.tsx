@@ -82,34 +82,32 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       }
     }
   }
-  const teamIdSet = new Set<string>()
-  for (const rows of Object.values(resultsByMatch)) {
-    for (const r of rows as AnyRow[]) { if (r.team_id) teamIdSet.add(r.team_id) }
-  }
-  if (teamIdSet.size > 0) {
-    const { data: aliasData } = await supabase
-      .from('team_aliases')
-      .select('team_id, alias, logo_url')
-      .in('team_id', [...teamIdSet])
-      .not('logo_url', 'is', null)
-    for (const a of aliasData ?? []) {
-      const row = a as AnyRow
-      if (row.logo_url) aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
-    }
+  // Fetch ALL aliases: used for both logo lookup and resolving unmatched teams (imported before alias was added)
+  const { data: allAliasData } = await supabase
+    .from('team_aliases')
+    .select('team_id, alias, logo_url')
+  for (const a of allAliasData ?? []) {
+    const row = a as AnyRow
+    if (row.logo_url) aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
   }
 
-  // Cross-reference alias logos via pubg_team_name:
-  // e.g. alias "DNS" has logo → also make it findable by displayed name "DNS Gaming" (teams.name)
+  // Build alias → team_id map so unmatched results (team_id=null) can be resolved retroactively
+  const aliasToTeamId = new Map<string, string>()
+  for (const a of allAliasData ?? []) {
+    aliasToTeamId.set((a as AnyRow).alias.toLowerCase(), (a as AnyRow).team_id)
+  }
+
+  // Cross-reference: for each result, resolve effective team_id (including via alias for unmatched teams)
+  // and bridge alias logos to the displayed name key so resolveLogoUrl finds them
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
-      if (!r.team_id || !r.pubg_team_name) continue
-      const aliasLogo = aliasLogoLookup[`${r.team_id}:${r.pubg_team_name}`]
+      const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
+      if (!effectiveId || !r.pubg_team_name) continue
+      const aliasLogo = aliasLogoLookup[`${effectiveId}:${r.pubg_team_name}`]
       if (!aliasLogo) continue
       const displayedName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? ''
-      const displayKey = `${r.team_id}:${displayedName}`
-      if (!(displayKey in aliasLogoLookup)) {
-        aliasLogoLookup[displayKey] = aliasLogo
-      }
+      const displayKey = `${effectiveId}:${displayedName}`
+      if (!(displayKey in aliasLogoLookup)) aliasLogoLookup[displayKey] = aliasLogo
     }
   }
 
@@ -126,19 +124,20 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         .not('player_id', 'is', null)
     : { data: [] }
 
-  // Build roster: teams from resultsByMatch, players from rosterPlayerData
+  // Build roster: matched teams + unmatched teams resolved via alias
   const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
-      if (r.team_id && !teamRosterMap.has(r.team_id)) {
-        const displayName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
-        const resolvedLogo = aliasLogoLookup[`${r.team_id}:${displayName}`] ?? aliasLogoLookup[`${r.team_id}:`] ?? null
-        teamRosterMap.set(r.team_id, {
-          name: displayName,
-          logo_url: resolvedLogo,
-          players: new Map(),
-        })
-      }
+      const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
+      if (!effectiveId || teamRosterMap.has(effectiveId)) continue
+      // For matched teams use teams.name; for alias-resolved unmatched teams use pubg_team_name (matches scoreboard)
+      const displayName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
+      const resolvedLogo = aliasLogoLookup[`${effectiveId}:${displayName}`] ?? aliasLogoLookup[`${effectiveId}:`] ?? null
+      teamRosterMap.set(effectiveId, {
+        name: displayName,
+        logo_url: resolvedLogo,
+        players: new Map(),
+      })
     }
   }
   for (const r of rosterPlayerData ?? []) {
