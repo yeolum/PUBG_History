@@ -19,6 +19,7 @@ export interface TeamAlias {
   id: string
   team_id: string
   alias: string
+  logo_url: string | null
   created_at: string
 }
 
@@ -44,6 +45,7 @@ export interface PlayerAlias {
   id: string
   player_id: string
   alias: string
+  profile_pic: string | null
   created_at: string
 }
 

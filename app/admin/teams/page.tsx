@@ -9,6 +9,11 @@ import ImageUpload from '@/components/admin/ImageUpload'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full'
 
+interface AliasEntry {
+  alias: string
+  logo_url: string | null
+}
+
 interface Row {
   id: string
   name: string
@@ -16,7 +21,7 @@ interface Row {
   nationality: string
   description: string
   logo_url: string | null
-  aliases: string[]
+  aliases: AliasEntry[]
   _aliasInput: string
   _dirty: boolean
 }
@@ -29,7 +34,7 @@ function toRow(t: TeamWithAliases): Row {
     nationality: t.nationality ?? '',
     description: t.description ?? '',
     logo_url: t.logo_url ?? null,
-    aliases: t.team_aliases?.map((a) => a.alias) ?? [],
+    aliases: t.team_aliases?.map((a) => ({ alias: a.alias, logo_url: a.logo_url ?? null })) ?? [],
     _aliasInput: '',
     _dirty: false,
   }
@@ -83,6 +88,14 @@ export default function AdminTeamsPage() {
     setRows((rs) => rs.map((r) => r.id === id ? { ...r, logo_url: url, _dirty: true } : r))
   }
 
+  async function updateAliasLogo(teamId: string, alias: string, url: string | null) {
+    await supabase.from('team_aliases').update({ logo_url: url }).eq('team_id', teamId).eq('alias', alias)
+    setRows((rs) => rs.map((r) => r.id === teamId ? {
+      ...r,
+      aliases: r.aliases.map((a) => a.alias === alias ? { ...a, logo_url: url } : a),
+    } : r))
+  }
+
   async function addAlias(row: Row) {
     const alias = row._aliasInput.trim()
     if (!alias) return
@@ -90,7 +103,7 @@ export default function AdminTeamsPage() {
     if (!error) {
       setRows((rs) => rs.map((r) => r.id === row.id ? {
         ...r,
-        aliases: [...r.aliases, alias],
+        aliases: [...r.aliases, { alias, logo_url: null }],
         _aliasInput: '',
       } : r))
     } else {
@@ -102,7 +115,7 @@ export default function AdminTeamsPage() {
     await supabase.from('team_aliases').delete().eq('team_id', teamId).eq('alias', alias)
     setRows((rs) => rs.map((r) => r.id === teamId ? {
       ...r,
-      aliases: r.aliases.filter((a) => a !== alias),
+      aliases: r.aliases.filter((a) => a.alias !== alias),
     } : r))
   }
 
@@ -151,7 +164,7 @@ export default function AdminTeamsPage() {
     const q = search.toLowerCase()
     const matchSearch = !q ||
       r.name.toLowerCase().includes(q) ||
-      r.aliases.some((a) => a.toLowerCase().includes(q))
+      r.aliases.some((a) => a.alias.toLowerCase().includes(q))
     const matchNation = !filterNation || r.nationality === filterNation
     return matchSearch && matchNation
   })
@@ -295,15 +308,27 @@ export default function AdminTeamsPage() {
               {expandedId === row.id && (
                 <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
                   <p className="text-xs font-medium text-gray-500 mb-2">Aliases / Former Names</p>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {row.aliases.length === 0 && (
-                      <span className="text-xs text-gray-400">No aliases registered</span>
-                    )}
+                  {row.aliases.length === 0 && (
+                    <p className="text-xs text-gray-400 mb-2">No aliases registered</p>
+                  )}
+                  <div className="space-y-1.5 mb-3">
                     {row.aliases.map((a) => (
-                      <span key={a} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full text-xs px-2.5 py-0.5 text-gray-700">
-                        {a}
-                        <button onClick={() => removeAlias(row.id, a)} className="text-gray-300 hover:text-red-500 ml-0.5">×</button>
-                      </span>
+                      <div key={a.alias} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5">
+                        <ImageUpload
+                          currentUrl={a.logo_url}
+                          storagePath={`teams/${row.id}/aliases/${encodeURIComponent(a.alias)}`}
+                          onUpdate={(url) => updateAliasLogo(row.id, a.alias, url)}
+                          shape="square"
+                          size="sm"
+                        />
+                        <span className="text-xs text-gray-700 flex-1">{a.alias}</span>
+                        <button
+                          onClick={() => removeAlias(row.id, a.alias)}
+                          className="text-gray-300 hover:text-red-500 text-sm leading-none px-1"
+                        >
+                          ×
+                        </button>
+                      </div>
                     ))}
                   </div>
                   <div className="flex gap-2">

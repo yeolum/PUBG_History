@@ -56,6 +56,12 @@ ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS stage_id UUID REFER
 ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS stage_rank INT;
 
 -- =====================================================
+-- Migration: per-alias images (historical logos / profile pics)
+-- =====================================================
+ALTER TABLE team_aliases ADD COLUMN IF NOT EXISTS logo_url TEXT;
+ALTER TABLE player_aliases ADD COLUMN IF NOT EXISTS profile_pic TEXT;
+
+-- =====================================================
 -- Migration: display_name for historical team/player name in match results
 -- Supabase SQL Editor에서 실행하세요
 -- =====================================================

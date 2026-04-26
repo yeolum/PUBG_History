@@ -30,6 +30,7 @@ interface Props {
   hasPrize: boolean
   hasPgsPoints: boolean
   hasPgcPoints: boolean
+  aliasLogoLookup: Record<string, string | null>
 }
 
 const STAGE_LABEL: Record<string, string> = {
@@ -42,6 +43,15 @@ const rankStyle = (rank: number) =>
   rank === 1 ? 'text-yellow-500 font-bold' :
   rank === 2 ? 'text-gray-400 font-semibold' :
   rank === 3 ? 'text-amber-600 font-semibold' : 'text-gray-300'
+
+function resolveLogoUrl(
+  teamId: string | null,
+  name: string,
+  lookup: Record<string, string | null>
+): string | null {
+  if (!teamId) return null
+  return lookup[`${teamId}:${name}`] ?? lookup[`${teamId}:`] ?? null
+}
 
 function formatDateLabel(dateStr: string) {
   const d = new Date(dateStr)
@@ -57,6 +67,7 @@ export default function TournamentStagesView({
   hasPrize,
   hasPgsPoints,
   hasPgcPoints,
+  aliasLogoLookup,
 }: Props) {
   const [selectedStageId, setSelectedStageId] = useState<string>(stages[0]?.id ?? '')
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
@@ -75,7 +86,6 @@ export default function TournamentStagesView({
     .filter((m) => m.status === 'imported')
     .sort((a, b) => a.order_num - b.order_num)
 
-  // Group matches by date
   const matchGroups: { date: string; label: string; matches: Match[] }[] = []
   for (const match of importedMatches) {
     const date = match.match_date ? match.match_date.split('T')[0] : ''
@@ -102,10 +112,7 @@ export default function TournamentStagesView({
           return (
             <button
               key={stage.id}
-              onClick={() => {
-                setSelectedStageId(stage.id)
-                setSelectedMatchId(null)
-              }}
+              onClick={() => { setSelectedStageId(stage.id); setSelectedMatchId(null) }}
               className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
                 isSelected
                   ? 'bg-yellow-400 border-yellow-400 text-gray-900'
@@ -170,15 +177,26 @@ export default function TournamentStagesView({
               <tbody>
                 {rankBoard.map((row) => {
                   const pc = prizeByRank.get(row.rank)
+                  const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
                   return (
                     <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
                       <td className={`px-3 py-2 font-mono text-xs ${rankStyle(row.rank)}`}>{row.rank}</td>
-                      <td className="px-3 py-2 font-medium text-gray-800 text-xs leading-snug">
-                        {row.teamId ? (
-                          <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">
-                            {row.teamName}
-                          </Link>
-                        ) : row.teamName}
+                      <td className="px-3 py-2">
+                        <div className="flex items-center gap-1.5">
+                          {logo ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                          ) : (
+                            <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                          )}
+                          <span className="font-medium text-gray-800 text-xs leading-snug">
+                            {row.teamId ? (
+                              <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">
+                                {row.teamName}
+                              </Link>
+                            ) : row.teamName}
+                          </span>
+                        </div>
                       </td>
                       {hasPrize && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.prize ?? '-'}</td>}
                       {hasPgsPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgs_points ?? '-'}</td>}
@@ -200,6 +218,7 @@ export default function TournamentStagesView({
             selectedMatchId={selectedMatchId}
             resultsByMatch={resultsByMatch}
             damageByMatch={damageByMatch}
+            aliasLogoLookup={aliasLogoLookup}
           />
         </div>
       </div>

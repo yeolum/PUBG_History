@@ -28,6 +28,16 @@ interface Props {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resultsByMatch: Record<string, any[]>
   damageByMatch: Record<string, PlayerDamage[]>
+  aliasLogoLookup: Record<string, string | null>
+}
+
+function resolveLogoUrl(
+  teamId: string | null,
+  name: string,
+  lookup: Record<string, string | null>
+): string | null {
+  if (!teamId) return null
+  return lookup[`${teamId}:${name}`] ?? lookup[`${teamId}:`] ?? null
 }
 
 function computeStandings(
@@ -99,7 +109,7 @@ const rankStyle = (i: number) =>
   i === 1 ? 'text-gray-400 font-semibold' :
   i === 2 ? 'text-amber-600 font-semibold' : 'text-gray-300'
 
-export default function MatchStageView({ stage, matches, selectedMatchId, resultsByMatch, damageByMatch }: Props) {
+export default function MatchStageView({ stage, matches, selectedMatchId, resultsByMatch, damageByMatch, aliasLogoLookup }: Props) {
   const standings = computeStandings(matches, resultsByMatch, damageByMatch)
 
   const selectedMatch = selectedMatchId ? matches.find((m) => m.id === selectedMatchId) : null
@@ -152,20 +162,31 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                 </tr>
               </thead>
               <tbody>
-                {standings.map((s, i) => (
+                {standings.map((s, i) => {
+                  const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                  return (
                   <tr key={s.key} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
                     <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i)}`}>{i + 1}</td>
                     <td className="px-4 py-2 font-medium text-gray-800 text-xs">
-                      {s.teamId ? (
-                        <Link href={`/teams/${s.teamId}`} className="hover:text-yellow-600">{s.teamName}</Link>
-                      ) : s.teamName}
+                      <div className="flex items-center gap-1.5">
+                        {logo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                        ) : (
+                          <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                        )}
+                        {s.teamId ? (
+                          <Link href={`/teams/${s.teamId}`} className="hover:text-yellow-600">{s.teamName}</Link>
+                        ) : s.teamName}
+                      </div>
                     </td>
                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matchesPlayed}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPlacementPts}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.totalPlacementPts}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -185,22 +206,32 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                 </tr>
               </thead>
               <tbody>
-                {perMatchSorted.map((r, i) => (
+                {perMatchSorted.map((r, i) => {
+                  const teamName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'
+                  const logo = resolveLogoUrl(r.team_id, teamName, aliasLogoLookup)
+                  return (
                   <tr key={r.id} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
                     <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i)}`}>{i + 1}</td>
                     <td className="px-4 py-2 font-medium text-gray-800 text-xs">
-                      {r.team_id ? (
-                        <Link href={`/teams/${r.team_id}`} className="hover:text-yellow-600">
-                          {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
-                        </Link>
-                      ) : (r.pubg_team_name ?? '-')}
+                      <div className="flex items-center gap-1.5">
+                        {logo ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                        ) : (
+                          <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                        )}
+                        {r.team_id ? (
+                          <Link href={`/teams/${r.team_id}`} className="hover:text-yellow-600">{teamName}</Link>
+                        ) : teamName}
+                      </div>
                     </td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

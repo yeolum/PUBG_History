@@ -9,6 +9,11 @@ import ImageUpload from '@/components/admin/ImageUpload'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full'
 
+interface PlayerAliasEntry {
+  alias: string
+  profile_pic: string | null
+}
+
 interface Row {
   id: string
   nickname: string
@@ -18,7 +23,7 @@ interface Row {
   team_id: string
   team_name: string
   profile_pic: string | null
-  aliases: string[]
+  aliases: PlayerAliasEntry[]
   _aliasInput: string
   _dirty: boolean
 }
@@ -33,7 +38,7 @@ function toRow(p: PlayerWithDetails): Row {
     team_id: p.team_id ?? '',
     team_name: p.teams?.name ?? '',
     profile_pic: p.profile_pic ?? null,
-    aliases: p.player_aliases?.map((a) => a.alias) ?? [],
+    aliases: p.player_aliases?.map((a) => ({ alias: a.alias, profile_pic: a.profile_pic ?? null })) ?? [],
     _aliasInput: '',
     _dirty: false,
   }
@@ -90,6 +95,14 @@ export default function AdminPlayersPage() {
     setRows((rs) => rs.map((r) => r.id === id ? { ...r, profile_pic: url, _dirty: true } : r))
   }
 
+  async function updateAliasProfilePic(playerId: string, alias: string, url: string | null) {
+    await supabase.from('player_aliases').update({ profile_pic: url }).eq('player_id', playerId).eq('alias', alias)
+    setRows((rs) => rs.map((r) => r.id === playerId ? {
+      ...r,
+      aliases: r.aliases.map((a) => a.alias === alias ? { ...a, profile_pic: url } : a),
+    } : r))
+  }
+
   async function addAlias(row: Row) {
     const alias = row._aliasInput.trim()
     if (!alias) return
@@ -97,7 +110,7 @@ export default function AdminPlayersPage() {
     if (!error) {
       setRows((rs) => rs.map((r) => r.id === row.id ? {
         ...r,
-        aliases: [...r.aliases, alias],
+        aliases: [...r.aliases, { alias, profile_pic: null }],
         _aliasInput: '',
       } : r))
     } else {
@@ -109,7 +122,7 @@ export default function AdminPlayersPage() {
     await supabase.from('player_aliases').delete().eq('player_id', playerId).eq('alias', alias)
     setRows((rs) => rs.map((r) => r.id === playerId ? {
       ...r,
-      aliases: r.aliases.filter((a) => a !== alias),
+      aliases: r.aliases.filter((a) => a.alias !== alias),
     } : r))
   }
 
@@ -165,7 +178,7 @@ export default function AdminPlayersPage() {
       r.nickname.toLowerCase().includes(q) ||
       (r.real_name && r.real_name.toLowerCase().includes(q)) ||
       r.team_name.toLowerCase().includes(q) ||
-      r.aliases.some((a) => a.toLowerCase().includes(q))
+      r.aliases.some((a) => a.alias.toLowerCase().includes(q))
     const matchNation = !filterNation || r.nationality === filterNation
     const matchTeam = !filterTeam || r.team_name === filterTeam
     return matchSearch && matchNation && matchTeam
@@ -330,15 +343,27 @@ export default function AdminPlayersPage() {
               {expandedId === row.id && (
                 <div className="border-t border-gray-100 px-4 py-3 bg-gray-50">
                   <p className="text-xs font-medium text-gray-500 mb-2">Former Nicknames / Aliases</p>
-                  <div className="flex flex-wrap gap-1.5 mb-2">
-                    {row.aliases.length === 0 && (
-                      <span className="text-xs text-gray-400">No aliases registered</span>
-                    )}
+                  {row.aliases.length === 0 && (
+                    <p className="text-xs text-gray-400 mb-2">No aliases registered</p>
+                  )}
+                  <div className="space-y-1.5 mb-3">
                     {row.aliases.map((a) => (
-                      <span key={a} className="inline-flex items-center gap-1 bg-white border border-gray-200 rounded-full text-xs px-2.5 py-0.5 text-gray-700">
-                        {a}
-                        <button onClick={() => removeAlias(row.id, a)} className="text-gray-300 hover:text-red-500 ml-0.5">×</button>
-                      </span>
+                      <div key={a.alias} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5">
+                        <ImageUpload
+                          currentUrl={a.profile_pic}
+                          storagePath={`players/${row.id}/aliases/${encodeURIComponent(a.alias)}`}
+                          onUpdate={(url) => updateAliasProfilePic(row.id, a.alias, url)}
+                          shape="square"
+                          size="sm"
+                        />
+                        <span className="text-xs text-gray-700 flex-1">{a.alias}</span>
+                        <button
+                          onClick={() => removeAlias(row.id, a.alias)}
+                          className="text-gray-300 hover:text-red-500 text-sm leading-none px-1"
+                        >
+                          ×
+                        </button>
+                      </div>
                     ))}
                   </div>
                   <div className="flex gap-2">

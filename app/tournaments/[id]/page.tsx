@@ -47,7 +47,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       const [{ data: trData }, { data: pdData }] = await Promise.all([
         supabase
           .from('match_team_results')
-          .select('*, teams(id, name, short_name)')
+          .select('*, teams(id, name, short_name, logo_url)')
           .in('match_id', stageMatchIds)
           .order('placement'),
         supabase
@@ -72,6 +72,32 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     })
   )
 
+  // Build alias logo lookup: `${teamId}:displayName` → alias logo, `${teamId}:` → main logo
+  const aliasLogoLookup: Record<string, string | null> = {}
+  for (const rows of Object.values(resultsByMatch)) {
+    for (const r of rows as AnyRow[]) {
+      if (r.team_id && r.teams?.logo_url) {
+        const mainKey = `${r.team_id}:`
+        if (!(mainKey in aliasLogoLookup)) aliasLogoLookup[mainKey] = r.teams.logo_url
+      }
+    }
+  }
+  const teamIdSet = new Set<string>()
+  for (const rows of Object.values(resultsByMatch)) {
+    for (const r of rows as AnyRow[]) { if (r.team_id) teamIdSet.add(r.team_id) }
+  }
+  if (teamIdSet.size > 0) {
+    const { data: aliasData } = await supabase
+      .from('team_aliases')
+      .select('team_id, alias, logo_url')
+      .in('team_id', [...teamIdSet])
+      .not('logo_url', 'is', null)
+    for (const a of aliasData ?? []) {
+      const row = a as AnyRow
+      if (row.logo_url) aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
+    }
+  }
+
   // Roster query — players with nationality per team
   const allImportedMatchIds = stagesList.flatMap((s) =>
     s.matches.filter((m) => m.status === 'imported').map((m) => m.id)
@@ -86,12 +112,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     : { data: [] }
 
   // Build roster: teams from resultsByMatch, players from rosterPlayerData
-  const teamRosterMap = new Map<string, { name: string; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
+  const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
       if (r.team_id && !teamRosterMap.has(r.team_id)) {
         teamRosterMap.set(r.team_id, {
           name: r.teams?.name ?? r.display_name ?? r.pubg_team_name ?? '?',
+          logo_url: r.teams?.logo_url ?? null,
           players: new Map(),
         })
       }
@@ -113,6 +140,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     .map(([teamId, team]) => ({
       id: teamId,
       name: team.name,
+      logo_url: team.logo_url,
       players: [...team.players.values()].sort((a, b) => a.nickname.localeCompare(b.nickname)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
@@ -223,6 +251,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             hasPrize={t.has_prize}
             hasPgsPoints={t.has_pgs_points}
             hasPgcPoints={t.has_pgc_points}
+            aliasLogoLookup={aliasLogoLookup}
           />
         )}
       </main>
