@@ -361,7 +361,7 @@ export default function AdminPlayersPage() {
                       <div key={a.alias} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5">
                         <ImageUpload
                           currentUrl={a.profile_pic}
-                          storagePath={`players/${row.id}/aliases/${encodeURIComponent(a.alias)}`}
+                          storagePath={`players/${row.id}/aliases/${a.alias}`}
                           onUpdate={(url) => updateAliasProfilePic(row.id, a.alias, url)}
                           shape="square"
                           size="sm"

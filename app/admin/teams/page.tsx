@@ -326,7 +326,7 @@ export default function AdminTeamsPage() {
                       <div key={a.alias} className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg px-2 py-1.5">
                         <ImageUpload
                           currentUrl={a.logo_url}
-                          storagePath={`teams/${row.id}/aliases/${encodeURIComponent(a.alias)}`}
+                          storagePath={`teams/${row.id}/aliases/${a.alias}`}
                           onUpdate={(url) => updateAliasLogo(row.id, a.alias, url)}
                           shape="square"
                           size="sm"
