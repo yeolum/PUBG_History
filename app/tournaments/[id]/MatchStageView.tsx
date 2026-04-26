@@ -107,8 +107,13 @@ function computeStandings(
   })
 }
 
+function formatDate(dateStr: string) {
+  const d = new Date(dateStr)
+  return `${d.getMonth() + 1}/${d.getDate()}`
+}
+
 export default function MatchStageView({ stage, matches, resultsByMatch, damageByMatch }: Props) {
-  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'total' | string>('total')
 
   const importedMatches = [...matches]
     .filter((m) => m.status === 'imported')
@@ -116,8 +121,8 @@ export default function MatchStageView({ stage, matches, resultsByMatch, damageB
 
   const standings = computeStandings(matches, resultsByMatch, damageByMatch)
 
-  const selectedMatch = matches.find((m) => m.id === selectedMatchId)
-  const selectedResults = selectedMatchId ? (resultsByMatch[selectedMatchId] ?? []) : []
+  const selectedMatch = viewMode !== 'total' ? matches.find((m) => m.id === viewMode) : null
+  const selectedResults = selectedMatch ? (resultsByMatch[selectedMatch.id] ?? []) : []
 
   const perMatchSorted = selectedResults
     .slice()
@@ -132,129 +137,144 @@ export default function MatchStageView({ stage, matches, resultsByMatch, damageB
       return (a.placement ?? 99) - (b.placement ?? 99)
     })
 
-  const stageTypeLabel =
-    stage.type === 'group' ? 'Group Stage' :
-    stage.type === 'playoff' ? 'Playoff' : 'Grand Final'
+  // Group matches by date
+  const matchGroups: { date: string; matches: Match[] }[] = []
+  for (const match of importedMatches) {
+    const date = match.match_date ? match.match_date.split('T')[0] : ''
+    const existing = matchGroups.find((g) => g.date === date)
+    if (existing) existing.matches.push(match)
+    else matchGroups.push({ date, matches: [match] })
+  }
+
+  const btnBase = 'px-2.5 py-1 rounded-md text-xs font-medium border transition-colors'
+  const btnActive = 'bg-yellow-400 border-yellow-400 text-gray-900'
+  const btnIdle = 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
+
+  const rankColor = (i: number) =>
+    i === 0 ? 'text-yellow-500 font-bold' :
+    i === 1 ? 'text-gray-400 font-semibold' :
+    i === 2 ? 'text-amber-600 font-semibold' :
+    'text-gray-300'
 
   return (
-    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-6">
-      <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-4">
+      <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="font-medium text-gray-800">{stage.name}</span>
-          <span className="text-xs text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">{stageTypeLabel}</span>
+          <span className="font-medium text-sm text-gray-800">{stage.name}</span>
+          <span className="text-xs text-gray-400 bg-gray-200 px-1.5 py-0.5 rounded">
+            {stage.type === 'group' ? 'Group' : stage.type === 'playoff' ? 'Playoff' : 'Final'}
+          </span>
         </div>
         <span className="text-xs text-gray-400">{importedMatches.length} matches</span>
       </div>
 
-      {/* Cumulative standings */}
-      {standings.length > 0 && (
-        <div className="p-5 border-b border-gray-100">
-          <p className="text-xs font-medium text-gray-500 mb-1 uppercase tracking-wide">Team Rankings</p>
-          <p className="text-xs text-gray-400 mb-3">Placement Pts + Kill Pts = Total | 1–8: 10,6,5,4,3,2,1,1</p>
+      {importedMatches.length > 0 && (
+        <div className="px-4 pt-3 pb-2 border-b border-gray-100 flex flex-wrap gap-1.5 items-center">
+          <button
+            onClick={() => setViewMode('total')}
+            className={`${btnBase} ${viewMode === 'total' ? btnActive : btnIdle} font-semibold`}
+          >
+            Total
+          </button>
+
+          {matchGroups.map((group) => (
+            <div key={group.date} className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-300 select-none">|</span>
+              {group.date && (
+                <span className="text-[10px] text-gray-400 mr-0.5">{formatDate(group.date)}</span>
+              )}
+              {group.matches.map((match) => {
+                const idx = importedMatches.findIndex((m) => m.id === match.id)
+                return (
+                  <button
+                    key={match.id}
+                    onClick={() => setViewMode(match.id)}
+                    className={`${btnBase} ${viewMode === match.id ? btnActive : btnIdle}`}
+                  >
+                    M{idx + 1}
+                    {match.map && (
+                      <span className="ml-1 opacity-50">{getMapDisplayName(match.map)}</span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {viewMode === 'total' ? (
+        standings.length > 0 && (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-400 border-b border-gray-100">
-                  <th className="text-left pb-2 w-8">#</th>
-                  <th className="text-left pb-2">Team</th>
-                  <th className="text-right pb-2">Matches</th>
-                  <th className="text-right pb-2">Plc Pts</th>
-                  <th className="text-right pb-2">Kill Pts</th>
-                  <th className="text-right pb-2 font-bold text-gray-600">Total</th>
+                  <th className="text-left px-4 py-2 w-8">#</th>
+                  <th className="text-left px-4 py-2">Team</th>
+                  <th className="text-right px-4 py-2">M</th>
+                  <th className="text-right px-4 py-2">Plc Pts</th>
+                  <th className="text-right px-4 py-2">Kills</th>
+                  <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
                 </tr>
               </thead>
               <tbody>
                 {standings.map((s, i) => (
-                  <tr key={s.key} className="border-b border-gray-50 last:border-0">
-                    <td className="py-1.5 text-gray-400 font-mono text-xs">{i + 1}</td>
-                    <td className="py-1.5 font-medium text-gray-800">
+                  <tr key={s.key} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                    <td className={`px-4 py-2 font-mono text-xs ${rankColor(i)}`}>{i + 1}</td>
+                    <td className="px-4 py-2 font-medium text-gray-800 text-xs">
                       {s.teamId ? (
-                        <Link href={`/teams/${s.teamId}`} className="hover:text-yellow-600">
-                          {s.teamName}
-                        </Link>
+                        <Link href={`/teams/${s.teamId}`} className="hover:text-yellow-600">{s.teamName}</Link>
                       ) : (
                         <span>{s.teamName}</span>
                       )}
                     </td>
-                    <td className="py-1.5 text-right text-gray-500">{s.matchesPlayed}</td>
-                    <td className="py-1.5 text-right text-gray-500">{s.totalPlacementPts}</td>
-                    <td className="py-1.5 text-right text-gray-500">{s.totalPts - s.totalPlacementPts}</td>
-                    <td className="py-1.5 text-right font-bold text-gray-900">{s.totalPts}</td>
+                    <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matchesPlayed}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPlacementPts}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.totalPlacementPts}</td>
+                    <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-        </div>
-      )}
-
-      {/* Match tab buttons */}
-      {importedMatches.length > 0 && (
-        <div className="p-5">
-          <p className="text-xs font-medium text-gray-500 mb-3 uppercase tracking-wide">Matches</p>
-          <div className="flex flex-wrap gap-2 mb-4">
-            {importedMatches.map((match, i) => (
-              <button
-                key={match.id}
-                onClick={() => setSelectedMatchId(selectedMatchId === match.id ? null : match.id)}
-                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${
-                  selectedMatchId === match.id
-                    ? 'bg-yellow-400 border-yellow-400 text-gray-900'
-                    : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
-                }`}
-              >
-                M{i + 1}
-                {match.map && (
-                  <span className="text-xs ml-1 opacity-60">{getMapDisplayName(match.map)}</span>
-                )}
-              </button>
-            ))}
-          </div>
-
-          {/* Per-match scoreboard */}
-          {selectedMatch && perMatchSorted.length > 0 && (
-            <div className="border border-gray-100 rounded-lg overflow-hidden">
-              <div className="px-4 py-2 bg-gray-50 border-b border-gray-100">
-                <span className="text-xs font-medium text-gray-600">
-                  Match {importedMatches.findIndex((m) => m.id === selectedMatch.id) + 1} Scoreboard
-                  {selectedMatch.map && ` — ${getMapDisplayName(selectedMatch.map)}`}
-                </span>
-              </div>
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-4 py-2">#</th>
-                    <th className="text-left px-4 py-2">Team</th>
-                    <th className="text-right px-4 py-2">Plc</th>
-                    <th className="text-right px-4 py-2">Plc Pts</th>
-                    <th className="text-right px-4 py-2">Kill Pts</th>
-                    <th className="text-right px-4 py-2 font-bold text-gray-600">Total</th>
+        )
+      ) : (
+        perMatchSorted.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-gray-400 border-b border-gray-100">
+                  <th className="text-left px-4 py-2 w-8">#</th>
+                  <th className="text-left px-4 py-2">Team</th>
+                  <th className="text-right px-4 py-2">Plc</th>
+                  <th className="text-right px-4 py-2">Plc Pts</th>
+                  <th className="text-right px-4 py-2">Kills</th>
+                  <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {perMatchSorted.map((r, i) => (
+                  <tr key={r.id} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                    <td className={`px-4 py-2 font-mono text-xs ${rankColor(i)}`}>{i + 1}</td>
+                    <td className="px-4 py-2 font-medium text-gray-800 text-xs">
+                      {r.team_id ? (
+                        <Link href={`/teams/${r.team_id}`} className="hover:text-yellow-600">
+                          {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
+                        </Link>
+                      ) : (
+                        <span>{r.pubg_team_name ?? '-'}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
+                    <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>
                   </tr>
-                </thead>
-                <tbody>
-                  {perMatchSorted.map((r, i) => (
-                    <tr key={r.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-2 text-gray-400 font-mono text-xs">{i + 1}</td>
-                      <td className="px-4 py-2 font-medium text-gray-800">
-                        {r.team_id ? (
-                          <Link href={`/teams/${r.team_id}`} className="hover:text-yellow-600">
-                            {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
-                          </Link>
-                        ) : (
-                          <span>{r.pubg_team_name ?? '-'}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-2 text-right text-gray-500">{r.placement}</td>
-                      <td className="px-4 py-2 text-right text-gray-500">{r.placementPts}</td>
-                      <td className="px-4 py-2 text-right text-gray-500">{r.killPts}</td>
-                      <td className="px-4 py-2 text-right font-bold text-gray-900">{r.matchPts}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )
       )}
     </div>
   )

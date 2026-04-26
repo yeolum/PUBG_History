@@ -159,30 +159,35 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           </div>
         </div>
 
-        {/* Final Standings / Rank Board */}
-        {rankBoard.length > 0 && (
-          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden mb-8">
-            <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-              <h2 className="font-semibold text-gray-800">Final Standings</h2>
-            </div>
-            <div className="overflow-x-auto">
+        <div className="flex flex-col lg:flex-row gap-5 items-start">
+          {/* Final Standings — left column */}
+          {rankBoard.length > 0 && (
+            <div className="lg:w-64 w-full shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
+              </div>
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-5 py-2 w-10">#</th>
-                    <th className="text-left px-5 py-2">Team</th>
-                    {t.has_prize && <th className="text-right px-5 py-2">Prize</th>}
-                    {t.has_pgs_points && <th className="text-right px-5 py-2">PGS</th>}
-                    {t.has_pgc_points && <th className="text-right px-5 py-2">PGC</th>}
+                    <th className="text-left px-3 py-2 w-8">#</th>
+                    <th className="text-left px-3 py-2">Team</th>
+                    {t.has_prize && <th className="text-right px-3 py-2">Prize</th>}
+                    {t.has_pgs_points && <th className="text-right px-3 py-2">PGS</th>}
+                    {t.has_pgc_points && <th className="text-right px-3 py-2">PGC</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {rankBoard.map((row) => {
                     const pc = prizeByRank.get(row.rank)
+                    const rankColor =
+                      row.rank === 1 ? 'text-yellow-500 font-bold' :
+                      row.rank === 2 ? 'text-gray-400 font-semibold' :
+                      row.rank === 3 ? 'text-amber-600 font-semibold' :
+                      'text-gray-300'
                     return (
-                      <tr key={row.rank} className="border-b border-gray-50 last:border-0">
-                        <td className="px-5 py-2.5 text-gray-400 font-mono text-xs">{row.rank}</td>
-                        <td className="px-5 py-2.5 font-medium text-gray-800">
+                      <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
+                        <td className={`px-3 py-2 font-mono text-xs ${rankColor}`}>{row.rank}</td>
+                        <td className="px-3 py-2 font-medium text-gray-800 text-xs leading-snug">
                           {row.teamId ? (
                             <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">
                               {row.teamName}
@@ -191,30 +196,32 @@ export default async function TournamentDetailPage({ params }: { params: Promise
                             <span>{row.teamName}</span>
                           )}
                         </td>
-                        {t.has_prize && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.prize ?? '-'}</td>}
-                        {t.has_pgs_points && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.pgs_points ?? '-'}</td>}
-                        {t.has_pgc_points && <td className="px-5 py-2.5 text-right text-gray-700">{pc?.pgc_points ?? '-'}</td>}
+                        {t.has_prize && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.prize ?? '-'}</td>}
+                        {t.has_pgs_points && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgs_points ?? '-'}</td>}
+                        {t.has_pgc_points && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgc_points ?? '-'}</td>}
                       </tr>
                     )
                   })}
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          )}
 
-        {/* Stage Tabs + Scoreboards */}
-        {stagesList.length === 0 ? (
-          <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
-            No stage information available
+          {/* Stage Tabs + Scoreboards — right column */}
+          <div className="flex-1 min-w-0">
+            {stagesList.length === 0 ? (
+              <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
+                No stage information available
+              </div>
+            ) : (
+              <TournamentStagesView
+                stages={stagesList}
+                resultsByMatch={resultsByMatch}
+                damageByMatch={damageByMatch}
+              />
+            )}
           </div>
-        ) : (
-          <TournamentStagesView
-            stages={stagesList}
-            resultsByMatch={resultsByMatch}
-            damageByMatch={damageByMatch}
-          />
-        )}
+        </div>
       </main>
     </>
   )

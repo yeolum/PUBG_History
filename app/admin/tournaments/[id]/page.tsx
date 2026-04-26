@@ -169,13 +169,14 @@ export default function AdminTournamentDetailPage() {
 
   async function savePrizeConfig() {
     setSavingPrize(true)
-    await supabase.from('tournaments').update({
+    setErr('')
+
+    const { error: flagErr } = await supabase.from('tournaments').update({
       has_prize: form.has_prize ?? false,
       has_pgs_points: form.has_pgs_points ?? false,
       has_pgc_points: form.has_pgc_points ?? false,
     }).eq('id', id)
-
-    await supabase.from('tournament_prize_config').delete().eq('tournament_id', id)
+    if (flagErr) { setErr('Save failed: ' + flagErr.message); setSavingPrize(false); return }
 
     const rows = prizeRows
       .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
@@ -188,9 +189,23 @@ export default function AdminTournamentDetailPage() {
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
       }))
+
     if (rows.length > 0) {
-      await supabase.from('tournament_prize_config').insert(rows)
+      const { error: upsertErr } = await supabase
+        .from('tournament_prize_config')
+        .upsert(rows, { onConflict: 'tournament_id,rank' })
+      if (upsertErr) { setErr('Save failed: ' + upsertErr.message); setSavingPrize(false); return }
+
+      const savedRanks = rows.map((r) => r.rank)
+      await supabase
+        .from('tournament_prize_config')
+        .delete()
+        .eq('tournament_id', id)
+        .not('rank', 'in', `(${savedRanks.join(',')})`)
+    } else {
+      await supabase.from('tournament_prize_config').delete().eq('tournament_id', id)
     }
+
     setSavingPrize(false)
     load()
   }
