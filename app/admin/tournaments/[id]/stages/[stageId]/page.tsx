@@ -29,42 +29,31 @@ interface ComputedStanding {
   lastMatchDamage: number
 }
 
+interface ImportRow {
+  rowId: string
+  matchId: string
+  status: 'pending' | 'importing' | 'success' | 'error'
+  errorMsg?: string
+}
+
 function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
-  const imported = matches
-    .filter((m) => m.status === 'imported')
-    .sort((a, b) => a.order_num - b.order_num)
-
+  const imported = matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
   const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number }>()
-
   for (const match of imported) {
     for (const r of match.match_team_results) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
       const placementPts = calcPlacementPts(r.placement ?? 99)
       const matchPts = placementPts + (r.total_kills ?? 0)
       const matchDamage = match.match_player_stats
-        .filter((ps) => (ps.placement ?? -1) === (r.placement ?? -2))
+        .filter(ps => (ps.placement ?? -1) === (r.placement ?? -2))
         .reduce((s, ps) => s + Number(ps.damage_dealt ?? 0), 0)
-
       if (!statMap.has(key)) {
-        statMap.set(key, {
-          key,
-          teamId: r.team_id ?? null,
-          teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
-          matchesPlayed: 0,
-          totalPts: 0,
-          totalPlacementPts: 0,
-          lastMatchOrder: -Infinity,
-          lastMatchPts: 0,
-          lastMatchPlacement: 99,
-          lastMatchDamage: 0,
-        })
+        statMap.set(key, { key, teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', matchesPlayed: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0 })
       }
-
       const stat = statMap.get(key)!
       stat.matchesPlayed++
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
-
       if (match.order_num > stat.lastMatchOrder) {
         stat.lastMatchOrder = match.order_num
         stat.lastMatchPts = matchPts
@@ -73,7 +62,6 @@ function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
       }
     }
   }
-
   return [...statMap.values()].sort((a, b) => {
     if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
     if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
@@ -83,6 +71,8 @@ function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
   })
 }
 
+let rowCounter = 0
+
 export default function StageMatchesPage() {
   const { id: tournamentId, stageId } = useParams() as { id: string; stageId: string }
   const supabase = createClient()
@@ -91,9 +81,8 @@ export default function StageMatchesPage() {
   const [matches, setMatches] = useState<MatchWithResults[]>([])
   const [selectedMatch, setSelectedMatch] = useState<string | null>(null)
 
-  const [newMatchId, setNewMatchId] = useState('')
-  const [importing, setImporting] = useState(false)
-  const [importError, setImportError] = useState('')
+  const [importRows, setImportRows] = useState<ImportRow[]>([{ rowId: 'r0', matchId: '', status: 'pending' }])
+  const [anyImporting, setAnyImporting] = useState(false)
 
   const [linkModal, setLinkModal] = useState<
     | { phase: 1; type: 'team' | 'player'; pubgName: string; matchId: string; rowId: string }
@@ -104,11 +93,7 @@ export default function StageMatchesPage() {
   const load = useCallback(async () => {
     const [{ data: s }, { data: m }] = await Promise.all([
       supabase.from('stages').select('*').eq('id', stageId).single(),
-      supabase
-        .from('matches')
-        .select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))')
-        .eq('stage_id', stageId)
-        .order('order_num'),
+      supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
     ])
     setStage(s as Stage)
     setMatches((m ?? []) as MatchWithResults[])
@@ -118,29 +103,43 @@ export default function StageMatchesPage() {
 
   const computedStandings = useMemo(() => computeStandings(matches), [matches])
 
-  async function importMatch() {
-    const matchId = newMatchId.trim()
-    if (!matchId) return
-    setImporting(true)
-    setImportError('')
-    try {
-      const res = await fetch('/api/admin/pubg/import', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ stageId, pubgMatchId: matchId }),
-      })
-      const result = await res.json()
-      if (!res.ok) {
-        setImportError(result.error ?? 'Import failed')
-      } else {
-        setNewMatchId('')
-        load()
+  function addRow() {
+    rowCounter++
+    setImportRows(rows => [...rows, { rowId: `r${rowCounter}`, matchId: '', status: 'pending' }])
+  }
+
+  function removeRow(rowId: string) {
+    setImportRows(rows => rows.filter(r => r.rowId !== rowId))
+  }
+
+  function updateRowMatchId(rowId: string, matchId: string) {
+    setImportRows(rows => rows.map(r => r.rowId === rowId ? { ...r, matchId, status: 'pending', errorMsg: undefined } : r))
+  }
+
+  async function importAll() {
+    const pending = importRows.filter(r => r.matchId.trim() && r.status === 'pending')
+    if (pending.length === 0) return
+    setAnyImporting(true)
+    for (const row of pending) {
+      setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'importing' } : r))
+      try {
+        const res = await fetch('/api/admin/pubg/import', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ stageId, pubgMatchId: row.matchId.trim() }),
+        })
+        const result = await res.json()
+        if (!res.ok) {
+          setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'error', errorMsg: result.error ?? 'Import failed' } : r))
+        } else {
+          setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'success' } : r))
+        }
+      } catch {
+        setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'error', errorMsg: 'Server error' } : r))
       }
-    } catch {
-      setImportError('Server error')
-    } finally {
-      setImporting(false)
     }
+    setAnyImporting(false)
+    load()
   }
 
   async function deleteMatch(matchId: string) {
@@ -150,42 +149,39 @@ export default function StageMatchesPage() {
     load()
   }
 
-  async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null, entityName: string) {
-    await supabase.from('match_team_results')
-      .update({ team_id: teamId, display_name: displayName })
-      .eq('id', teamResultId)
+  async function moveMatch(matchId: string, direction: 'up' | 'down') {
+    const sorted = [...matches].sort((a, b) => a.order_num - b.order_num)
+    const idx = sorted.findIndex(m => m.id === matchId)
+    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
+    if (swapIdx < 0 || swapIdx >= sorted.length) return
+    const a = sorted[idx]
+    const b = sorted[swapIdx]
+    await Promise.all([
+      supabase.from('matches').update({ order_num: b.order_num }).eq('id', a.id),
+      supabase.from('matches').update({ order_num: a.order_num }).eq('id', b.id),
+    ])
+    load()
+  }
 
-    const row = matches.find((m) => m.id === matchId)?.match_team_results.find((r) => r.id === teamResultId)
+  async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null, entityName: string) {
+    await supabase.from('match_team_results').update({ team_id: teamId, display_name: displayName }).eq('id', teamResultId)
+    const row = matches.find(m => m.id === matchId)?.match_team_results.find(r => r.id === teamResultId)
     const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
     for (const alias of aliasesToUpsert) {
-      await supabase.from('team_aliases').upsert(
-        [{ team_id: teamId, alias }],
-        { onConflict: 'alias', ignoreDuplicates: true }
-      )
+      await supabase.from('team_aliases').upsert([{ team_id: teamId, alias }], { onConflict: 'alias', ignoreDuplicates: true })
     }
     if (pubgTeamName) {
-      await supabase
-        .from('match_player_stats')
-        .update({ team_id: teamId })
-        .eq('match_id', matchId)
-        .is('team_id', null)
-        .eq('placement', row?.placement ?? -1)
+      await supabase.from('match_player_stats').update({ team_id: teamId }).eq('match_id', matchId).is('team_id', null).eq('placement', row?.placement ?? -1)
     }
     setLinkModal(null)
     load()
   }
 
   async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null, entityName: string) {
-    await supabase.from('match_player_stats')
-      .update({ player_id: playerId, display_name: displayName })
-      .eq('id', statId)
-
+    await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName }).eq('id', statId)
     const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
     for (const alias of aliasesToUpsert) {
-      await supabase.from('player_aliases').upsert(
-        [{ player_id: playerId, alias }],
-        { onConflict: 'alias', ignoreDuplicates: true }
-      )
+      await supabase.from('player_aliases').upsert([{ player_id: playerId, alias }], { onConflict: 'alias', ignoreDuplicates: true })
     }
     setLinkModal(null)
     load()
@@ -193,22 +189,16 @@ export default function StageMatchesPage() {
 
   if (!stage) return <div className="p-8 text-gray-400">Loading...</div>
 
-  const selectedMatchData = matches.find((m) => m.id === selectedMatch)
+  const sortedMatches = [...matches].sort((a, b) => a.order_num - b.order_num)
+  const selectedMatchData = matches.find(m => m.id === selectedMatch)
 
   const perMatchStandings = selectedMatchData
-    ? selectedMatchData.match_team_results
-        .slice()
-        .map((r) => ({
-          ...r,
-          placementPts: calcPlacementPts(r.placement ?? 99),
-          killPts: r.total_kills ?? 0,
-          matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0),
-        }))
-        .sort((a, b) => {
-          if (b.matchPts !== a.matchPts) return b.matchPts - a.matchPts
-          return (a.placement ?? 99) - (b.placement ?? 99)
-        })
+    ? selectedMatchData.match_team_results.slice()
+        .map(r => ({ ...r, placementPts: calcPlacementPts(r.placement ?? 99), killPts: r.total_kills ?? 0, matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0) }))
+        .sort((a, b) => b.matchPts !== a.matchPts ? b.matchPts - a.matchPts : (a.placement ?? 99) - (b.placement ?? 99))
     : []
+
+  const pendingCount = importRows.filter(r => r.matchId.trim() && r.status === 'pending').length
 
   return (
     <div className="p-8 max-w-5xl">
@@ -251,9 +241,7 @@ export default function StageMatchesPage() {
                     <td className="px-5 py-2 text-gray-400 font-mono text-xs">{i + 1}</td>
                     <td className="px-5 py-2 font-medium text-gray-800">
                       {s.teamName}
-                      {!s.teamId && (
-                        <span className="ml-1.5 text-xs text-orange-400 font-normal">(unlinked)</span>
-                      )}
+                      {!s.teamId && <span className="ml-1.5 text-xs text-orange-400 font-normal">(unlinked)</span>}
                     </td>
                     <td className="px-5 py-2 text-right text-gray-500">{s.matchesPlayed}</td>
                     <td className="px-5 py-2 text-right text-gray-500">{s.totalPlacementPts}</td>
@@ -267,28 +255,48 @@ export default function StageMatchesPage() {
         </div>
       )}
 
-      {/* Import */}
+      {/* Bulk Import */}
       <div className="bg-white rounded-xl border border-gray-200 p-5 mb-8">
-        <h2 className="font-semibold text-gray-800 mb-3">Add Match (PUBG Match ID)</h2>
-        <div className="flex gap-2">
-          <input
-            value={newMatchId}
-            onChange={(e) => setNewMatchId(e.target.value)}
-            placeholder="PUBG Match ID (e.g. 12345678-abcd-...)"
-            className={`flex-1 ${INPUT_CLS}`}
-            onKeyDown={(e) => { if (e.key === 'Enter') importMatch() }}
-          />
-          <button
-            onClick={importMatch}
-            disabled={importing || !newMatchId.trim()}
-            className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-gray-900 font-semibold text-sm px-5 py-2 rounded-lg"
-          >
-            {importing ? 'Importing...' : 'Import'}
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="font-semibold text-gray-800">Add Matches (PUBG Match ID)</h2>
+          <button onClick={addRow} className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1">
+            + Add Row
           </button>
         </div>
-        {importError && (
-          <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{importError}</p>
-        )}
+
+        <div className="space-y-2 mb-3">
+          {importRows.map((row, i) => (
+            <div key={row.rowId} className="flex items-center gap-2">
+              <span className="text-xs text-gray-400 font-mono w-8 shrink-0 text-right">M{i + 1}</span>
+              <input
+                value={row.matchId}
+                onChange={e => updateRowMatchId(row.rowId, e.target.value)}
+                placeholder="PUBG Match ID (e.g. 12345678-abcd-...)"
+                disabled={row.status === 'importing' || row.status === 'success'}
+                className={`flex-1 ${INPUT_CLS} disabled:opacity-60`}
+                onKeyDown={e => { if (e.key === 'Enter') importAll() }}
+              />
+              <div className="w-20 shrink-0 flex items-center gap-1">
+                {row.status === 'importing' && <span className="text-xs text-blue-500">...</span>}
+                {row.status === 'success' && <span className="text-xs text-green-600">✓ Done</span>}
+                {row.status === 'error' && (
+                  <span className="text-xs text-red-500 truncate" title={row.errorMsg}>{row.errorMsg}</span>
+                )}
+              </div>
+              {importRows.length > 1 && row.status !== 'success' && (
+                <button onClick={() => removeRow(row.rowId)} className="text-gray-300 hover:text-red-500 text-lg leading-none px-1 shrink-0">×</button>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <button
+          onClick={importAll}
+          disabled={anyImporting || pendingCount === 0}
+          className="bg-yellow-400 hover:bg-yellow-300 disabled:opacity-60 text-gray-900 font-semibold text-sm px-5 py-2 rounded-lg"
+        >
+          {anyImporting ? 'Importing...' : `Import ${pendingCount > 0 ? pendingCount : ''} Match${pendingCount !== 1 ? 'es' : ''}`}
+        </button>
       </div>
 
       {/* Match Tabs */}
@@ -300,25 +308,37 @@ export default function StageMatchesPage() {
       ) : (
         <>
           <div className="flex flex-wrap gap-2 mb-4">
-            {matches.map((match, i) => (
-              <button
-                key={match.id}
-                onClick={() => setSelectedMatch(selectedMatch === match.id ? null : match.id)}
-                className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                  selectedMatch === match.id
-                    ? 'bg-yellow-400 border-yellow-400 text-gray-900'
-                    : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
-                }`}
-              >
-                <span>M{i + 1}</span>
-                {match.map && (
-                  <span className="text-xs opacity-60">{getMapDisplayName(match.map)}</span>
-                )}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  match.status === 'imported' ? 'bg-green-100 text-green-700' :
-                  match.status === 'error' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
-                }`}>{match.status}</span>
-              </button>
+            {sortedMatches.map((match, i) => (
+              <div key={match.id} className="flex items-center gap-1">
+                {/* Reorder buttons */}
+                <div className="flex flex-col">
+                  <button
+                    onClick={() => moveMatch(match.id, 'up')}
+                    disabled={i === 0}
+                    className="text-[10px] leading-none text-gray-300 hover:text-gray-600 disabled:opacity-20 px-0.5"
+                  >▲</button>
+                  <button
+                    onClick={() => moveMatch(match.id, 'down')}
+                    disabled={i === sortedMatches.length - 1}
+                    className="text-[10px] leading-none text-gray-300 hover:text-gray-600 disabled:opacity-20 px-0.5"
+                  >▼</button>
+                </div>
+                <button
+                  onClick={() => setSelectedMatch(selectedMatch === match.id ? null : match.id)}
+                  className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                    selectedMatch === match.id
+                      ? 'bg-yellow-400 border-yellow-400 text-gray-900'
+                      : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
+                  }`}
+                >
+                  <span>M{i + 1}</span>
+                  {match.map && <span className="text-xs opacity-60">{getMapDisplayName(match.map)}</span>}
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                    match.status === 'imported' ? 'bg-green-100 text-green-700' :
+                    match.status === 'error' ? 'bg-red-100 text-red-600' : 'bg-gray-100 text-gray-500'
+                  }`}>{match.status}</span>
+                </button>
+              </div>
             ))}
           </div>
 
@@ -327,23 +347,14 @@ export default function StageMatchesPage() {
               <div className="flex items-center justify-between px-5 py-3 bg-gray-50 border-b border-gray-200">
                 <div className="flex items-center gap-3">
                   <span className="font-medium text-gray-800">
-                    Match {matches.findIndex((m) => m.id === selectedMatchData.id) + 1}
+                    Match {sortedMatches.findIndex(m => m.id === selectedMatchData.id) + 1}
                   </span>
-                  {selectedMatchData.map && (
-                    <span className="text-xs text-gray-400">{getMapDisplayName(selectedMatchData.map)}</span>
-                  )}
+                  {selectedMatchData.map && <span className="text-xs text-gray-400">{getMapDisplayName(selectedMatchData.map)}</span>}
                   {selectedMatchData.match_date && (
-                    <span className="text-xs text-gray-400">
-                      {new Date(selectedMatchData.match_date).toLocaleDateString('en-US')}
-                    </span>
+                    <span className="text-xs text-gray-400">{new Date(selectedMatchData.match_date).toLocaleDateString('en-US')}</span>
                   )}
                 </div>
-                <button
-                  onClick={() => deleteMatch(selectedMatchData.id)}
-                  className="text-xs text-red-400 hover:text-red-600"
-                >
-                  Delete
-                </button>
+                <button onClick={() => deleteMatch(selectedMatchData.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
               </div>
 
               {selectedMatchData.status === 'error' && (
@@ -354,7 +365,7 @@ export default function StageMatchesPage() {
 
               {selectedMatchData.status === 'imported' && (
                 <div className="p-5 grid gap-6 lg:grid-cols-2">
-                  {/* Per-Match Team Scoreboard */}
+                  {/* Team Results */}
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Team Results</p>
                     <table className="w-full text-xs">
@@ -387,17 +398,9 @@ export default function StageMatchesPage() {
                             <td className="py-1.5 text-right font-bold text-gray-900">{r.matchPts}</td>
                             <td className="py-1.5 text-right">
                               <button
-                                onClick={() => setLinkModal({
-                                  phase: 1,
-                                  type: 'team',
-                                  pubgName: r.pubg_team_name ?? r.teams?.name ?? '',
-                                  matchId: selectedMatchData.id,
-                                  rowId: r.id,
-                                })}
+                                onClick={() => setLinkModal({ phase: 1, type: 'team', pubgName: r.pubg_team_name ?? r.teams?.name ?? '', matchId: selectedMatchData.id, rowId: r.id })}
                                 className="text-xs text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 border border-gray-200 hover:border-yellow-400 rounded"
-                              >
-                                Edit
-                              </button>
+                              >Edit</button>
                             </td>
                           </tr>
                         ))}
@@ -408,8 +411,8 @@ export default function StageMatchesPage() {
                   {/* Player Stats */}
                   <div>
                     {(() => {
-                      const unlinked = selectedMatchData.match_player_stats.filter((s) => !s.player_id)
-                      const linked = selectedMatchData.match_player_stats.filter((s) => s.player_id)
+                      const unlinked = selectedMatchData.match_player_stats.filter(s => !s.player_id)
+                      const linked = selectedMatchData.match_player_stats.filter(s => s.player_id)
                       const sorted = [
                         ...unlinked.sort((a, b) => (b.damage_dealt ?? 0) - (a.damage_dealt ?? 0)),
                         ...linked.sort((a, b) => (b.damage_dealt ?? 0) - (a.damage_dealt ?? 0)),
@@ -419,49 +422,37 @@ export default function StageMatchesPage() {
                           <div className="flex items-center justify-between mb-3">
                             <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Player Stats</p>
                             {unlinked.length > 0 && (
-                              <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-medium">
-                                {unlinked.length} unlinked
-                              </span>
+                              <span className="text-xs bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full font-medium">{unlinked.length} unlinked</span>
                             )}
                           </div>
                           <div className="overflow-x-auto max-h-64 overflow-y-auto">
                             <table className="w-full text-xs">
                               <thead className="sticky top-0 bg-white">
                                 <tr className="text-gray-400 border-b border-gray-100">
-                                  <th className="text-left pb-1.5">Player (PUBG name)</th>
+                                  <th className="text-left pb-1.5">Player</th>
                                   <th className="text-right pb-1.5">Kills</th>
                                   <th className="text-right pb-1.5">Damage</th>
                                   <th className="pb-1.5 w-14" />
                                 </tr>
                               </thead>
                               <tbody>
-                                {sorted.map((s) => (
+                                {sorted.map(s => (
                                   <tr key={s.id} className={`border-b border-gray-50 last:border-0 ${!s.player_id ? 'bg-orange-50' : ''}`}>
                                     <td className="py-1">
-                                      <div>
-                                        <span className={`font-medium ${s.player_id ? 'text-gray-800' : 'text-orange-700'}`}>
-                                          {s.display_name ?? s.pubg_player_name ?? '-'}
-                                        </span>
-                                        {s.player_id && s.players?.nickname && (
-                                          <span className="ml-1 text-xs text-gray-400">→ {s.players.nickname}</span>
-                                        )}
-                                      </div>
+                                      <span className={`font-medium ${s.player_id ? 'text-gray-800' : 'text-orange-700'}`}>
+                                        {s.display_name ?? s.pubg_player_name ?? '-'}
+                                      </span>
+                                      {s.player_id && s.players?.nickname && (
+                                        <span className="ml-1 text-xs text-gray-400">→ {s.players.nickname}</span>
+                                      )}
                                     </td>
                                     <td className="py-1 text-right text-gray-500">{s.kills}</td>
                                     <td className="py-1 text-right text-gray-500">{Number(s.damage_dealt).toFixed(0)}</td>
                                     <td className="py-1 text-right">
                                       <button
-                                        onClick={() => setLinkModal({
-                                          phase: 1,
-                                          type: 'player',
-                                          pubgName: s.pubg_player_name ?? '',
-                                          matchId: selectedMatchData.id,
-                                          rowId: s.id,
-                                        })}
+                                        onClick={() => setLinkModal({ phase: 1, type: 'player', pubgName: s.pubg_player_name ?? '', matchId: selectedMatchData.id, rowId: s.id })}
                                         className="text-xs text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 border border-gray-200 hover:border-yellow-400 rounded"
-                                      >
-                                        {s.player_id ? 'Edit' : 'Link'}
-                                      </button>
+                                      >{s.player_id ? 'Edit' : 'Link'}</button>
                                     </td>
                                   </tr>
                                 ))}
@@ -483,13 +474,10 @@ export default function StageMatchesPage() {
         <SearchModal
           type={linkModal.type}
           targetName={linkModal.pubgName}
-          onConfirm={(entityId, entityName) => {
-            setLinkModal({ ...linkModal, phase: 2, entityId, entityName })
-          }}
+          onConfirm={(entityId, entityName) => setLinkModal({ ...linkModal, phase: 2, entityId, entityName })}
           onClose={() => setLinkModal(null)}
         />
       )}
-
       {linkModal?.phase === 2 && (
         <DisplayNameModal
           type={linkModal.type}

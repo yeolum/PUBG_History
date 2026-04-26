@@ -1,31 +1,17 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import MatchStageView from './MatchStageView'
 import type { Stage, Match } from '@/lib/types'
+import { calcPlacementPts } from '@/lib/scoring'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
 
-interface SeriesItem {
-  id: string
-  name: string
-  order_num: number
-}
-
-interface RankEntry {
-  rank: number
-  teamId: string | null
-  teamName: string
-}
-
-interface PrizeConfigItem {
-  rank: number
-  prize: string | null
-  pgs_points: number | null
-  pgc_points: number | null
-}
+interface SeriesItem { id: string; name: string; order_num: number }
+interface RankEntry { rank: number; teamId: string | null; teamName: string }
+interface PrizeConfigItem { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
@@ -40,22 +26,12 @@ interface Props {
   aliasLogoLookup: Record<string, string | null>
 }
 
-const STAGE_LABEL: Record<string, string> = {
-  group: 'Group',
-  playoff: 'Playoff',
-  grand_final: 'Final',
-}
-
 const rankStyle = (rank: number) =>
   rank === 1 ? 'text-yellow-500 font-bold' :
   rank === 2 ? 'text-gray-400 font-semibold' :
   rank === 3 ? 'text-amber-600 font-semibold' : 'text-gray-300'
 
-function resolveLogoUrl(
-  teamId: string | null,
-  name: string,
-  lookup: Record<string, string | null>
-): string | null {
+function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<string, string | null>): string | null {
   if (!teamId) return null
   return lookup[`${teamId}:${name}`] ?? lookup[`${teamId}:`] ?? null
 }
@@ -66,36 +42,97 @@ function formatDateLabel(dateStr: string) {
 }
 
 export default function TournamentStagesView({
-  stages,
-  series,
-  resultsByMatch,
-  damageByMatch,
-  rankBoard,
-  prizeConfig,
-  hasPrize,
-  hasPgsPoints,
-  hasPgcPoints,
-  aliasLogoLookup,
+  stages, series, resultsByMatch, damageByMatch, rankBoard, prizeConfig,
+  hasPrize, hasPgsPoints, hasPgcPoints, aliasLogoLookup,
 }: Props) {
-  // Group stages
-  const stagesBySeries = new Map<string, (Stage & { matches: Match[] })[]>()
-  const directStages: (Stage & { matches: Match[] })[] = []
-  for (const stage of stages) {
-    if (stage.series_id) {
-      if (!stagesBySeries.has(stage.series_id)) stagesBySeries.set(stage.series_id, [])
-      stagesBySeries.get(stage.series_id)!.push(stage)
-    } else {
-      directStages.push(stage)
-    }
-  }
-
+  // All hooks must be before early return
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
     () => stages[0]?.series_id ?? null
   )
-  const [selectedStageId, setSelectedStageId] = useState<string>(
-    () => stages[0]?.id ?? ''
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(
+    () => stages[0]?.series_id ? null : (stages[0]?.id ?? null)
   )
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
+
+  const stagesBySeries = useMemo(() => {
+    const map = new Map<string, (Stage & { matches: Match[] })[]>()
+    for (const stage of stages) {
+      if (stage.series_id) {
+        if (!map.has(stage.series_id)) map.set(stage.series_id, [])
+        map.get(stage.series_id)!.push(stage)
+      }
+    }
+    return map
+  }, [stages])
+
+  const directStages = useMemo(
+    () => stages.filter(s => !s.series_id),
+    [stages]
+  )
+
+  const selectedStage = useMemo(
+    () => selectedStageId ? stages.find(s => s.id === selectedStageId) ?? null : null,
+    [selectedStageId, stages]
+  )
+
+  // Series combined standings (when series selected, no stage drilled)
+  const seriesStandings = useMemo(() => {
+    if (!selectedSeriesId || selectedStageId) return []
+    const seriesStages = stages.filter(s => s.series_id === selectedSeriesId)
+    const seriesMatchIds = new Set(seriesStages.flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id)))
+    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; matches: number }>()
+    for (const [matchId, results] of Object.entries(resultsByMatch)) {
+      if (!seriesMatchIds.has(matchId)) continue
+      for (const r of results as AnyObj[]) {
+        const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+        if (!ptsMap.has(key)) {
+          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', totalPts: 0, placePts: 0, matches: 0 })
+        }
+        const e = ptsMap.get(key)!
+        const pp = calcPlacementPts(r.placement ?? 99)
+        e.totalPts += pp + (r.total_kills ?? 0)
+        e.placePts += pp
+        e.matches++
+      }
+    }
+    return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
+  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch])
+
+  // Per-match results for series view
+  const seriesMatchResults = useMemo(() => {
+    if (!selectedMatchId || selectedStageId) return []
+    return (resultsByMatch[selectedMatchId] ?? [] as AnyObj[])
+      .map((r: AnyObj) => ({
+        ...r,
+        placementPts: calcPlacementPts(r.placement ?? 99),
+        killPts: r.total_kills ?? 0,
+        matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0),
+      }))
+      .sort((a: AnyObj, b: AnyObj) => b.matchPts !== a.matchPts ? b.matchPts - a.matchPts : (a.placement ?? 99) - (b.placement ?? 99))
+  }, [selectedMatchId, selectedStageId, resultsByMatch])
+
+  // Stage match buttons (when stage selected)
+  const stageLevelMatches = useMemo(
+    () => selectedStage ? [...selectedStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num) : [],
+    [selectedStage]
+  )
+
+  const stageMatchGroups = useMemo(() => {
+    const groups: { date: string; label: string; matches: Match[] }[] = []
+    for (const match of stageLevelMatches) {
+      const date = match.match_date ? match.match_date.split('T')[0] : ''
+      const existing = groups.find(g => g.date === date)
+      if (existing) existing.matches.push(match)
+      else groups.push({ date, label: date ? formatDateLabel(date) : '', matches: [match] })
+    }
+    return groups
+  }, [stageLevelMatches])
+
+  // Series-level stages (when series selected, no stage)
+  const seriesLevelStages = useMemo(
+    () => selectedSeriesId && !selectedStageId ? stages.filter(s => s.series_id === selectedSeriesId) : [],
+    [selectedSeriesId, selectedStageId, stages]
+  )
 
   if (stages.length === 0) {
     return (
@@ -105,133 +142,113 @@ export default function TournamentStagesView({
     )
   }
 
-  const selectedStage = stages.find((s) => s.id === selectedStageId) ?? stages[0]
-
-  const importedMatches = [...(selectedStage?.matches ?? [])]
-    .filter((m) => m.status === 'imported')
-    .sort((a, b) => a.order_num - b.order_num)
-
-  const matchGroups: { date: string; label: string; matches: Match[] }[] = []
-  for (const match of importedMatches) {
-    const date = match.match_date ? match.match_date.split('T')[0] : ''
-    const existing = matchGroups.find((g) => g.date === date)
-    if (existing) {
-      existing.matches.push(match)
-    } else {
-      matchGroups.push({ date, label: date ? formatDateLabel(date) : '', matches: [match] })
-    }
-  }
-
-  const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
+  const prizeByRank = new Map(prizeConfig.map(p => [p.rank, p]))
 
   const btnBase = 'flex items-center justify-center font-medium border transition-colors rounded-lg text-xs'
   const btnActive = 'bg-yellow-400 border-yellow-400 text-gray-900'
   const btnIdle = 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
+  const tabBase = 'flex items-center rounded-lg font-medium border transition-colors'
+  const tabActive = 'bg-yellow-400 border-yellow-400 text-gray-900'
+  const tabIdle = 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
 
-  function selectStage(stageId: string) {
+  function selectDirectStage(stageId: string) {
+    setSelectedSeriesId(null)
+    setSelectedStageId(stageId)
+    setSelectedMatchId(null)
+  }
+
+  function selectSeriesStage(stageId: string) {
     setSelectedStageId(stageId)
     setSelectedMatchId(null)
   }
 
   function toggleSeries(seriesId: string) {
-    if (selectedSeriesId === seriesId) {
+    if (selectedSeriesId === seriesId && !selectedStageId) {
       setSelectedSeriesId(null)
     } else {
       setSelectedSeriesId(seriesId)
-      const first = stagesBySeries.get(seriesId)?.[0]
-      if (first) selectStage(first.id)
+      setSelectedStageId(null)
+      setSelectedMatchId(null)
     }
   }
 
-  const stageTabCls = (isSelected: boolean) =>
-    `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-      isSelected
-        ? 'bg-yellow-400 border-yellow-400 text-gray-900'
-        : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
-    }`
-
-  const badgeCls = (isSelected: boolean) =>
-    `text-xs px-1.5 py-0.5 rounded ${isSelected ? 'bg-yellow-300 text-gray-800' : 'bg-gray-100 text-gray-400'}`
+  const selectedSeriesName = series.find(s => s.id === selectedSeriesId)?.name ?? ''
 
   return (
     <div>
       {/* Navigation */}
       <div className="mb-3">
-        {/* Top row: series buttons + direct stage buttons */}
+        {/* Top row: series + direct stage buttons */}
         <div className="flex flex-wrap gap-2 mb-1.5">
-          {series.map((s) => {
-            const isExpanded = selectedSeriesId === s.id
-            const seriesStages = stagesBySeries.get(s.id) ?? []
-            const containsSelected = seriesStages.some((st) => st.id === selectedStageId)
-            const active = isExpanded || containsSelected
-            return (
-              <button
-                key={s.id}
-                onClick={() => toggleSeries(s.id)}
-                className={stageTabCls(active)}
-              >
-                {s.name}
-                <span className={badgeCls(active)}>{seriesStages.length}</span>
-              </button>
-            )
-          })}
-
-          {directStages.map((stage) => {
-            const isSelected = stage.id === selectedStageId
-            return (
-              <button
-                key={stage.id}
-                onClick={() => selectStage(stage.id)}
-                className={stageTabCls(isSelected)}
-              >
-                {stage.name}
-                <span className={badgeCls(isSelected)}>
-                  {STAGE_LABEL[stage.type] ?? stage.type}
-                </span>
-              </button>
-            )
-          })}
+          {series.map(s => (
+            <button
+              key={s.id}
+              onClick={() => toggleSeries(s.id)}
+              className={`${tabBase} px-4 py-2 text-sm ${selectedSeriesId === s.id ? tabActive : tabIdle}`}
+            >
+              {s.name}
+            </button>
+          ))}
+          {directStages.map(stage => (
+            <button
+              key={stage.id}
+              onClick={() => selectDirectStage(stage.id)}
+              className={`${tabBase} px-4 py-2 text-sm ${selectedStageId === stage.id && !selectedSeriesId ? tabActive : tabIdle}`}
+            >
+              {stage.name}
+            </button>
+          ))}
         </div>
 
-        {/* Sub-row: stages within expanded series */}
+        {/* Sub-row: stages within expanded series (smaller buttons, item 3) */}
         {selectedSeriesId && stagesBySeries.has(selectedSeriesId) && (
-          <div className="flex flex-wrap gap-2 pl-4 border-l-2 border-yellow-400">
-            {(stagesBySeries.get(selectedSeriesId) ?? []).map((stage) => {
-              const isSelected = stage.id === selectedStageId
-              return (
-                <button
-                  key={stage.id}
-                  onClick={() => selectStage(stage.id)}
-                  className={stageTabCls(isSelected)}
-                >
-                  {stage.name}
-                  <span className={badgeCls(isSelected)}>
-                    {STAGE_LABEL[stage.type] ?? stage.type}
-                  </span>
-                </button>
-              )
-            })}
+          <div className="flex flex-wrap gap-1.5 pl-4 border-l-2 border-yellow-400">
+            {(stagesBySeries.get(selectedSeriesId) ?? []).map(stage => (
+              <button
+                key={stage.id}
+                onClick={() => selectSeriesStage(stage.id)}
+                className={`${tabBase} px-3 py-1 text-xs ${selectedStageId === stage.id ? tabActive : tabIdle}`}
+              >
+                {stage.name}
+              </button>
+            ))}
           </div>
         )}
       </div>
 
       {/* Match buttons */}
-      {importedMatches.length > 0 && (
+      {selectedSeriesId && !selectedStageId && seriesLevelStages.length > 0 ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
-          {matchGroups.map((group, gi) => (
+          {seriesLevelStages.map(stage => {
+            const stageMatches = stage.matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
+            if (stageMatches.length === 0) return null
+            return (
+              <div key={stage.id} className="flex items-center gap-1.5">
+                <span className="text-[11px] text-gray-400 font-medium">{stage.name}</span>
+                {stageMatches.map((match, idx) => {
+                  const isSel = selectedMatchId === match.id
+                  return (
+                    <button key={match.id} onClick={() => setSelectedMatchId(isSel ? null : match.id)}
+                      className={`w-10 h-8 ${btnBase} ${isSel ? btnActive : btnIdle}`}>
+                      M{idx + 1}
+                    </button>
+                  )
+                })}
+              </div>
+            )
+          })}
+        </div>
+      ) : stageLevelMatches.length > 0 ? (
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
+          {stageMatchGroups.map((group, gi) => (
             <div key={group.date || gi} className="flex items-center gap-1.5">
-              {group.label && (
-                <span className="text-[11px] text-gray-400 font-medium mr-0.5">{group.label}</span>
-              )}
-              {group.matches.map((match) => {
-                const idx = importedMatches.findIndex((m) => m.id === match.id)
-                const isSelected = selectedMatchId === match.id
+              {group.label && <span className="text-[11px] text-gray-400 font-medium mr-0.5">{group.label}</span>}
+              {group.matches.map(match => {
+                const idx = stageLevelMatches.findIndex(m => m.id === match.id)
+                const isSel = selectedMatchId === match.id
                 return (
-                  <button
-                    key={match.id}
-                    onClick={() => setSelectedMatchId(isSelected ? null : match.id)}
-                    className={`w-10 h-8 ${btnBase} ${isSelected ? btnActive : btnIdle}`}
-                  >
+                  <button key={match.id} onClick={() => setSelectedMatchId(isSel ? null : match.id)}
+                    className={`w-10 h-8 ${btnBase} ${isSel ? btnActive : btnIdle}`}>
                     M{idx + 1}
                   </button>
                 )
@@ -239,9 +256,9 @@ export default function TournamentStagesView({
             </div>
           ))}
         </div>
-      )}
+      ) : null}
 
-      {/* Two-column layout: Final Standings | Stage view */}
+      {/* Two-column layout */}
       <div className="flex flex-col lg:flex-row gap-4 items-start">
         {/* Left: Final Standings */}
         {rankBoard.length > 0 && (
@@ -260,7 +277,7 @@ export default function TournamentStagesView({
                 </tr>
               </thead>
               <tbody>
-                {rankBoard.map((row) => {
+                {rankBoard.map(row => {
                   const pc = prizeByRank.get(row.rank)
                   const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
                   return (
@@ -276,9 +293,7 @@ export default function TournamentStagesView({
                           )}
                           <span className="font-medium text-gray-800 text-xs leading-snug">
                             {row.teamId ? (
-                              <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">
-                                {row.teamName}
-                              </Link>
+                              <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">{row.teamName}</Link>
                             ) : row.teamName}
                           </span>
                         </div>
@@ -294,17 +309,118 @@ export default function TournamentStagesView({
           </div>
         )}
 
-        {/* Right: Stage content */}
+        {/* Right: Content */}
         <div className="flex-1 min-w-0">
-          <MatchStageView
-            key={selectedStage.id}
-            stage={selectedStage}
-            matches={selectedStage.matches}
-            selectedMatchId={selectedMatchId}
-            resultsByMatch={resultsByMatch}
-            damageByMatch={damageByMatch}
-            aliasLogoLookup={aliasLogoLookup}
-          />
+          {selectedSeriesId && !selectedStageId ? (
+            /* Series combined view (item 5) */
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                <span className="font-semibold text-sm text-gray-800">{selectedSeriesName} — 합산</span>
+              </div>
+              {!selectedMatchId ? (
+                seriesStandings.length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400 border-b border-gray-100">
+                          <th className="text-left px-4 py-2 w-8">#</th>
+                          <th className="text-left px-4 py-2">Team</th>
+                          <th className="text-right px-4 py-2">M</th>
+                          <th className="text-right px-4 py-2">Plc Pts</th>
+                          <th className="text-right px-4 py-2">Kills</th>
+                          <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {seriesStandings.map((s, i) => {
+                          const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                          return (
+                            <tr key={`${s.teamId ?? s.teamName}-${i}`} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                              <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                              <td className="px-4 py-2 text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  {logo ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                                  ) : (
+                                    <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                  )}
+                                  {s.teamId ? (
+                                    <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
+                                  ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.placePts}</td>
+                              <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-10 text-center text-gray-400 text-sm">No imported matches yet</div>
+                )
+              ) : (
+                seriesMatchResults.length > 0 && (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400 border-b border-gray-100">
+                          <th className="text-left px-4 py-2 w-8">#</th>
+                          <th className="text-left px-4 py-2">Team</th>
+                          <th className="text-right px-4 py-2">Plc</th>
+                          <th className="text-right px-4 py-2">Plc Pts</th>
+                          <th className="text-right px-4 py-2">Kills</th>
+                          <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {seriesMatchResults.map((r: AnyObj, i: number) => {
+                          const teamName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'
+                          const logo = resolveLogoUrl(r.team_id, teamName, aliasLogoLookup)
+                          return (
+                            <tr key={r.id ?? i} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                              <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                              <td className="px-4 py-2 text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  {logo ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                                  ) : (
+                                    <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                  )}
+                                  {r.team_id ? (
+                                    <Link href={`/teams/${r.team_id}`} className="font-medium text-gray-800 hover:text-yellow-600">{teamName}</Link>
+                                  ) : <span className="font-medium text-gray-800">{teamName}</span>}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
+                              <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )
+              )}
+            </div>
+          ) : selectedStage ? (
+            <MatchStageView
+              key={selectedStage.id}
+              stage={selectedStage}
+              matches={selectedStage.matches}
+              selectedMatchId={selectedMatchId}
+              resultsByMatch={resultsByMatch}
+              damageByMatch={damageByMatch}
+              aliasLogoLookup={aliasLogoLookup}
+            />
+          ) : null}
         </div>
       </div>
     </div>

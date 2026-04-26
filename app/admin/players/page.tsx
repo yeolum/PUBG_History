@@ -6,6 +6,7 @@ import type { PlayerWithDetails } from '@/lib/types'
 import SearchModal from '@/components/admin/SearchModal'
 import CsvImportModal from '@/components/admin/CsvImportModal'
 import ImageUpload from '@/components/admin/ImageUpload'
+import Pagination from '@/components/Pagination'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 w-full'
 
@@ -60,6 +61,8 @@ export default function AdminPlayersPage() {
   const [teamModal, setTeamModal] = useState<string | null>(null)
   const [csvModal, setCsvModal] = useState(false)
   const [mergeModal, setMergeModal] = useState<{ fromId: string; fromName: string } | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -193,6 +196,7 @@ export default function AdminPlayersPage() {
     const matchTeam = !filterTeam || r.team_name === filterTeam
     return matchSearch && matchNation && matchTeam
   })
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <div className="p-8">
@@ -217,13 +221,13 @@ export default function AdminPlayersPage() {
       <div className="mb-4 flex gap-2 flex-wrap">
         <input
           value={search}
-          onChange={(e) => setSearch(e.target.value)}
+          onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           placeholder="Search by nickname, real name, or alias..."
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm w-full max-w-xs focus:outline-none focus:ring-2 focus:ring-yellow-400"
         />
         <select
           value={filterTeam}
-          onChange={(e) => setFilterTeam(e.target.value)}
+          onChange={(e) => { setFilterTeam(e.target.value); setPage(1) }}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 text-gray-700"
         >
           <option value="">All Teams</option>
@@ -231,7 +235,7 @@ export default function AdminPlayersPage() {
         </select>
         <select
           value={filterNation}
-          onChange={(e) => setFilterNation(e.target.value)}
+          onChange={(e) => { setFilterNation(e.target.value); setPage(1) }}
           className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 text-gray-700"
         >
           <option value="">All Countries</option>
@@ -277,8 +281,9 @@ export default function AdminPlayersPage() {
       {loading ? (
         <p className="text-gray-400 text-sm">Loading...</p>
       ) : (
+        <>
         <div className="space-y-2">
-          {filtered.map((row) => (
+          {paginated.map((row) => (
             <div key={row.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="grid grid-cols-[auto_2fr_1.5fr_1fr_1fr_1fr_auto] gap-2 items-center px-4 py-3 text-sm">
                 <ImageUpload
@@ -400,6 +405,8 @@ export default function AdminPlayersPage() {
             </p>
           )}
         </div>
+        <Pagination total={filtered.length} page={page} pageSize={pageSize} onPageChange={setPage} onPageSizeChange={s => { setPageSize(s); setPage(1) }} />
+        </>
       )}
 
       {csvModal && (
