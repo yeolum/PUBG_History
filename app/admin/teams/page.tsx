@@ -63,8 +63,14 @@ export default function AdminTeamsPage() {
   const [filterNation, setFilterNation] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const [addingNew, setAddingNew] = useState(false)
-  const [newTeam, setNewTeam] = useState({ name: '', short_name: '', nationality: '' })
+  interface NewRow { rowId: string; name: string; short_name: string; nationality: string; status: 'idle' | 'saving' | 'done' | 'error'; errorMsg?: string }
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [newRows, setNewRows] = useState<NewRow[]>([])
+  function mkRow(): NewRow { return { rowId: String(Date.now() + Math.random()), name: '', short_name: '', nationality: '', status: 'idle' } }
+  function openBulk() { setBulkOpen(true); setNewRows([mkRow()]) }
+  function addBulkRow() { setNewRows((rs) => [...rs, mkRow()]) }
+  function removeBulkRow(id: string) { setNewRows((rs) => rs.filter((r) => r.rowId !== id)) }
+  function updateNewRow(id: string, key: string, val: string) { setNewRows((rs) => rs.map((r) => r.rowId === id ? { ...r, [key]: val } : r)) }
 
   const [csvModal, setCsvModal] = useState(false)
   const [mergeModal, setMergeModal] = useState<{ fromId: string; fromName: string } | null>(null)
@@ -151,22 +157,28 @@ export default function AdminTeamsPage() {
     setRows((rs) => rs.filter((r) => r.id !== id))
   }
 
-  async function createTeam() {
-    if (!newTeam.name.trim()) return
-    const res = await fetch('/api/admin/teams', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newTeam.name.trim(),
-        short_name: newTeam.short_name.trim() || null,
-        nationality: newTeam.nationality.trim() || null,
-      }),
-    })
-    const json = await res.json()
-    if (!res.ok) { alert('Failed to create team: ' + (json.error ?? res.status)); return }
-    setRows((rs) => [...rs, toRow(json.data as TeamWithAliases)])
-    setNewTeam({ name: '', short_name: '', nationality: '' })
-    setAddingNew(false)
+  async function saveAllBulk() {
+    const pending = newRows.filter((r) => r.status === 'idle' && r.name.trim())
+    if (!pending.length) return
+    setNewRows((rs) => rs.map((r) => r.status === 'idle' && r.name.trim() ? { ...r, status: 'saving' } : r))
+    await Promise.all(pending.map(async (nr) => {
+      const res = await fetch('/api/admin/teams', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: nr.name.trim(),
+          short_name: nr.short_name.trim() || null,
+          nationality: nr.nationality.trim() || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setNewRows((rs) => rs.map((r) => r.rowId === nr.rowId ? { ...r, status: 'error', errorMsg: json.error ?? String(res.status) } : r))
+      } else {
+        setNewRows((rs) => rs.map((r) => r.rowId === nr.rowId ? { ...r, status: 'done' } : r))
+        setRows((rs) => [...rs, toRow(json.data as TeamWithAliases)])
+      }
+    }))
   }
 
   async function mergeTeam(targetId: string, targetName: string) {
@@ -211,7 +223,7 @@ export default function AdminTeamsPage() {
             className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium text-sm px-4 py-2 rounded-lg">
             CSV Import
           </button>
-          <button onClick={() => setAddingNew(true)}
+          <button onClick={openBulk}
             className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-sm px-4 py-2 rounded-lg">
             + New Team
           </button>
@@ -240,31 +252,73 @@ export default function AdminTeamsPage() {
         <span className="text-xs text-gray-400 self-center ml-1">{filtered.length} teams</span>
       </div>
 
-      {/* Add new team row */}
-      {addingNew && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 flex gap-2 flex-wrap items-end">
-          {[
-            { label: 'Team Name *', key: 'name', ph: 'Team name', w: 'w-44' },
-            { label: 'Tag', key: 'short_name', ph: 'TAG', w: 'w-20' },
-            { label: 'Country', key: 'nationality', ph: 'Korea', w: 'w-28' },
-          ].map(({ label, key, ph, w }) => (
-            <div key={key}>
-              <label className="text-[11px] text-gray-500 block mb-1">{label}</label>
-              <input
-                value={newTeam[key as keyof typeof newTeam]}
-                onChange={(e) => setNewTeam((n) => ({ ...n, [key]: e.target.value }))}
-                placeholder={ph}
-                autoFocus={key === 'name'}
-                className={`border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-yellow-400 ${w}`}
-              />
-            </div>
-          ))}
-          <button onClick={createTeam}
-            className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-xs px-3 py-2 rounded-lg h-8">
-            Add
-          </button>
-          <button onClick={() => setAddingNew(false)}
-            className="text-xs text-gray-500 hover:text-gray-700 px-2 py-2">Cancel</button>
+      {/* Bulk add teams */}
+      {bulkOpen && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-gray-700">Bulk Add Teams</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-yellow-200">
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold w-6">#</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold">Team Name *</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold w-24">Tag</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold">Country</th>
+                  <th className="w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {newRows.map((nr, i) => (
+                  <tr key={nr.rowId} className="border-b border-yellow-100 last:border-0">
+                    <td className="px-2 py-1 text-gray-400 text-center">{i + 1}</td>
+                    <td className="px-1 py-1">
+                      <input value={nr.name} onChange={(e) => updateNewRow(nr.rowId, 'name', e.target.value)}
+                        disabled={nr.status !== 'idle'}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-full min-w-[120px] disabled:opacity-50"
+                        placeholder="Team name" autoFocus={i === 0} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input value={nr.short_name} onChange={(e) => updateNewRow(nr.rowId, 'short_name', e.target.value)}
+                        disabled={nr.status !== 'idle'}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-20 uppercase disabled:opacity-50"
+                        placeholder="TAG" />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input value={nr.nationality} onChange={(e) => updateNewRow(nr.rowId, 'nationality', e.target.value)}
+                        disabled={nr.status !== 'idle'}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-full min-w-[80px] disabled:opacity-50"
+                        placeholder="Korea" />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      {nr.status === 'idle' && (
+                        <button onClick={() => removeBulkRow(nr.rowId)} className="text-gray-300 hover:text-red-500 text-sm leading-none">×</button>
+                      )}
+                      {nr.status === 'saving' && <span className="text-yellow-500 text-[10px]">···</span>}
+                      {nr.status === 'done' && <span className="text-green-500 text-[10px]">✓</span>}
+                      {nr.status === 'error' && <span className="text-red-500 text-[10px]" title={nr.errorMsg}>✗</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button onClick={addBulkRow}
+              className="text-xs border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded">
+              + Add Row
+            </button>
+            <button onClick={saveAllBulk}
+              disabled={!newRows.some((r) => r.status === 'idle' && r.name.trim())}
+              className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-gray-900 font-semibold px-4 py-1.5 rounded">
+              Save All
+            </button>
+            <button onClick={() => { setBulkOpen(false); setNewRows([]) }}
+              className="text-xs text-gray-400 hover:text-gray-600 ml-auto">
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 

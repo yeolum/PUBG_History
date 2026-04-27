@@ -13,6 +13,46 @@ import { calcPlacementPts } from '@/lib/scoring'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
+const CURRENCIES = [
+  { code: 'USD', symbol: '$' },
+  { code: 'EUR', symbol: '€' },
+  { code: 'KRW', symbol: '₩' },
+  { code: 'GBP', symbol: '£' },
+  { code: 'JPY', symbol: '¥' },
+  { code: 'CNY', symbol: 'CN¥' },
+  { code: 'AUD', symbol: 'A$' },
+  { code: 'SGD', symbol: 'S$' },
+]
+
+function detectCurrency(str: string): string {
+  if (str.startsWith('A$')) return 'AUD'
+  if (str.startsWith('S$')) return 'SGD'
+  if (str.startsWith('CN¥')) return 'CNY'
+  if (str.startsWith('$')) return 'USD'
+  if (str.startsWith('€')) return 'EUR'
+  if (str.startsWith('₩')) return 'KRW'
+  if (str.startsWith('£')) return 'GBP'
+  if (str.startsWith('¥')) return 'JPY'
+  return 'USD'
+}
+
+function fmtNum(val: string): string {
+  const n = val.replace(/[^\d]/g, '')
+  if (!n) return ''
+  return parseInt(n, 10).toLocaleString('en-US')
+}
+
+function parsePrizeNum(stored: string | null | undefined): string {
+  if (!stored) return ''
+  const n = stored.replace(/[^\d]/g, '')
+  if (!n) return ''
+  return parseInt(n, 10).toLocaleString('en-US')
+}
+
+function currencySymbol(code: string): string {
+  return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$'
+}
+
 interface MatchFull extends Match {
   match_team_results: (MatchTeamResult & { teams: { id: string; name: string } | null })[]
   match_player_stats: (MatchPlayerStat & { players: { id: string; nickname: string } | null })[]
@@ -48,6 +88,8 @@ export default function AdminTournamentDetailPage() {
   type PrizeRow = { rank: number; stageId: string; stageRank: number; prize: string; pgs: string; pgc: string }
   const [prizeRows, setPrizeRows] = useState<PrizeRow[]>([])
   const [savingPrize, setSavingPrize] = useState(false)
+  const [prizeCurrency, setPrizeCurrency] = useState('USD')
+  const [prizePoolInput, setPrizePoolInput] = useState('')
 
   // selected match per stage for inline linking UI
   const [selectedMatchByStage, setSelectedMatchByStage] = useState<Record<string, string | null>>({})
@@ -73,6 +115,12 @@ export default function AdminTournamentDetailPage() {
     if (!t) { router.push('/admin/tournaments'); return }
     setTournament(t as Tournament)
     setForm(t as Tournament)
+
+    // Detect currency from existing prize data
+    const firstPrize = (pc ?? []).find((p) => p.prize)?.prize ?? t?.prize_pool ?? ''
+    const detected = detectCurrency(firstPrize)
+    setPrizeCurrency(detected)
+    setPrizePoolInput(parsePrizeNum(t?.prize_pool))
     const stageData = (s ?? []) as StageFull[]
     setStageList(stageData)
 
@@ -99,7 +147,7 @@ export default function AdminTournamentDetailPage() {
         rank,
         stageId: existing?.stage_id ?? (finalStage?.id ?? ''),
         stageRank: existing?.stage_rank ?? rank,
-        prize: existing?.prize ?? '',
+        prize: parsePrizeNum(existing?.prize),
         pgs: existing?.pgs_points?.toString() ?? '',
         pgc: existing?.pgc_points?.toString() ?? '',
       })
@@ -113,6 +161,7 @@ export default function AdminTournamentDetailPage() {
     if (!form.name?.trim()) return
     setSaving(true)
     setErr('')
+    const sym = currencySymbol(prizeCurrency)
     const { error } = await supabase.from('tournaments').update({
       name: form.name,
       short_name: form.short_name || null,
@@ -120,7 +169,7 @@ export default function AdminTournamentDetailPage() {
       region: form.region || null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
-      prize_pool: form.prize_pool || null,
+      prize_pool: prizePoolInput ? `${sym}${prizePoolInput}` : null,
       status: form.status,
       description: form.description || null,
       banner_url: form.banner_url ?? null,
@@ -208,6 +257,7 @@ export default function AdminTournamentDetailPage() {
     }).eq('id', id)
     if (flagErr) { setErr('Save failed: ' + flagErr.message); setSavingPrize(false); return }
 
+    const sym = currencySymbol(prizeCurrency)
     const rows = prizeRows
       .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
       .map((r) => ({
@@ -215,7 +265,7 @@ export default function AdminTournamentDetailPage() {
         rank: r.rank,
         stage_id: r.stageId || null,
         stage_rank: r.stageRank || null,
-        prize: r.prize || null,
+        prize: r.prize ? `${sym}${r.prize}` : null,
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
       }))
@@ -422,7 +472,28 @@ export default function AdminTournamentDetailPage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Prize Pool</label>
-              <input value={form.prize_pool ?? ''} onChange={(e) => setForm((f) => ({ ...f, prize_pool: e.target.value }))} className={INPUT_CLS} />
+              <div className="flex gap-2">
+                <select
+                  value={prizeCurrency}
+                  onChange={(e) => setPrizeCurrency(e.target.value)}
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 shrink-0"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                  ))}
+                </select>
+                <div className="relative flex-1">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-gray-400 pointer-events-none">
+                    {currencySymbol(prizeCurrency)}
+                  </span>
+                  <input
+                    value={prizePoolInput}
+                    onChange={(e) => setPrizePoolInput(fmtNum(e.target.value))}
+                    placeholder="0"
+                    className={INPUT_CLS + ' pl-7'}
+                  />
+                </div>
+              </div>
             </div>
             <div className="col-span-2">
               <label className="text-xs text-gray-500 block mb-1">Description</label>
@@ -852,7 +923,7 @@ export default function AdminTournamentDetailPage() {
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {/* Column toggles */}
-          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6">
+          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6 flex-wrap">
             {([
               { key: 'has_prize' as const, label: 'Prize Money' },
               { key: 'has_pgs_points' as const, label: 'PGS Points' },
@@ -868,6 +939,20 @@ export default function AdminTournamentDetailPage() {
                 {label}
               </label>
             ))}
+            {form.has_prize && (
+              <div className="ml-auto flex items-center gap-2">
+                <label className="text-xs text-gray-500">Currency</label>
+                <select
+                  value={prizeCurrency}
+                  onChange={(e) => setPrizeCurrency(e.target.value)}
+                  className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                >
+                  {CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.code} ({c.symbol})</option>
+                  ))}
+                </select>
+              </div>
+            )}
           </div>
 
           <div className="overflow-x-auto">
@@ -877,7 +962,7 @@ export default function AdminTournamentDetailPage() {
                   <th className="text-left px-4 py-2 w-10">#</th>
                   <th className="text-left px-4 py-2">Stage</th>
                   <th className="text-left px-4 py-2 w-24">Stage Rank</th>
-                  {form.has_prize && <th className="text-right px-4 py-2">Prize</th>}
+                  {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
                   {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
                   {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
                 </tr>
@@ -909,12 +994,15 @@ export default function AdminTournamentDetailPage() {
                     </td>
                     {form.has_prize && (
                       <td className="px-4 py-2 text-right">
-                        <input
-                          value={row.prize}
-                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: e.target.value } : r))}
-                          placeholder="e.g. $5,000"
-                          className="text-right w-32 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                        />
+                        <div className="flex items-center justify-end gap-1">
+                          <span className="text-xs text-gray-400 shrink-0">{currencySymbol(prizeCurrency)}</span>
+                          <input
+                            value={row.prize}
+                            onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
+                            placeholder="0"
+                            className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </div>
                       </td>
                     )}
                     {form.has_pgs_points && (

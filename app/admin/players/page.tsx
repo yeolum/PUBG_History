@@ -71,8 +71,14 @@ export default function AdminPlayersPage() {
   const [filterTeam, setFilterTeam] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
-  const [addingNew, setAddingNew] = useState(false)
-  const [newPlayer, setNewPlayer] = useState({ nickname: '', real_name: '', nationality: '', nationality_code: '' })
+  interface NewRow { rowId: string; nickname: string; real_name: string; nationality: string; nationality_code: string; status: 'idle' | 'saving' | 'done' | 'error'; errorMsg?: string }
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [newRows, setNewRows] = useState<NewRow[]>([])
+  function mkRow(): NewRow { return { rowId: String(Date.now() + Math.random()), nickname: '', real_name: '', nationality: '', nationality_code: '', status: 'idle' } }
+  function openBulk() { setBulkOpen(true); setNewRows([mkRow()]) }
+  function addBulkRow() { setNewRows((rs) => [...rs, mkRow()]) }
+  function removeBulkRow(id: string) { setNewRows((rs) => rs.filter((r) => r.rowId !== id)) }
+  function updateNewRow(id: string, key: string, val: string) { setNewRows((rs) => rs.map((r) => r.rowId === id ? { ...r, [key]: val } : r)) }
 
   const [teamModal, setTeamModal] = useState<string | null>(null)
   const [csvModal, setCsvModal] = useState(false)
@@ -167,24 +173,30 @@ export default function AdminPlayersPage() {
     setRows((rs) => rs.filter((r) => r.id !== id))
   }
 
-  async function createPlayer() {
-    if (!newPlayer.nickname.trim()) return
-    const res = await fetch('/api/admin/players', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        nickname: newPlayer.nickname.trim(),
-        real_name: newPlayer.real_name.trim() || null,
-        nationality: newPlayer.nationality.trim() || null,
-        nationality_code: newPlayer.nationality_code.trim().toUpperCase() || null,
-      }),
-    })
-    const json = await res.json()
-    if (!res.ok) { alert('Failed to create player: ' + (json.error ?? res.status)); return }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setRows((rs) => [...rs, toRow(json.data as any)])
-    setNewPlayer({ nickname: '', real_name: '', nationality: '', nationality_code: '' })
-    setAddingNew(false)
+  async function saveAllBulk() {
+    const pending = newRows.filter((r) => r.status === 'idle' && r.nickname.trim())
+    if (!pending.length) return
+    setNewRows((rs) => rs.map((r) => r.status === 'idle' && r.nickname.trim() ? { ...r, status: 'saving' } : r))
+    await Promise.all(pending.map(async (nr) => {
+      const res = await fetch('/api/admin/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          nickname: nr.nickname.trim(),
+          real_name: nr.real_name.trim() || null,
+          nationality: nr.nationality.trim() || null,
+          nationality_code: nr.nationality_code.trim().toUpperCase() || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setNewRows((rs) => rs.map((r) => r.rowId === nr.rowId ? { ...r, status: 'error', errorMsg: json.error ?? String(res.status) } : r))
+      } else {
+        setNewRows((rs) => rs.map((r) => r.rowId === nr.rowId ? { ...r, status: 'done' } : r))
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setRows((rs) => [...rs, toRow(json.data as any)])
+      }
+    }))
   }
 
   async function assignTeam(playerId: string, teamId: string, teamName: string) {
@@ -235,7 +247,7 @@ export default function AdminPlayersPage() {
             className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium text-sm px-4 py-2 rounded-lg">
             CSV Import
           </button>
-          <button onClick={() => setAddingNew(true)}
+          <button onClick={openBulk}
             className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-sm px-4 py-2 rounded-lg">
             + New Player
           </button>
@@ -269,33 +281,81 @@ export default function AdminPlayersPage() {
         <span className="text-xs text-gray-400 self-center ml-1">{filtered.length} players</span>
       </div>
 
-      {/* Add new player row */}
-      {addingNew && (
-        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-3 mb-4 flex gap-2 flex-wrap items-end">
-          {[
-            { label: 'Nickname *', key: 'nickname', ph: 'Nickname', w: 'w-36' },
-            { label: 'Real Name', key: 'real_name', ph: 'Name', w: 'w-28' },
-            { label: 'Nationality', key: 'nationality', ph: 'Korea', w: 'w-24' },
-            { label: 'Code', key: 'nationality_code', ph: 'KR', w: 'w-14' },
-          ].map(({ label, key, ph, w }) => (
-            <div key={key}>
-              <label className="text-[11px] text-gray-500 block mb-1">{label}</label>
-              <input
-                value={newPlayer[key as keyof typeof newPlayer]}
-                onChange={(e) => setNewPlayer((n) => ({ ...n, [key]: key === 'nationality_code' ? e.target.value.toUpperCase().slice(0, 2) : e.target.value }))}
-                placeholder={ph}
-                autoFocus={key === 'nickname'}
-                maxLength={key === 'nationality_code' ? 2 : undefined}
-                className={`border border-gray-300 rounded px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-yellow-400 ${w}`}
-              />
-            </div>
-          ))}
-          <button onClick={createPlayer}
-            className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-xs px-3 py-2 rounded-lg h-8">
-            Add
-          </button>
-          <button onClick={() => setAddingNew(false)}
-            className="text-xs text-gray-500 hover:text-gray-700 px-2 py-2">Cancel</button>
+      {/* Bulk add players */}
+      {bulkOpen && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs font-semibold text-gray-700">Bulk Add Players</p>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-yellow-200">
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold w-6">#</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold">Nickname *</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold">Real Name</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold">Nationality</th>
+                  <th className="text-left px-2 py-1 text-[11px] text-gray-500 font-semibold w-16">Code</th>
+                  <th className="w-6"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {newRows.map((nr, i) => (
+                  <tr key={nr.rowId} className="border-b border-yellow-100 last:border-0">
+                    <td className="px-2 py-1 text-gray-400 text-center">{i + 1}</td>
+                    <td className="px-1 py-1">
+                      <input value={nr.nickname} onChange={(e) => updateNewRow(nr.rowId, 'nickname', e.target.value)}
+                        disabled={nr.status !== 'idle'}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-full min-w-[100px] disabled:opacity-50"
+                        placeholder="Nickname" autoFocus={i === 0} />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input value={nr.real_name} onChange={(e) => updateNewRow(nr.rowId, 'real_name', e.target.value)}
+                        disabled={nr.status !== 'idle'}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-full min-w-[90px] disabled:opacity-50"
+                        placeholder="—" />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input value={nr.nationality} onChange={(e) => updateNewRow(nr.rowId, 'nationality', e.target.value)}
+                        disabled={nr.status !== 'idle'}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-full min-w-[70px] disabled:opacity-50"
+                        placeholder="Korea" />
+                    </td>
+                    <td className="px-1 py-1">
+                      <input value={nr.nationality_code} onChange={(e) => updateNewRow(nr.rowId, 'nationality_code', e.target.value.toUpperCase().slice(0, 2))}
+                        disabled={nr.status !== 'idle'}
+                        maxLength={2}
+                        className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-12 text-center uppercase font-mono disabled:opacity-50"
+                        placeholder="KR" />
+                    </td>
+                    <td className="px-1 py-1 text-center">
+                      {nr.status === 'idle' && (
+                        <button onClick={() => removeBulkRow(nr.rowId)} className="text-gray-300 hover:text-red-500 text-sm leading-none">×</button>
+                      )}
+                      {nr.status === 'saving' && <span className="text-yellow-500 text-[10px]">···</span>}
+                      {nr.status === 'done' && <span className="text-green-500 text-[10px]">✓</span>}
+                      {nr.status === 'error' && <span className="text-red-500 text-[10px]" title={nr.errorMsg}>✗</span>}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <div className="flex gap-2 mt-3">
+            <button onClick={addBulkRow}
+              className="text-xs border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded">
+              + Add Row
+            </button>
+            <button onClick={saveAllBulk}
+              disabled={!newRows.some((r) => r.status === 'idle' && r.nickname.trim())}
+              className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-gray-900 font-semibold px-4 py-1.5 rounded">
+              Save All
+            </button>
+            <button onClick={() => { setBulkOpen(false); setNewRows([]) }}
+              className="text-xs text-gray-400 hover:text-gray-600 ml-auto">
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
