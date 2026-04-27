@@ -159,19 +159,22 @@ export default function AdminPlayersPage() {
 
   async function createPlayer() {
     if (!newPlayer.nickname.trim()) return
-    const { data, error } = await supabase.from('players').insert([{
-      nickname: newPlayer.nickname.trim(),
-      real_name: newPlayer.real_name.trim() || null,
-      nationality: newPlayer.nationality.trim() || null,
-      nationality_code: newPlayer.nationality_code.trim().toUpperCase() || null,
-    }]).select('*, player_aliases(*), teams(id, name, short_name)').single()
-    if (error) { alert('Failed to create player: ' + error.message); return }
-    if (data) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setRows((rs) => [...rs, toRow(data as any)])
-      setNewPlayer({ nickname: '', real_name: '', nationality: '', nationality_code: '' })
-      setAddingNew(false)
-    }
+    const res = await fetch('/api/admin/players', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nickname: newPlayer.nickname.trim(),
+        real_name: newPlayer.real_name.trim() || null,
+        nationality: newPlayer.nationality.trim() || null,
+        nationality_code: newPlayer.nationality_code.trim().toUpperCase() || null,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) { alert('Failed to create player: ' + (json.error ?? res.status)); return }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setRows((rs) => [...rs, toRow(json.data as any)])
+    setNewPlayer({ nickname: '', real_name: '', nationality: '', nationality_code: '' })
+    setAddingNew(false)
   }
 
   async function assignTeam(playerId: string, teamId: string, teamName: string) {

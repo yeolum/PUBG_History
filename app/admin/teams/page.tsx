@@ -153,17 +153,20 @@ export default function AdminTeamsPage() {
 
   async function createTeam() {
     if (!newTeam.name.trim()) return
-    const { data, error } = await supabase.from('teams').insert([{
-      name: newTeam.name.trim(),
-      short_name: newTeam.short_name.trim() || null,
-      nationality: newTeam.nationality.trim() || null,
-    }]).select('*, team_aliases(*)').single()
-    if (error) { alert('Failed to create team: ' + error.message); return }
-    if (data) {
-      setRows((rs) => [...rs, toRow(data as TeamWithAliases)])
-      setNewTeam({ name: '', short_name: '', nationality: '' })
-      setAddingNew(false)
-    }
+    const res = await fetch('/api/admin/teams', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newTeam.name.trim(),
+        short_name: newTeam.short_name.trim() || null,
+        nationality: newTeam.nationality.trim() || null,
+      }),
+    })
+    const json = await res.json()
+    if (!res.ok) { alert('Failed to create team: ' + (json.error ?? res.status)); return }
+    setRows((rs) => [...rs, toRow(json.data as TeamWithAliases)])
+    setNewTeam({ name: '', short_name: '', nationality: '' })
+    setAddingNew(false)
   }
 
   async function mergeTeam(targetId: string, targetName: string) {
