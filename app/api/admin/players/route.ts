@@ -22,6 +22,33 @@ function serviceClient() {
   )
 }
 
+export async function PATCH(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+
+  let body: {
+    id?: string; nickname?: string; real_name?: string | null; nationality?: string | null
+    nationality_code?: string | null; birth_date?: string | null; team_id?: string | null; profile_pic?: string | null
+  }
+  try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
+
+  const { id, ...fields } = body
+  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+
+  const db = serviceClient()
+
+  let result = await db.from('players').update(fields).eq('id', id)
+
+  if (result.error?.message?.includes('nationality_code')) {
+    const { nationality_code: _nc, ...fieldsBase } = fields
+    void _nc
+    result = await db.from('players').update(fieldsBase).eq('id', id)
+  }
+
+  if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 })
+  return NextResponse.json({ success: true })
+}
+
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
@@ -34,22 +61,31 @@ export async function POST(req: NextRequest) {
 
   const db = serviceClient()
 
-  // Check if nationality_code column exists, fall back gracefully if not
-  const insertData: Record<string, string | null> = {
+  // First try with nationality_code; if the column doesn't exist yet, retry without it
+  const insertFull = {
     nickname: nickname.trim(),
     real_name: real_name?.trim() || null,
     nationality: nationality?.trim() || null,
-  }
-  if (nationality_code !== undefined) {
-    insertData.nationality_code = nationality_code?.trim().toUpperCase() || null
+    nationality_code: nationality_code?.trim().toUpperCase() || null,
   }
 
-  const { data, error } = await db
+  let result = await db
     .from('players')
-    .insert([insertData])
+    .insert([insertFull])
     .select('*, player_aliases(*), teams(id, name, short_name)')
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ data })
+  if (result.error?.message?.includes('nationality_code')) {
+    // Column not migrated yet — insert without it
+    const { nationality_code: _nc, ...insertBase } = insertFull
+    void _nc
+    result = await db
+      .from('players')
+      .insert([insertBase])
+      .select('*, player_aliases(*), teams(id, name, short_name)')
+      .single()
+  }
+
+  if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 })
+  return NextResponse.json({ data: result.data })
 }

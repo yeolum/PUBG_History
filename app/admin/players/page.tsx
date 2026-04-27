@@ -99,16 +99,26 @@ export default function AdminPlayersPage() {
 
   async function saveRow(row: Row) {
     setSaving(row.id)
-    await supabase.from('players').update({
-      nickname: row.nickname.trim(),
-      real_name: row.real_name.trim() || null,
-      nationality: row.nationality.trim() || null,
-      nationality_code: row.nationality_code.trim().toUpperCase() || null,
-      birth_date: row.birth_date || null,
-      team_id: row.team_id || null,
-      profile_pic: row.profile_pic,
-    }).eq('id', row.id)
+    const res = await fetch('/api/admin/players', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        id: row.id,
+        nickname: row.nickname.trim(),
+        real_name: row.real_name.trim() || null,
+        nationality: row.nationality.trim() || null,
+        nationality_code: row.nationality_code.trim().toUpperCase() || null,
+        birth_date: row.birth_date || null,
+        team_id: row.team_id || null,
+        profile_pic: row.profile_pic,
+      }),
+    })
     setSaving(null)
+    if (!res.ok) {
+      const json = await res.json()
+      alert('Save failed: ' + (json.error ?? res.status))
+      return
+    }
     setRows((rs) => rs.map((r) => r.id === row.id ? { ...r, _dirty: false } : r))
   }
 
