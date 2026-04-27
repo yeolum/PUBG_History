@@ -32,6 +32,7 @@ export interface Player {
   nickname: string
   real_name: string | null
   nationality: string | null
+  nationality_code: string | null
   birth_date: string | null
   team_id: string | null
   profile_pic: string | null

@@ -5,8 +5,11 @@ import { notFound } from 'next/navigation'
 import type { Tournament, Stage, Match, TournamentPrizeConfig, Series } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
-import TournamentStagesView from './TournamentStagesView'
+import { getMapDisplayName } from '@/lib/pubg-api'
 import TournamentRoster from './TournamentRoster'
+import TournamentDetailTabs from './TournamentDetailTabs'
+import type { PlayerStatRow } from './PlayerStatsTable'
+import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -16,6 +19,14 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 }
 
 const STATUS_LABEL: Record<string, string> = { upcoming: 'Upcoming', ongoing: 'Ongoing', completed: 'Completed' }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyRow = Record<string, any>
+
+function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<string, string | null>): string | null {
+  if (!teamId) return null
+  return lookup[`${teamId}:${name}`] ?? lookup[`${teamId}:`] ?? null
+}
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
@@ -37,8 +48,10 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resultsByMatch: Record<string, any[]> = {}
   const damageByMatch: Record<string, { placement: number; damage_dealt: number }[]> = {}
+  const playerStatsMap = new Map<string, PlayerStatRow>()
+  const mapsSet = new Set<string>()
 
-  // Query per-stage in parallel to avoid Supabase's 1000-row default limit
+  // Fetch per-stage to avoid 1000-row limit
   await Promise.all(
     stagesList.map(async (stage) => {
       const stageMatchIds = stage.matches
@@ -54,22 +67,48 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           .order('placement'),
         supabase
           .from('match_player_stats')
-          .select('match_id, placement, damage_dealt')
+          .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname), teams(id, name, short_name, logo_url)')
           .in('match_id', stageMatchIds),
       ])
 
       for (const r of trData ?? []) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const row = r as any
+        const row = r as AnyRow
         if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
         resultsByMatch[row.match_id].push(row)
       }
 
+      // Collect maps used in this stage
+      for (const m of stage.matches) {
+        if (m.status === 'imported' && m.map) mapsSet.add(m.map)
+      }
+
       for (const d of pdData ?? []) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const row = d as any
+        const row = d as AnyRow
+
+        // damageByMatch (for existing damage chart)
         if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
-        damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt) })
+        damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
+
+        // Player stats aggregation
+        const key = row.player_id ?? `pubg:${row.pubg_player_name ?? ''}`
+        if (!playerStatsMap.has(key)) {
+          playerStatsMap.set(key, {
+            playerId: row.player_id ?? null,
+            nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
+            teamId: row.team_id ?? null,
+            teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
+            logoUrl: row.teams?.logo_url ?? null,
+            games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+          })
+        }
+        const e = playerStatsMap.get(key)!
+        e.games++
+        e.kills += row.kills ?? 0
+        e.assists += row.assists ?? 0
+        e.knocks += row.knocks ?? 0
+        e.headshotKills += row.headshot_kills ?? 0
+        e.damage += Number(row.damage_dealt ?? 0)
+        e.survivalTime += row.survival_time ?? 0
       }
     })
   )
@@ -84,7 +123,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       }
     }
   }
-  // Fetch ALL aliases: used for both logo lookup and resolving unmatched teams (imported before alias was added)
   const { data: allAliasData } = await supabase
     .from('team_aliases')
     .select('team_id, alias, logo_url')
@@ -93,14 +131,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     if (row.logo_url) aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
   }
 
-  // Build alias → team_id map so unmatched results (team_id=null) can be resolved retroactively
   const aliasToTeamId = new Map<string, string>()
   for (const a of allAliasData ?? []) {
     aliasToTeamId.set((a as AnyRow).alias.toLowerCase(), (a as AnyRow).team_id)
   }
 
-  // Cross-reference: for each result, resolve effective team_id (including via alias for unmatched teams)
-  // and bridge alias logos to the displayed name key so resolveLogoUrl finds them
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
       const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
@@ -113,7 +148,34 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     }
   }
 
-  // Roster query — players with nationality per team
+  // Build team stats
+  const teamStatsMap = new Map<string, TeamStatRow>()
+  for (const rows of Object.values(resultsByMatch)) {
+    for (const r of rows as AnyRow[]) {
+      const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+      if (!teamStatsMap.has(key)) {
+        const teamName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
+        teamStatsMap.set(key, {
+          teamId: r.team_id ?? null,
+          teamName,
+          logoUrl: resolveLogoUrl(r.team_id, teamName, aliasLogoLookup),
+          games: 0, totalKills: 0, totalDamage: 0, totalPoints: 0, placementsSum: 0, gamesWithPlacement: 0,
+        })
+      }
+      const e = teamStatsMap.get(key)!
+      e.games++
+      e.totalKills += r.total_kills ?? 0
+      e.totalDamage += Number(r.total_damage ?? 0)
+      e.totalPoints += calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0)
+      if (r.placement) { e.placementsSum += r.placement; e.gamesWithPlacement++ }
+    }
+  }
+  const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)
+
+  // Player stats array (sorted by kills)
+  const playerStats: PlayerStatRow[] = [...playerStatsMap.values()].sort((a, b) => b.kills - a.kills)
+
+  // Roster query
   const allImportedMatchIds = stagesList.flatMap((s) =>
     s.matches.filter((m) => m.status === 'imported').map((m) => m.id)
   )
@@ -126,25 +188,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         .not('player_id', 'is', null)
     : { data: [] }
 
-  // Build roster: matched teams + unmatched teams resolved via alias
   const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
       const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
       if (!effectiveId || teamRosterMap.has(effectiveId)) continue
-      // For matched teams use teams.name; for alias-resolved unmatched teams use pubg_team_name (matches scoreboard)
       const displayName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
       const resolvedLogo = aliasLogoLookup[`${effectiveId}:${displayName}`] ?? aliasLogoLookup[`${effectiveId}:`] ?? null
-      teamRosterMap.set(effectiveId, {
-        name: displayName,
-        logo_url: resolvedLogo,
-        players: new Map(),
-      })
+      teamRosterMap.set(effectiveId, { name: displayName, logo_url: resolvedLogo, players: new Map() })
     }
   }
   for (const r of rosterPlayerData ?? []) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const row = r as any
+    const row = r as AnyRow
     const team = teamRosterMap.get(row.team_id)
     if (team && row.player_id && row.players && !team.players.has(row.player_id)) {
       team.players.set(row.player_id, {
@@ -156,31 +211,23 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   }
   const roster = [...teamRosterMap.entries()]
     .map(([teamId, team]) => ({
-      id: teamId,
-      name: team.name,
-      logo_url: team.logo_url,
+      id: teamId, name: team.name, logo_url: team.logo_url,
       players: [...team.players.values()].sort((a, b) => a.nickname.localeCompare(b.nickname)),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  // Compute per-stage standings (for rank board)
+  // Per-stage standings → rank board
   type StandingsEntry = { teamId: string | null; teamName: string }
   const stageStandingsMap = new Map<string, StandingsEntry[]>()
-
   for (const stage of stagesList) {
     const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number }>()
     for (const m of stage.matches) {
       if (m.status !== 'imported') continue
       for (const r of resultsByMatch[m.id] ?? []) {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const row = r as any
+        const row = r as AnyRow
         const key = row.team_id ?? `pubg:${row.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
-          ptsMap.set(key, {
-            teamId: row.team_id ?? null,
-            teamName: row.display_name ?? row.teams?.name ?? row.pubg_team_name ?? '?',
-            totalPts: 0, placePts: 0,
-          })
+          ptsMap.set(key, { teamId: row.team_id ?? null, teamName: row.display_name ?? row.teams?.name ?? row.pubg_team_name ?? '?', totalPts: 0, placePts: 0 })
         }
         const e = ptsMap.get(key)!
         const pp = calcPlacementPts(row.placement ?? 99)
@@ -188,16 +235,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         e.placePts += pp
       }
     }
-    const sorted = [...ptsMap.values()].sort((a, b) =>
-      b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
-    )
+    const sorted = [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
     stageStandingsMap.set(stage.id, sorted)
   }
 
-  // Build rank board from prize_config stage mapping, or fall back to grand_final
   type RankEntry = { teamId: string | null; teamName: string; rank: number }
   const rankBoard: RankEntry[] = []
-
   const hasStageMapping = prizeConfig.some((p) => p.stage_id != null && p.stage_rank != null)
   if (hasStageMapping) {
     for (const pc of prizeConfig) {
@@ -211,18 +254,33 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     const grandFinalStage = stagesList.find((s) => s.type === 'grand_final')
     if (grandFinalStage) {
       const standings = stageStandingsMap.get(grandFinalStage.id) ?? []
-      standings.forEach((e, i) => {
-        rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName })
-      })
+      standings.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
     }
   }
 
   const prizeForStandings = prizeConfig.map((p) => ({
-    rank: p.rank,
-    prize: p.prize,
-    pgs_points: p.pgs_points,
-    pgc_points: p.pgc_points,
+    rank: p.rank, prize: p.prize, pgs_points: p.pgs_points, pgc_points: p.pgc_points,
   }))
+
+  // Drop locations
+  const { data: dropLocData } = await supabase
+    .from('team_drop_locations')
+    .select('id, team_id, map_name, x, y, teams(name, logo_url)')
+    .eq('tournament_id', id)
+
+  const dropLocations: DropLocationRow[] = (dropLocData ?? []).map((d: AnyRow) => ({
+    id: d.id,
+    teamId: d.team_id,
+    teamName: d.teams?.name ?? '?',
+    logoUrl: d.teams?.logo_url ?? aliasLogoLookup[`${d.team_id}:`] ?? null,
+    mapName: d.map_name,
+    x: d.x,
+    y: d.y,
+  }))
+
+  // Map keys used in this tournament (from match data)
+  const mapKeys = [...mapsSet].sort()
+  void getMapDisplayName // imported above, used in TeamStatsTable
 
   return (
     <>
@@ -254,13 +312,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         {/* Participant roster */}
         <TournamentRoster roster={roster} />
 
-        {/* Stage view + Final Standings */}
+        {/* Tabs: Scoreboard | Player Data | Team Data */}
         {stagesList.length === 0 ? (
           <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
             No stage information available
           </div>
         ) : (
-          <TournamentStagesView
+          <TournamentDetailTabs
             stages={stagesList}
             series={seriesList}
             resultsByMatch={resultsByMatch}
@@ -271,12 +329,13 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             hasPgsPoints={t.has_pgs_points}
             hasPgcPoints={t.has_pgc_points}
             aliasLogoLookup={aliasLogoLookup}
+            playerStats={playerStats}
+            teamStats={teamStats}
+            dropLocations={dropLocations}
+            mapKeys={mapKeys}
           />
         )}
       </main>
     </>
   )
 }
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type AnyRow = Record<string, any>

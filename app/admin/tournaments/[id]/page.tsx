@@ -329,10 +329,18 @@ export default function AdminTournamentDetailPage() {
 
   return (
     <div className="p-8 max-w-5xl">
-      <div className="flex items-center gap-2 text-sm text-gray-400 mb-6">
-        <Link href="/admin/tournaments" className="hover:text-gray-600">Tournaments</Link>
-        <span>/</span>
-        <span className="text-gray-700">{tournament.name}</span>
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-2 text-sm text-gray-400">
+          <Link href="/admin/tournaments" className="hover:text-gray-600">Tournaments</Link>
+          <span>/</span>
+          <span className="text-gray-700">{tournament.name}</span>
+        </div>
+        <Link
+          href={`/admin/tournaments/${id}/drop-locations`}
+          className="text-sm border border-gray-200 rounded-lg px-3 py-1.5 text-gray-600 hover:bg-gray-50 transition-colors"
+        >
+          낙하 지점 관리
+        </Link>
       </div>
 
       {err && (

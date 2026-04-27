@@ -187,3 +187,31 @@ LEFT JOIN teams t ON t.id = mtr.team_id
 WHERE mtr.team_id IS NOT NULL OR mtr.pubg_team_name IS NOT NULL
 GROUP BY s.id, s.name, mtr.team_id, t.name, t.short_name, mtr.pubg_team_name
 ORDER BY total_points DESC;
+
+-- =====================================================
+-- Migration: nationality_code for players + team drop locations
+-- =====================================================
+
+ALTER TABLE players ADD COLUMN IF NOT EXISTS nationality_code TEXT;
+
+CREATE TABLE IF NOT EXISTS team_drop_locations (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  team_id UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  map_name TEXT NOT NULL,
+  x FLOAT NOT NULL DEFAULT 0.5,
+  y FLOAT NOT NULL DEFAULT 0.5,
+  label TEXT,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(tournament_id, team_id, map_name)
+);
+CREATE INDEX IF NOT EXISTS idx_drop_locs_tournament ON team_drop_locations(tournament_id);
+ALTER TABLE team_drop_locations ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "drop_locs_public_read" ON team_drop_locations;
+DROP POLICY IF EXISTS "drop_locs_auth_insert" ON team_drop_locations;
+DROP POLICY IF EXISTS "drop_locs_auth_update" ON team_drop_locations;
+DROP POLICY IF EXISTS "drop_locs_auth_delete" ON team_drop_locations;
+CREATE POLICY "drop_locs_public_read" ON team_drop_locations FOR SELECT USING (true);
+CREATE POLICY "drop_locs_auth_insert" ON team_drop_locations FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
+CREATE POLICY "drop_locs_auth_update" ON team_drop_locations FOR UPDATE USING (auth.uid() IS NOT NULL);
+CREATE POLICY "drop_locs_auth_delete" ON team_drop_locations FOR DELETE USING (auth.uid() IS NOT NULL);
