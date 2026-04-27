@@ -10,6 +10,19 @@ import Pagination from '@/components/Pagination'
 
 const CELL = 'bg-transparent border border-transparent hover:border-gray-200 focus:border-yellow-400 focus:bg-white rounded px-1.5 py-1 text-xs focus:outline-none w-full transition-colors'
 
+function navKey(e: React.KeyboardEvent, rowIdx: number, colIdx: number) {
+  const delta: Record<string, [number, number]> = {
+    ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
+  }
+  const d = delta[e.key]
+  if (!d) return
+  e.preventDefault()
+  const el = document.querySelector<HTMLElement>(
+    `[data-nav-row="${rowIdx + d[0]}"][data-nav-col="${colIdx + d[1]}"]`,
+  )
+  el?.focus()
+}
+
 interface PlayerAliasEntry {
   alias: string
   profile_pic: string | null
@@ -152,7 +165,8 @@ export default function AdminPlayersPage() {
       nationality: newPlayer.nationality.trim() || null,
       nationality_code: newPlayer.nationality_code.trim().toUpperCase() || null,
     }]).select('*, player_aliases(*), teams(id, name, short_name)').single()
-    if (!error && data) {
+    if (error) { alert('Failed to create player: ' + error.message); return }
+    if (data) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       setRows((rs) => [...rs, toRow(data as any)])
       setNewPlayer({ nickname: '', real_name: '', nationality: '', nationality_code: '' })
@@ -311,16 +325,22 @@ export default function AdminPlayersPage() {
                         <td className="px-1 py-1">
                           <input value={row.nickname}
                             onChange={(e) => updateRow(row.id, 'nickname', e.target.value)}
+                            onKeyDown={(e) => navKey(e, i, 0)}
+                            data-nav-row={i} data-nav-col={0}
                             className={CELL} placeholder="Nickname" />
                         </td>
                         <td className="px-1 py-1">
                           <input value={row.real_name}
                             onChange={(e) => updateRow(row.id, 'real_name', e.target.value)}
+                            onKeyDown={(e) => navKey(e, i, 1)}
+                            data-nav-row={i} data-nav-col={1}
                             className={CELL} placeholder="—" />
                         </td>
                         <td className="px-1 py-1">
                           <input value={row.nationality}
                             onChange={(e) => updateRow(row.id, 'nationality', e.target.value)}
+                            onKeyDown={(e) => navKey(e, i, 2)}
+                            data-nav-row={i} data-nav-col={2}
                             className={CELL} placeholder="Korea" />
                         </td>
                         <td className="px-1 py-1">
@@ -328,6 +348,8 @@ export default function AdminPlayersPage() {
                             <input
                               value={row.nationality_code}
                               onChange={(e) => updateRow(row.id, 'nationality_code', e.target.value.toUpperCase().slice(0, 2))}
+                              onKeyDown={(e) => navKey(e, i, 3)}
+                              data-nav-row={i} data-nav-col={3}
                               className={CELL + ' w-10 text-center uppercase font-mono'}
                               placeholder="KR"
                               maxLength={2}
@@ -345,11 +367,15 @@ export default function AdminPlayersPage() {
                         <td className="px-1 py-1">
                           <input type="date" value={row.birth_date}
                             onChange={(e) => updateRow(row.id, 'birth_date', e.target.value)}
+                            onKeyDown={(e) => navKey(e, i, 4)}
+                            data-nav-row={i} data-nav-col={4}
                             className={CELL} />
                         </td>
                         <td className="px-1 py-1">
                           <button
                             onClick={() => setTeamModal(row.id)}
+                            onKeyDown={(e) => navKey(e, i, 5)}
+                            data-nav-row={i} data-nav-col={5}
                             className={CELL + ' text-left truncate cursor-pointer'}
                             title={row.team_name || 'No team'}
                           >
