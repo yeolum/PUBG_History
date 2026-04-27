@@ -51,67 +51,80 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const playerStatsMap = new Map<string, PlayerStatRow>()
   const mapsSet = new Set<string>()
 
-  // Fetch per-stage to avoid 1000-row limit
+  // Collect all imported matches upfront
+  const allImportedMatches: { id: string; map: string | null }[] = []
+  for (const stage of stagesList) {
+    for (const m of stage.matches) {
+      if (m.status === 'imported') {
+        allImportedMatches.push({ id: m.id, map: m.map })
+        if (m.map) mapsSet.add(m.map)
+      }
+    }
+  }
+
+  // Step 1: match_team_results per-stage (16 rows/match → safe with stage batching)
   await Promise.all(
     stagesList.map(async (stage) => {
       const stageMatchIds = stage.matches
         .filter((m) => m.status === 'imported')
         .map((m) => m.id)
       if (stageMatchIds.length === 0) return
-
-      const [{ data: trData }, { data: pdData }] = await Promise.all([
-        supabase
-          .from('match_team_results')
-          .select('*, teams(id, name, short_name, logo_url)')
-          .in('match_id', stageMatchIds)
-          .order('placement'),
-        supabase
-          .from('match_player_stats')
-          .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname), teams(id, name, short_name, logo_url)')
-          .in('match_id', stageMatchIds),
-      ])
-
+      const { data: trData } = await supabase
+        .from('match_team_results')
+        .select('*, teams(id, name, short_name, logo_url)')
+        .in('match_id', stageMatchIds)
+        .order('placement')
       for (const r of trData ?? []) {
         const row = r as AnyRow
         if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
         resultsByMatch[row.match_id].push(row)
       }
-
-      // Collect maps used in this stage
-      for (const m of stage.matches) {
-        if (m.status === 'imported' && m.map) mapsSet.add(m.map)
-      }
-
-      for (const d of pdData ?? []) {
-        const row = d as AnyRow
-
-        // damageByMatch (for existing damage chart)
-        if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
-        damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
-
-        // Player stats aggregation
-        const key = row.player_id ?? `pubg:${row.pubg_player_name ?? ''}`
-        if (!playerStatsMap.has(key)) {
-          playerStatsMap.set(key, {
-            playerId: row.player_id ?? null,
-            nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
-            teamId: row.team_id ?? null,
-            teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
-            logoUrl: row.teams?.logo_url ?? null,
-            games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
-          })
-        }
-        const e = playerStatsMap.get(key)!
-        e.games++
-        e.kills += row.kills ?? 0
-        e.assists += row.assists ?? 0
-        e.knocks += row.knocks ?? 0
-        e.headshotKills += row.headshot_kills ?? 0
-        e.damage += Number(row.damage_dealt ?? 0)
-        e.survivalTime += row.survival_time ?? 0
-      }
     })
   )
+
+  // Step 2: match_player_stats per-match (max ~64 rows/match → never hits 1000-row limit)
+  // Batch 20 matches per round to avoid excessive simultaneous connections
+  const PLAYER_BATCH = 20
+  for (let i = 0; i < allImportedMatches.length; i += PLAYER_BATCH) {
+    const batch = allImportedMatches.slice(i, i + PLAYER_BATCH)
+    await Promise.all(
+      batch.map(async (match) => {
+        const { data: pdData } = await supabase
+          .from('match_player_stats')
+          .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname), teams(id, name, short_name, logo_url)')
+          .eq('match_id', match.id)
+
+        for (const d of pdData ?? []) {
+          const row = d as AnyRow
+
+          // damageByMatch
+          if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
+          damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
+
+          // Player stats aggregation
+          const key = row.player_id ?? `pubg:${row.pubg_player_name ?? ''}`
+          if (!playerStatsMap.has(key)) {
+            playerStatsMap.set(key, {
+              playerId: row.player_id ?? null,
+              nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
+              teamId: row.team_id ?? null,
+              teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
+              logoUrl: row.teams?.logo_url ?? null,
+              games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+            })
+          }
+          const e = playerStatsMap.get(key)!
+          e.games++
+          e.kills += row.kills ?? 0
+          e.assists += row.assists ?? 0
+          e.knocks += row.knocks ?? 0
+          e.headshotKills += row.headshot_kills ?? 0
+          e.damage += Number(row.damage_dealt ?? 0)
+          e.survivalTime += row.survival_time ?? 0
+        }
+      })
+    )
+  }
 
   // Build alias logo lookup: `${teamId}:displayName` → alias logo, `${teamId}:` → main logo
   const aliasLogoLookup: Record<string, string | null> = {}
