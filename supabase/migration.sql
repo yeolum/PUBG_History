@@ -215,3 +215,24 @@ CREATE POLICY "drop_locs_public_read" ON team_drop_locations FOR SELECT USING (t
 CREATE POLICY "drop_locs_auth_insert" ON team_drop_locations FOR INSERT WITH CHECK (auth.uid() IS NOT NULL);
 CREATE POLICY "drop_locs_auth_update" ON team_drop_locations FOR UPDATE USING (auth.uid() IS NOT NULL);
 CREATE POLICY "drop_locs_auth_delete" ON team_drop_locations FOR DELETE USING (auth.uid() IS NOT NULL);
+
+-- =====================================================
+-- Migration: match_player_landings for auto drop-location computation
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS match_player_landings (
+  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  match_id UUID NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
+  pubg_player_name TEXT NOT NULL,
+  team_id UUID REFERENCES teams(id),
+  pubg_team_name TEXT,
+  x_norm FLOAT NOT NULL,
+  y_norm FLOAT NOT NULL,
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_player_landings_match ON match_player_landings(match_id);
+ALTER TABLE match_player_landings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "landings_public_read" ON match_player_landings;
+DROP POLICY IF EXISTS "landings_auth_write" ON match_player_landings;
+CREATE POLICY "landings_public_read" ON match_player_landings FOR SELECT USING (true);
+CREATE POLICY "landings_auth_write" ON match_player_landings FOR ALL USING (auth.uid() IS NOT NULL);

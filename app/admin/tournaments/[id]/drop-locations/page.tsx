@@ -43,6 +43,8 @@ export default function AdminDropLocationsPage() {
   const [saving, setSaving] = useState(false)
   const [uploadingMap, setUploadingMap] = useState(false)
   const [mapImgError, setMapImgError] = useState(false)
+  const [computing, setComputing] = useState(false)
+  const [computeResult, setComputeResult] = useState<string | null>(null)
   const mapRef = useRef<HTMLDivElement>(null)
   const mapFileRef = useRef<HTMLInputElement>(null)
 
@@ -147,6 +149,30 @@ export default function AdminDropLocationsPage() {
     if (img) img.src = mapImageUrl(selectedMap) + '?t=' + Date.now()
   }
 
+  async function handleAutoCompute() {
+    setComputing(true)
+    setComputeResult(null)
+    try {
+      const res = await fetch('/api/admin/pubg/compute-drops', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tournamentId: id }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setComputeResult(`오류: ${json.error ?? '알 수 없는 오류'}`)
+      } else {
+        const msg = `완료 — 신규 처리 ${json.newlyProcessed}경기 / 건너뜀 ${json.skipped}경기 / 낙하 지점 ${json.dropLocationsUpdated}개 업데이트`
+        setComputeResult(msg + (json.errors?.length ? `\n오류: ${json.errors.join(', ')}` : ''))
+        await load()
+      }
+    } catch (err) {
+      setComputeResult(`네트워크 오류: ${err instanceof Error ? err.message : ''}`)
+    } finally {
+      setComputing(false)
+    }
+  }
+
   const currentDrops = drops.filter((d) => d.mapName === selectedMap)
   const teamById = new Map(teams.map((t) => [t.teamId, t]))
 
@@ -162,7 +188,24 @@ export default function AdminDropLocationsPage() {
 
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">낙하 지점 관리</h1>
+        <button
+          onClick={handleAutoCompute}
+          disabled={computing}
+          className="flex items-center gap-2 px-4 py-2 bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-200 disabled:text-gray-400 text-gray-900 text-sm font-semibold rounded-lg transition-colors"
+        >
+          {computing ? (
+            <>
+              <span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+              계산 중...
+            </>
+          ) : '자동 계산 (텔레메트리)'}
+        </button>
       </div>
+      {computeResult && (
+        <div className={`mb-4 px-4 py-3 rounded-lg text-sm whitespace-pre-line ${computeResult.startsWith('오류') || computeResult.startsWith('네트워크') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>
+          {computeResult}
+        </div>
+      )}
 
       {mapKeys.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">

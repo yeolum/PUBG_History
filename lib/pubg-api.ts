@@ -2,6 +2,34 @@ import type { PubgMatchData, PubgRoster, PubgParticipant } from './types'
 
 const PUBG_API_BASE = 'https://api.pubg.com'
 
+// Map playable area in centimetres (used to normalise telemetry coordinates to 0-1)
+export const MAP_BOUNDS: Record<string, { width: number; height: number }> = {
+  Baltic_Main:     { width: 816000, height: 816000 }, // Erangel
+  Erangel_Main:    { width: 816000, height: 816000 },
+  Desert_Main:     { width: 816000, height: 816000 }, // Miramar
+  Savage_Main:     { width: 408000, height: 408000 }, // Sanhok
+  DihorOtok_Main:  { width: 624000, height: 624000 }, // Vikendi
+  Summerland_Main: { width: 204000, height: 204000 }, // Karakin
+  Tiger_Main:      { width: 816000, height: 816000 }, // Taego
+  Kiki_Main:       { width: 816000, height: 816000 }, // Deston
+  Neon_Main:       { width: 816000, height: 816000 }, // Rondo
+  HeavenDawn_Main: { width: 408000, height: 408000 }, // Sanhok 2.0
+}
+
+export function normalizeCoords(mapName: string, x: number, y: number): { xNorm: number; yNorm: number } {
+  const bounds = MAP_BOUNDS[mapName] ?? { width: 816000, height: 816000 }
+  return {
+    xNorm: Math.max(0, Math.min(1, x / bounds.width)),
+    yNorm: Math.max(0, Math.min(1, y / bounds.height)),
+  }
+}
+
+export interface PubgLanding {
+  pubgPlayerName: string
+  xNorm: number
+  yNorm: number
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function parsePubgMatch(apiResponse: any): PubgMatchData {
   const { data, included } = apiResponse
@@ -100,4 +128,47 @@ export const MAP_NAMES: Record<string, string> = {
 
 export function getMapDisplayName(mapName: string): string {
   return MAP_NAMES[mapName] ?? mapName
+}
+
+export async function fetchTelemetryLandings(
+  pubgMatchId: string,
+  platform = 'tournament',
+): Promise<{ mapName: string; landings: PubgLanding[] }> {
+  const apiKey = process.env.PUBG_API_KEY
+  if (!apiKey) throw new Error('PUBG_API_KEY is not set')
+
+  const matchRes = await fetch(`${PUBG_API_BASE}/shards/${platform}/matches/${pubgMatchId}`, {
+    headers: { Authorization: `Bearer ${apiKey}`, Accept: 'application/vnd.api+json' },
+    next: { revalidate: 0 },
+  })
+  if (!matchRes.ok) {
+    if (matchRes.status === 404) throw new Error(`Match ${pubgMatchId} not found`)
+    if (matchRes.status === 429) throw new Error('API rate limit exceeded')
+    throw new Error(`PUBG API error: ${matchRes.status}`)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const apiData: any = await matchRes.json()
+  const mapName: string = apiData.data?.attributes?.mapName ?? ''
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const telemetryAsset = (apiData.included ?? []).find((item: any) => item.type === 'asset' && item.attributes?.name === 'telemetry')
+  const telemetryUrl: string | null = telemetryAsset?.attributes?.URL ?? null
+  if (!telemetryUrl) throw new Error(`No telemetry URL for match ${pubgMatchId}`)
+
+  const telRes = await fetch(telemetryUrl, { next: { revalidate: 0 } })
+  if (!telRes.ok) throw new Error(`Telemetry fetch failed: ${telRes.status}`)
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const events: any[] = await telRes.json()
+  const landings: PubgLanding[] = []
+  for (const ev of events) {
+    if (ev._T !== 'LogParachuteLanding') continue
+    const char = ev.character
+    if (!char?.name) continue
+    const { xNorm, yNorm } = normalizeCoords(mapName, char.location?.x ?? 0, char.location?.y ?? 0)
+    landings.push({ pubgPlayerName: char.name, xNorm, yNorm })
+  }
+
+  return { mapName, landings }
 }

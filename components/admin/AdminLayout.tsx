@@ -9,6 +9,7 @@ const NAV = [
   { href: '/admin/tournaments', label: '대회 관리' },
   { href: '/admin/teams', label: '팀 관리' },
   { href: '/admin/players', label: '선수 관리' },
+  { href: '/admin/maps', label: '맵 이미지' },
 ]
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
