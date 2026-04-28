@@ -152,6 +152,32 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
 
   const tourList = [...tourMap.values()]
 
+  // PNC: fetch player rosters per tournament
+  const isPnc = ((team as AnyObj).league ?? '').toLowerCase() === 'pnc'
+  let tourRosters: Record<string, { id: string; nickname: string }[]> = {}
+  if (isPnc) {
+    const { data: psRaw } = await supabase
+      .from('match_player_stats')
+      .select('player_id, players(id, nickname), matches(id, stages(id, tournaments(id)))')
+      .eq('team_id', id)
+      .not('player_id', 'is', null)
+    const rMap = new Map<string, Map<string, string>>()
+    for (const row of (psRaw ?? []) as AnyObj[]) {
+      const m = row.matches as AnyObj | null
+      const stage = m?.stages as AnyObj | null
+      const tour = stage?.tournaments as AnyObj | null
+      if (!tour?.id || !row.player_id) continue
+      if (!rMap.has(tour.id)) rMap.set(tour.id, new Map())
+      const pm = rMap.get(tour.id)!
+      if (!pm.has(row.player_id)) pm.set(row.player_id, (row.players as AnyObj)?.nickname ?? row.player_id)
+    }
+    for (const [tourId, pm] of rMap) {
+      tourRosters[tourId] = [...pm.entries()]
+        .map(([pid, nickname]) => ({ id: pid, nickname }))
+        .sort((a, b) => a.nickname.localeCompare(b.nickname))
+    }
+  }
+
   // Serialize match results for client
   const matchResults = results.map((r) => {
     const m = r.matches as AnyObj | null
@@ -252,6 +278,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
           <TeamHistoryClient
             tourList={tourListSerialized}
             matchResults={matchResults}
+            isPnc={isPnc}
+            tourRosters={tourRosters}
           />
         </div>
       </main>

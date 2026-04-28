@@ -11,7 +11,7 @@ export default async function PlayersPage() {
   const supabase = createPublicClient()
   const { data } = await supabase
     .from('players')
-    .select('*, teams(id, name, short_name)')
+    .select('*, teams(id, name, short_name, league)')
     .eq('is_active', true)
     .order('nickname')
 

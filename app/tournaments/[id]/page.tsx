@@ -73,7 +73,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         .limit(10000),
     allImportedMatchIds.length === 0 ? Promise.resolve({ data: [] }) :
       supabase.from('match_player_stats')
-        .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality), teams(id, name, short_name, logo_url)')
+        .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)')
         .in('match_id', allImportedMatchIds)
         .limit(10000),
     supabase.from('team_aliases').select('team_id, alias, logo_url'),
@@ -202,7 +202,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       team.players.set(row.player_id, {
         id: row.player_id,
         nickname: row.players.nickname,
-        nationality: row.players.nationality ?? null,
+        nationality: row.players.nationality_code ?? null,
       })
     }
   }

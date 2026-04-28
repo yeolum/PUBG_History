@@ -8,6 +8,7 @@ interface TeamInfo {
   id: string
   name: string
   short_name: string | null
+  league: string | null
 }
 
 interface PlayerWithTeam {
@@ -19,14 +20,28 @@ interface PlayerWithTeam {
   teams: TeamInfo | null
 }
 
+const NONE_KEY = '__NONE__'
+
 export default function PlayerListClient({ players }: { players: PlayerWithTeam[] }) {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
   const [filterNationality, setFilterNationality] = useState('')
+  const [filterLeague, setFilterLeague] = useState<string | null>(null)
 
   const nationalities = useMemo(
     () => [...new Set(players.map(p => p.nationality).filter(Boolean))].sort() as string[],
+    [players]
+  )
+
+  const leagues = useMemo(() => {
+    const s = new Set<string>()
+    players.forEach(p => { if (p.teams?.league) s.add(p.teams.league) })
+    return [...s].sort()
+  }, [players])
+
+  const hasNone = useMemo(
+    () => players.some(p => !p.teams?.league),
     [players]
   )
 
@@ -39,15 +54,22 @@ export default function PlayerListClient({ players }: { players: PlayerWithTeam[
         (p.teams?.name ?? '').toLowerCase().includes(q) ||
         (p.teams?.short_name ?? '').toLowerCase().includes(q)
       const matchNationality = !filterNationality || p.nationality === filterNationality
-      return matchSearch && matchNationality
+      const playerLeague = p.teams?.league ?? null
+      const matchLeague =
+        filterLeague === null ? true
+        : filterLeague === NONE_KEY ? !playerLeague
+        : playerLeague === filterLeague
+      return matchSearch && matchNationality && matchLeague
     })
-  }, [players, search, filterNationality])
+  }, [players, search, filterNationality, filterLeague])
 
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
+  const btnLeague = (key: string | null) =>
+    `px-3 py-1.5 text-sm rounded-lg border transition-colors ${filterLeague === key ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
+
   return (
     <>
-      {/* Search + filters */}
       <div className="mb-5 space-y-3">
         <input
           value={search}
@@ -55,6 +77,23 @@ export default function PlayerListClient({ players }: { players: PlayerWithTeam[
           placeholder="Search by nickname, real name, team..."
           className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
         />
+
+        {(leagues.length > 0 || hasNone) && (
+          <div className="flex gap-1.5 flex-wrap">
+            <button onClick={() => { setFilterLeague(null); setPage(1) }} className={btnLeague(null)}>All</button>
+            {leagues.map(l => (
+              <button key={l} onClick={() => { setFilterLeague(l === filterLeague ? null : l); setPage(1) }} className={btnLeague(l)}>
+                {l}
+              </button>
+            ))}
+            {hasNone && (
+              <button onClick={() => { setFilterLeague(filterLeague === NONE_KEY ? null : NONE_KEY); setPage(1) }} className={btnLeague(NONE_KEY)}>
+                None
+              </button>
+            )}
+          </div>
+        )}
+
         {nationalities.length > 0 && (
           <select
             value={filterNationality}
@@ -67,7 +106,8 @@ export default function PlayerListClient({ players }: { players: PlayerWithTeam[
             ))}
           </select>
         )}
-        {(search || filterNationality) && (
+
+        {(search || filterNationality || filterLeague !== null) && (
           <p className="text-xs text-gray-400">{filtered.length} players found</p>
         )}
       </div>
