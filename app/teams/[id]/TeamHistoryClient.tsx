@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { getMapDisplayName } from '@/lib/pubg-api'
 
 interface TourEntry {
   id: string
@@ -33,11 +34,9 @@ type TourTypeFilter = 'all' | 'regional' | 'global'
 export default function TeamHistoryClient({
   tourList,
   matchResults,
-  getMapDisplayName,
 }: {
   tourList: TourEntry[]
   matchResults: MatchResult[]
-  getMapDisplayName: (map: string) => string
 }) {
   const years = useMemo(() => {
     const s = new Set<number>()

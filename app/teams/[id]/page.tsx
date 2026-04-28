@@ -7,7 +7,6 @@ import { notFound } from 'next/navigation'
 import type { Player, TeamAlias } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
-import { getMapDisplayName } from '@/lib/pubg-api'
 import TeamHistoryClient from './TeamHistoryClient'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -253,7 +252,6 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
           <TeamHistoryClient
             tourList={tourListSerialized}
             matchResults={matchResults}
-            getMapDisplayName={getMapDisplayName}
           />
         </div>
       </main>

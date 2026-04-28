@@ -7,7 +7,6 @@ import { notFound } from 'next/navigation'
 import type { PlayerAlias } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
-import { getMapDisplayName } from '@/lib/pubg-api'
 import PlayerHistoryClient from './PlayerHistoryClient'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -252,7 +251,6 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
           <PlayerHistoryClient
             tourList={tourListSerialized}
             stats={statsSerialized}
-            getMapDisplayName={getMapDisplayName}
           />
         </div>
       </main>

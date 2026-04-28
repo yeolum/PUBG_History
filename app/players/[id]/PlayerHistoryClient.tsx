@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import { getMapDisplayName } from '@/lib/pubg-api'
 
 interface TourEntry {
   id: string
@@ -44,11 +45,9 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
 export default function PlayerHistoryClient({
   tourList,
   stats,
-  getMapDisplayName,
 }: {
   tourList: TourEntry[]
   stats: StatRow[]
-  getMapDisplayName: (map: string) => string
 }) {
   const years = useMemo(() => {
     const s = new Set<number>()
