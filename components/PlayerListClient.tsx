@@ -1,53 +1,106 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import Pagination from './Pagination'
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export default function PlayerListClient({ players }: { players: any[] }) {
-  const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(25)
+interface TeamInfo {
+  id: string
+  name: string
+  short_name: string | null
+}
 
-  const paginated = players.slice((page - 1) * pageSize, page * pageSize)
+interface PlayerWithTeam {
+  id: string
+  nickname: string
+  real_name: string | null
+  nationality: string | null
+  profile_pic: string | null
+  teams: TeamInfo | null
+}
+
+export default function PlayerListClient({ players }: { players: PlayerWithTeam[] }) {
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(50)
+  const [search, setSearch] = useState('')
+  const [filterNationality, setFilterNationality] = useState('')
+
+  const nationalities = useMemo(
+    () => [...new Set(players.map(p => p.nationality).filter(Boolean))].sort() as string[],
+    [players]
+  )
+
+  const filtered = useMemo(() => {
+    const q = search.toLowerCase().trim()
+    return players.filter(p => {
+      const matchSearch = !q ||
+        p.nickname.toLowerCase().includes(q) ||
+        (p.real_name ?? '').toLowerCase().includes(q) ||
+        (p.teams?.name ?? '').toLowerCase().includes(q) ||
+        (p.teams?.short_name ?? '').toLowerCase().includes(q)
+      const matchNationality = !filterNationality || p.nationality === filterNationality
+      return matchSearch && matchNationality
+    })
+  }, [players, search, filterNationality])
+
+  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
 
   return (
     <>
-      {players.length === 0 ? (
-        <p className="text-gray-400 text-center py-20">등록된 선수가 없습니다</p>
+      {/* Search + filters */}
+      <div className="mb-5 space-y-3">
+        <input
+          value={search}
+          onChange={e => { setSearch(e.target.value); setPage(1) }}
+          placeholder="Search by nickname, real name, team..."
+          className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+        />
+        {nationalities.length > 0 && (
+          <select
+            value={filterNationality}
+            onChange={e => { setFilterNationality(e.target.value); setPage(1) }}
+            className="border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-gray-600 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+          >
+            <option value="">All Nationalities</option>
+            {nationalities.map(n => (
+              <option key={n} value={n}>{n}</option>
+            ))}
+          </select>
+        )}
+        {(search || filterNationality) && (
+          <p className="text-xs text-gray-400">{filtered.length} players found</p>
+        )}
+      </div>
+
+      {filtered.length === 0 ? (
+        <p className="text-gray-400 text-center py-20">No players found</p>
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {paginated.map(p => (
             <Link
               key={p.id}
               href={`/players/${p.id}`}
-              className="bg-white rounded-xl border border-gray-200 px-5 py-4 hover:border-yellow-400 hover:shadow-sm transition-all flex items-center gap-4"
+              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-yellow-400 hover:shadow-md transition-all"
             >
-              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden shrink-0">
+              <div className="mb-3 w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
                 {p.profile_pic ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.profile_pic} alt={p.nickname} className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-sm font-bold text-gray-400">{p.nickname[0]}</span>
+                  <span className="text-base font-bold text-gray-400">{p.nickname[0]}</span>
                 )}
               </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-gray-900">{p.nickname}</p>
-                {p.real_name && <p className="text-xs text-gray-500">{p.real_name}</p>}
-              </div>
-              {p.teams && (
-                <span className="text-sm text-gray-500 shrink-0">{p.teams.name}</span>
-              )}
-              {p.nationality && (
-                <span className="text-xs text-gray-400 shrink-0">{p.nationality}</span>
-              )}
+              <p className="font-semibold text-gray-900 text-sm truncate">{p.nickname}</p>
+              {p.real_name && <p className="text-xs text-gray-400 mt-0.5 truncate">{p.real_name}</p>}
+              {p.nationality && <p className="text-xs text-gray-500 mt-0.5">{p.nationality}</p>}
+              {p.teams && <p className="text-xs text-blue-500 mt-0.5 truncate">{p.teams.short_name ?? p.teams.name}</p>}
             </Link>
           ))}
         </div>
       )}
 
       <Pagination
-        total={players.length}
+        total={filtered.length}
         page={page}
         pageSize={pageSize}
         onPageChange={setPage}

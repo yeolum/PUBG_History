@@ -12,7 +12,7 @@ export default async function TeamsPage() {
   const supabase = createPublicClient()
   const { data } = await supabase
     .from('teams')
-    .select('*')
+    .select('*, team_aliases(alias)')
     .eq('is_active', true)
     .order('name')
 
