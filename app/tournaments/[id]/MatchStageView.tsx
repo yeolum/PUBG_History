@@ -176,7 +176,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                       <div className="flex items-center gap-1.5">
                         {logo ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                          <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
                         ) : (
                           <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
                         )}
@@ -223,7 +223,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                       <div className="flex items-center gap-1.5">
                         {logo ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={logo} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                          <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
                         ) : (
                           <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
                         )}

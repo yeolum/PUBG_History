@@ -229,7 +229,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
         <div className="grid gap-8 lg:grid-cols-[1fr_2fr]">
           <aside>
             <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <div className="w-20 h-20 bg-gray-100 rounded-full mb-4 flex items-center justify-center overflow-hidden">
+              <div className="w-20 h-20 bg-gray-100 rounded-lg mb-4 flex items-center justify-center overflow-hidden">
                 {player.profile_pic ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={player.profile_pic} alt={player.nickname} className="w-full h-full object-cover" />
@@ -242,7 +242,17 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
                 <p className="text-sm text-gray-500 mt-0.5">{player.real_name}</p>
               )}
               {player.nationality && (
-                <p className="text-sm text-gray-500 mt-2">{player.nationality}</p>
+                <div className="flex items-center gap-1.5 mt-2">
+                  {(player as AnyObj).nationality_code && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={`https://flagcdn.com/w20/${((player as AnyObj).nationality_code as string).toLowerCase()}.png`}
+                      alt={(player as AnyObj).nationality_code as string}
+                      className="w-4 h-3 object-cover shrink-0"
+                    />
+                  )}
+                  <p className="text-sm text-gray-500">{player.nationality}</p>
+                </div>
               )}
               {player.birth_date && (
                 <p className="text-sm text-gray-400 mt-1">{player.birth_date}</p>

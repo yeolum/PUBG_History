@@ -20,10 +20,15 @@ interface Props {
   roster: RosterTeam[]
 }
 
-function getFlagEmoji(code: string | null): string {
-  if (!code || code.length !== 2) return ''
-  return code.toUpperCase().replace(/./g, (c) =>
-    String.fromCodePoint(127397 + c.charCodeAt(0))
+function FlagImg({ code }: { code: string | null }) {
+  if (!code || code.length !== 2) return <span className="w-4 shrink-0" />
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={`https://flagcdn.com/w20/${code.toLowerCase()}.png`}
+      alt={code}
+      className="w-4 h-3 object-cover shrink-0"
+    />
   )
 }
 
@@ -74,7 +79,7 @@ export default function TournamentRoster({ roster }: Props) {
                 <div className="flex items-center gap-1.5 min-w-0">
                   {team.logo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={team.logo_url} alt="" className="w-4 h-4 rounded-full object-cover shrink-0 border border-gray-100" />
+                    <img src={team.logo_url} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
                   ) : (
                     <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
                   )}
@@ -91,14 +96,9 @@ export default function TournamentRoster({ roster }: Props) {
                 <div className="border-t border-gray-100">
                   {team.players.length > 0 ? (
                     team.players.map((p) => {
-                      const flag = getFlagEmoji(p.nationality)
                       return (
                         <div key={p.id} className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-50 last:border-0">
-                          {flag ? (
-                            <span className="text-sm leading-none shrink-0">{flag}</span>
-                          ) : (
-                            <span className="w-4 shrink-0" />
-                          )}
+                          <FlagImg code={p.nationality} />
                           <Link
                             href={`/players/${p.id}`}
                             className="text-xs text-gray-700 hover:text-yellow-600 font-medium truncate"

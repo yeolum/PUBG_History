@@ -245,7 +245,7 @@ export default function AdminDropLocationsPage() {
                       >
                         {team.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={team.logoUrl} alt="" className="w-5 h-5 rounded-full object-cover shrink-0 border border-gray-100" />
+                          <img src={team.logoUrl} alt="" className="w-5 h-5 rounded object-contain shrink-0 border border-gray-100" />
                         ) : (
                           <span className="w-5 h-5 rounded-full bg-gray-200 shrink-0" />
                         )}

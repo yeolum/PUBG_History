@@ -137,9 +137,9 @@ export default function TeamStatsTable({
                       <div className="flex items-center gap-1.5">
                         {t.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={t.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover border border-gray-100 shrink-0" />
+                          <img src={t.logoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
                         ) : (
-                          <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                          <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />
                         )}
                         <span className="font-medium text-gray-800">
                           {t.teamId ? (
@@ -218,10 +218,10 @@ export default function TeamStatsTable({
                         <img
                           src={drop.logoUrl}
                           alt={drop.teamName}
-                          className="w-8 h-8 rounded-full border-2 border-white shadow-md object-cover"
+                          className="w-8 h-8 rounded border-2 border-white shadow-md object-contain"
                         />
                       ) : (
-                        <div className="w-8 h-8 rounded-full bg-gray-600 border-2 border-white shadow-md flex items-center justify-center text-white text-[10px] font-bold">
+                        <div className="w-8 h-8 rounded bg-gray-600 border-2 border-white shadow-md flex items-center justify-center text-white text-[10px] font-bold">
                           {drop.teamName.slice(0, 2).toUpperCase()}
                         </div>
                       )}
@@ -257,9 +257,9 @@ export default function TeamStatsTable({
                           >
                             {drop.logoUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
-                              <img src={drop.logoUrl} alt="" className="w-5 h-5 rounded-full object-cover shrink-0" />
+                              <img src={drop.logoUrl} alt="" className="w-5 h-5 rounded object-contain shrink-0" />
                             ) : (
-                              <span className="w-5 h-5 rounded-full bg-gray-300 shrink-0" />
+                              <span className="w-5 h-5 rounded bg-gray-300 shrink-0" />
                             )}
                             <span className="truncate font-medium">{drop.teamName}</span>
                           </button>

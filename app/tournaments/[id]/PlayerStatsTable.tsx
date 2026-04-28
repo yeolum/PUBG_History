@@ -113,7 +113,7 @@ export default function PlayerStatsTable({ playerStats }: { playerStats: PlayerS
                   <div className="flex items-center gap-1.5">
                     {p.logoUrl ? (
                       // eslint-disable-next-line @next/next/no-img-element
-                      <img src={p.logoUrl} alt="" className="w-4 h-4 rounded-full object-cover border border-gray-100 shrink-0" />
+                      <img src={p.logoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
                     ) : (
                       <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
                     )}
