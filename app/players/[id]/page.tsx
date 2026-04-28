@@ -41,7 +41,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
 
   const STAT_SELECT = `
     id, kills, assists, knocks, damage_dealt, placement, team_id,
-    matches(id, order_num, map,
+    matches(id, order_num, map, match_date,
       stages(id, name, type, order_num,
         tournaments(id, name, short_name, start_date, end_date, type)))
   `
@@ -194,7 +194,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     finalStagePrize: te.finalStagePrize,
   }))
 
-  // Serialize match stats for client
+  // Serialize match stats for client, sorted by match_date desc (most recent first)
   const statsSerialized = stats.map((s) => {
     const m = s.matches as AnyObj | null
     const stage = m?.stages as AnyObj | null
@@ -207,6 +207,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       damage_dealt: Number(s.damage_dealt ?? 0),
       placement: s.placement as number | null,
       matchNum: m ? (matchNumMap.get(m.id) ?? 0) : 0,
+      matchDate: m?.match_date as string | null,
       mapName: m?.map as string | null,
       stageName: stage?.name as string | null,
       tourId: tour?.id as string | null,
@@ -215,7 +216,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
             tour?.end_date ? new Date(tour.end_date as string).getFullYear() : null,
       tourType: tour?.type as string | null,
     }
-  })
+  }).sort((a, b) => (b.matchDate ?? '').localeCompare(a.matchDate ?? ''))
 
   return (
     <>

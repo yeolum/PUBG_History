@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
+import Pagination from '@/components/Pagination'
 
 interface TourEntry {
   id: string
@@ -23,6 +24,7 @@ interface StatRow {
   damage_dealt: number
   placement: number | null
   matchNum: number
+  matchDate: string | null
   mapName: string | null
   stageName: string | null
   tourId: string | null
@@ -38,22 +40,6 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
     <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
       <p className="text-xs text-gray-400">{label}</p>
       <p className="text-base font-bold text-gray-900 mt-0.5">{value}</p>
-    </div>
-  )
-}
-
-function LimitButtons({ limit, setLimit }: { limit: number; setLimit: (n: number) => void }) {
-  return (
-    <div className="flex gap-1">
-      {[10, 20, 30].map(n => (
-        <button
-          key={n}
-          onClick={() => setLimit(n)}
-          className={`px-2 py-0.5 text-xs rounded border transition-colors ${limit === n ? 'bg-gray-800 border-gray-800 text-white font-semibold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}
-        >
-          {n}
-        </button>
-      ))}
     </div>
   )
 }
@@ -74,8 +60,10 @@ export default function PlayerHistoryClient({
 
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TourTypeFilter>('all')
-  const [tourLimit, setTourLimit] = useState(10)
-  const [matchLimit, setMatchLimit] = useState(20)
+  const [tourPage, setTourPage] = useState(1)
+  const [tourPageSize, setTourPageSize] = useState(10)
+  const [matchPage, setMatchPage] = useState(1)
+  const [matchPageSize, setMatchPageSize] = useState(25)
 
   function matchesFilter(year: number | null, tourType: string | null) {
     if (selectedYear !== 'all' && year !== selectedYear) return false
@@ -100,6 +88,9 @@ export default function PlayerHistoryClient({
   const totalDamage = filteredStats.reduce((s, r) => s + (r.damage_dealt ?? 0), 0)
   const avgDamage = filteredStats.length > 0 ? totalDamage / filteredStats.length : 0
 
+  const pagedTours = filteredTours.slice((tourPage - 1) * tourPageSize, tourPage * tourPageSize)
+  const pagedStats = filteredStats.slice((matchPage - 1) * matchPageSize, matchPage * matchPageSize)
+
   const btnYear = (y: number | 'all') =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${selectedYear === y ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
   const btnType = (t: TourTypeFilter) =>
@@ -111,15 +102,15 @@ export default function PlayerHistoryClient({
       {years.length > 0 && (
         <div className="mb-5 space-y-2">
           <div className="flex flex-wrap gap-1.5 items-center">
-            <button onClick={() => setSelectedYear('all')} className={btnYear('all')}>All</button>
+            <button onClick={() => { setSelectedYear('all'); setTourPage(1); setMatchPage(1) }} className={btnYear('all')}>All</button>
             {years.map(y => (
-              <button key={y} onClick={() => setSelectedYear(y)} className={btnYear(y)}>{y}</button>
+              <button key={y} onClick={() => { setSelectedYear(y); setTourPage(1); setMatchPage(1) }} className={btnYear(y)}>{y}</button>
             ))}
           </div>
           <div className="flex gap-1.5 items-center">
-            <button onClick={() => setTypeFilter('all')} className={btnType('all')}>Total</button>
-            <button onClick={() => setTypeFilter('regional')} className={btnType('regional')}>Regional</button>
-            <button onClick={() => setTypeFilter('global')} className={btnType('global')}>Global</button>
+            <button onClick={() => { setTypeFilter('all'); setTourPage(1); setMatchPage(1) }} className={btnType('all')}>Total</button>
+            <button onClick={() => { setTypeFilter('regional'); setTourPage(1); setMatchPage(1) }} className={btnType('regional')}>Regional</button>
+            <button onClick={() => { setTypeFilter('global'); setTourPage(1); setMatchPage(1) }} className={btnType('global')}>Global</button>
           </div>
         </div>
       )}
@@ -140,90 +131,96 @@ export default function PlayerHistoryClient({
       )}
 
       {/* Tournament History */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">Tournament History</h2>
-        <LimitButtons limit={tourLimit} setLimit={setTourLimit} />
-      </div>
+      <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
       {filteredTours.length === 0 ? (
         <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
       ) : (
-        <div className="space-y-2 mb-8">
-          {filteredTours.slice(0, tourLimit).map((te) => (
-            <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
-              <div>
-                <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
-                  {te.short_name ?? te.name}
-                </Link>
-                {te.finalStageName && (
-                  <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
-                )}
-              </div>
-              {te.finalStageRank != null && (
-                <div className="text-right">
-                  <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
-                  {te.finalStagePrize && (
-                    <p className="text-xs text-yellow-600 font-medium">{te.finalStagePrize}</p>
+        <div className="mb-8">
+          <div className="space-y-2">
+            {pagedTours.map((te) => (
+              <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
+                <div>
+                  <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
+                    {te.short_name ?? te.name}
+                  </Link>
+                  {te.finalStageName && (
+                    <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
                   )}
                 </div>
-              )}
-            </div>
-          ))}
-          {filteredTours.length > tourLimit && (
-            <p className="text-xs text-gray-400 text-center pt-1">+{filteredTours.length - tourLimit} more</p>
-          )}
+                {te.finalStageRank != null && (
+                  <div className="text-right">
+                    <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
+                    {te.finalStagePrize && (
+                      <p className="text-xs text-yellow-600 font-medium">{te.finalStagePrize}</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <Pagination
+            total={filteredTours.length}
+            page={tourPage}
+            pageSize={tourPageSize}
+            onPageChange={setTourPage}
+            onPageSizeChange={(s) => { setTourPageSize(s); setTourPage(1) }}
+          />
         </div>
       )}
 
       {/* Match History */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">Match History</h2>
-        <LimitButtons limit={matchLimit} setLimit={setMatchLimit} />
-      </div>
+      <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
       {filteredStats.length === 0 ? (
         <p className="text-gray-400 text-sm">No match records</p>
       ) : (
-        <div className="space-y-1.5">
-          {filteredStats.slice(0, matchLimit).map((s) => (
-            <div key={s.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5">
-              <div className="flex items-center justify-between mb-1.5">
-                <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                  {s.tourId && (
-                    <Link href={`/tournaments/${s.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                      {s.tourName}
-                    </Link>
-                  )}
-                  {s.stageName && <span className="text-gray-300">·</span>}
-                  {s.stageName && <span className="text-xs text-gray-500 shrink-0">{s.stageName}</span>}
-                  {s.matchNum > 0 && <span className="text-gray-300">·</span>}
-                  {s.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{s.matchNum}</span>}
-                  {s.mapName && <span className="text-gray-300">·</span>}
-                  {s.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(s.mapName)}</span>}
+        <div>
+          <div className="space-y-1.5">
+            {pagedStats.map((s) => (
+              <div key={s.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+                    {s.tourId && (
+                      <Link href={`/tournaments/${s.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
+                        {s.tourName}
+                      </Link>
+                    )}
+                    {s.stageName && <span className="text-gray-300">·</span>}
+                    {s.stageName && <span className="text-xs text-gray-500 shrink-0">{s.stageName}</span>}
+                    {s.matchNum > 0 && <span className="text-gray-300">·</span>}
+                    {s.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{s.matchNum}</span>}
+                    {s.mapName && <span className="text-gray-300">·</span>}
+                    {s.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(s.mapName)}</span>}
+                  </div>
+                  <span className="text-sm font-bold text-gray-700 shrink-0 ml-4">#{s.placement}</span>
                 </div>
-                <span className="text-sm font-bold text-gray-700 shrink-0 ml-4">#{s.placement}</span>
+                <div className="grid grid-cols-4 gap-2 text-xs text-center">
+                  <div>
+                    <p className="text-gray-400">Kills</p>
+                    <p className="font-semibold text-gray-800">{s.kills}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Assists</p>
+                    <p className="font-semibold text-gray-800">{s.assists}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Knocks</p>
+                    <p className="font-semibold text-gray-800">{s.knocks}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-400">Damage</p>
+                    <p className="font-semibold text-gray-800">{s.damage_dealt.toFixed(0)}</p>
+                  </div>
+                </div>
               </div>
-              <div className="grid grid-cols-4 gap-2 text-xs text-center">
-                <div>
-                  <p className="text-gray-400">Kills</p>
-                  <p className="font-semibold text-gray-800">{s.kills}</p>
-                </div>
-                <div>
-                  <p className="text-gray-400">Assists</p>
-                  <p className="font-semibold text-gray-800">{s.assists}</p>
-                </div>
-                <div>
-                  <p className="text-gray-400">Knocks</p>
-                  <p className="font-semibold text-gray-800">{s.knocks}</p>
-                </div>
-                <div>
-                  <p className="text-gray-400">Damage</p>
-                  <p className="font-semibold text-gray-800">{s.damage_dealt.toFixed(0)}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-          {filteredStats.length > matchLimit && (
-            <p className="text-xs text-gray-400 text-center pt-1">+{filteredStats.length - matchLimit} more</p>
-          )}
+            ))}
+          </div>
+          <Pagination
+            total={filteredStats.length}
+            page={matchPage}
+            pageSize={matchPageSize}
+            onPageChange={setMatchPage}
+            onPageSizeChange={(s) => { setMatchPageSize(s); setMatchPage(1) }}
+          />
         </div>
       )}
     </div>

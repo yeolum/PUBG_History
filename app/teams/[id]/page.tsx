@@ -47,7 +47,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
 
   const RESULT_SELECT = `
     id, placement, total_kills,
-    matches(id, order_num, map,
+    matches(id, order_num, map, match_date,
       stages(id, name, type, order_num,
         tournaments(id, name, short_name, start_date, end_date, type)))
   `
@@ -208,7 +208,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
-  // Serialize match results for client
+  // Serialize match results for client, sorted by match_date desc (most recent first)
   const matchResults = results.map((r) => {
     const m = r.matches as AnyObj | null
     const stage = m?.stages as AnyObj | null
@@ -219,6 +219,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
       total_kills: r.total_kills as number,
       matchId: m?.id as string | null,
       matchNum: m ? (matchNumMap.get(m.id) ?? 0) : 0,
+      matchDate: m?.match_date as string | null,
       mapName: m?.map as string | null,
       stageName: stage?.name as string | null,
       tourId: tour?.id as string | null,
@@ -227,7 +228,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
             tour?.end_date ? new Date(tour.end_date as string).getFullYear() : null,
       tourType: tour?.type as string | null,
     }
-  })
+  }).sort((a, b) => (b.matchDate ?? '').localeCompare(a.matchDate ?? ''))
 
   const tourListSerialized = tourList.map((te) => ({
     id: te.id,

@@ -3,6 +3,7 @@
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
+import Pagination from '@/components/Pagination'
 
 interface TourEntry {
   id: string
@@ -21,6 +22,7 @@ interface MatchResult {
   total_kills: number
   matchId: string | null
   matchNum: number
+  matchDate: string | null
   mapName: string | null
   stageName: string | null
   tourId: string | null
@@ -45,22 +47,6 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
   )
 }
 
-function LimitButtons({ limit, setLimit }: { limit: number; setLimit: (n: number) => void }) {
-  return (
-    <div className="flex gap-1">
-      {[10, 20, 30].map(n => (
-        <button
-          key={n}
-          onClick={() => setLimit(n)}
-          className={`px-2 py-0.5 text-xs rounded border transition-colors ${limit === n ? 'bg-gray-800 border-gray-800 text-white font-semibold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}
-        >
-          {n}
-        </button>
-      ))}
-    </div>
-  )
-}
-
 export default function TeamHistoryClient({
   tourList,
   matchResults,
@@ -81,8 +67,10 @@ export default function TeamHistoryClient({
 
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TourTypeFilter>('all')
-  const [tourLimit, setTourLimit] = useState(10)
-  const [matchLimit, setMatchLimit] = useState(20)
+  const [tourPage, setTourPage] = useState(1)
+  const [tourPageSize, setTourPageSize] = useState(10)
+  const [matchPage, setMatchPage] = useState(1)
+  const [matchPageSize, setMatchPageSize] = useState(25)
 
   function matchesFilter(year: number | null, tourType: string | null) {
     if (selectedYear !== 'all' && year !== selectedYear) return false
@@ -103,7 +91,6 @@ export default function TeamHistoryClient({
     [matchResults, selectedYear, typeFilter]
   )
 
-  // Career stats
   const totalMatches = filteredMatches.length
   const wwcd = filteredMatches.filter(r => r.placement === 1).length
   const totalKills = filteredMatches.reduce((s, r) => s + (r.total_kills ?? 0), 0)
@@ -111,6 +98,9 @@ export default function TeamHistoryClient({
   const avgPlacement = placedMatches.length > 0
     ? placedMatches.reduce((s, r) => s + (r.placement ?? 0), 0) / placedMatches.length
     : 0
+
+  const pagedTours = filteredTours.slice((tourPage - 1) * tourPageSize, tourPage * tourPageSize)
+  const pagedMatches = filteredMatches.slice((matchPage - 1) * matchPageSize, matchPage * matchPageSize)
 
   const btnYear = (y: number | 'all') =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${selectedYear === y ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
@@ -123,16 +113,16 @@ export default function TeamHistoryClient({
       {years.length > 0 && (
         <div className="mb-5 space-y-2">
           <div className="flex flex-wrap gap-1.5 items-center">
-            <button onClick={() => setSelectedYear('all')} className={btnYear('all')}>All</button>
+            <button onClick={() => { setSelectedYear('all'); setTourPage(1); setMatchPage(1) }} className={btnYear('all')}>All</button>
             {years.map(y => (
-              <button key={y} onClick={() => setSelectedYear(y)} className={btnYear(y)}>{y}</button>
+              <button key={y} onClick={() => { setSelectedYear(y); setTourPage(1); setMatchPage(1) }} className={btnYear(y)}>{y}</button>
             ))}
           </div>
           {!isPnc && (
             <div className="flex gap-1.5 items-center">
-              <button onClick={() => setTypeFilter('all')} className={btnType('all')}>Total</button>
-              <button onClick={() => setTypeFilter('regional')} className={btnType('regional')}>Regional</button>
-              <button onClick={() => setTypeFilter('global')} className={btnType('global')}>Global</button>
+              <button onClick={() => { setTypeFilter('all'); setTourPage(1); setMatchPage(1) }} className={btnType('all')}>Total</button>
+              <button onClick={() => { setTypeFilter('regional'); setTourPage(1); setMatchPage(1) }} className={btnType('regional')}>Regional</button>
+              <button onClick={() => { setTypeFilter('global'); setTourPage(1); setMatchPage(1) }} className={btnType('global')}>Global</button>
             </div>
           )}
         </div>
@@ -156,115 +146,127 @@ export default function TeamHistoryClient({
       {/* PNC: Tournament blocks with roster */}
       {isPnc ? (
         <>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">Tournament History</h2>
-            <LimitButtons limit={tourLimit} setLimit={setTourLimit} />
-          </div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
           {filteredTours.length === 0 ? (
             <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
           ) : (
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">
-              {filteredTours.slice(0, tourLimit).map((te) => {
-                const roster = tourRosters[te.id] ?? []
-                return (
-                  <div key={te.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <Link href={`/tournaments/${te.id}`} className="text-sm font-bold text-gray-900 hover:text-yellow-600 truncate mr-2">
-                        {te.short_name ?? te.name}
-                      </Link>
-                      {te.finalStageRank != null && (
-                        <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
+            <div className="mb-10">
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+                {pagedTours.map((te) => {
+                  const roster = tourRosters[te.id] ?? []
+                  return (
+                    <div key={te.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <Link href={`/tournaments/${te.id}`} className="text-sm font-bold text-gray-900 hover:text-yellow-600 truncate mr-2">
+                          {te.short_name ?? te.name}
+                        </Link>
+                        {te.finalStageRank != null && (
+                          <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
+                        )}
+                      </div>
+                      {te.finalStagePrize && (
+                        <p className="text-xs text-yellow-600 font-medium mb-2">{te.finalStagePrize}</p>
+                      )}
+                      {roster.length > 0 && (
+                        <div className="border-t border-gray-100 pt-2 space-y-1">
+                          {roster.map(p => (
+                            <Link key={p.id} href={`/players/${p.id}`} className="block text-xs text-gray-700 hover:text-yellow-600 truncate">
+                              {p.nickname}
+                            </Link>
+                          ))}
+                        </div>
                       )}
                     </div>
-                    {te.finalStagePrize && (
-                      <p className="text-xs text-yellow-600 font-medium mb-2">{te.finalStagePrize}</p>
-                    )}
-                    {roster.length > 0 && (
-                      <div className="border-t border-gray-100 pt-2 space-y-1">
-                        {roster.map(p => (
-                          <Link key={p.id} href={`/players/${p.id}`} className="block text-xs text-gray-700 hover:text-yellow-600 truncate">
-                            {p.nickname}
-                          </Link>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
+                  )
+                })}
+              </div>
+              <Pagination
+                total={filteredTours.length}
+                page={tourPage}
+                pageSize={tourPageSize}
+                onPageChange={setTourPage}
+                onPageSizeChange={(s) => { setTourPageSize(s); setTourPage(1) }}
+              />
             </div>
           )}
         </>
       ) : (
         <>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-semibold text-gray-800">Tournament History</h2>
-            <LimitButtons limit={tourLimit} setLimit={setTourLimit} />
-          </div>
+          <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
           {filteredTours.length === 0 ? (
             <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
           ) : (
-            <div className="space-y-2 mb-8">
-              {filteredTours.slice(0, tourLimit).map((te) => (
-                <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
-                  <div>
-                    <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
-                      {te.short_name ?? te.name}
-                    </Link>
-                    {te.finalStageName && (
-                      <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
-                    )}
-                  </div>
-                  {te.finalStageRank != null && (
-                    <div className="text-right">
-                      <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
-                      {te.finalStagePrize && (
-                        <p className="text-xs text-yellow-600 font-medium">{te.finalStagePrize}</p>
+            <div className="mb-8">
+              <div className="space-y-2">
+                {pagedTours.map((te) => (
+                  <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
+                    <div>
+                      <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
+                        {te.short_name ?? te.name}
+                      </Link>
+                      {te.finalStageName && (
+                        <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
                       )}
                     </div>
-                  )}
-                </div>
-              ))}
-              {filteredTours.length > tourLimit && (
-                <p className="text-xs text-gray-400 text-center pt-1">+{filteredTours.length - tourLimit} more</p>
-              )}
+                    {te.finalStageRank != null && (
+                      <div className="text-right">
+                        <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
+                        {te.finalStagePrize && (
+                          <p className="text-xs text-yellow-600 font-medium">{te.finalStagePrize}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <Pagination
+                total={filteredTours.length}
+                page={tourPage}
+                pageSize={tourPageSize}
+                onPageChange={setTourPage}
+                onPageSizeChange={(s) => { setTourPageSize(s); setTourPage(1) }}
+              />
             </div>
           )}
         </>
       )}
 
       {/* Match History */}
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-800">Match History</h2>
-        <LimitButtons limit={matchLimit} setLimit={setMatchLimit} />
-      </div>
+      <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
       {filteredMatches.length === 0 ? (
         <p className="text-gray-400 text-sm">No match records</p>
       ) : (
-        <div className="space-y-1.5">
-          {filteredMatches.slice(0, matchLimit).map((r) => (
-            <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
-              <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                {r.tourId && (
-                  <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                    {r.tourName}
-                  </Link>
-                )}
-                {r.stageName && <span className="text-gray-300">·</span>}
-                {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
-                {r.matchNum > 0 && <span className="text-gray-300">·</span>}
-                {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
-                {r.mapName && <span className="text-gray-300">·</span>}
-                {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
+        <div>
+          <div className="space-y-1.5">
+            {pagedMatches.map((r) => (
+              <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+                  {r.tourId && (
+                    <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
+                      {r.tourName}
+                    </Link>
+                  )}
+                  {r.stageName && <span className="text-gray-300">·</span>}
+                  {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
+                  {r.matchNum > 0 && <span className="text-gray-300">·</span>}
+                  {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
+                  {r.mapName && <span className="text-gray-300">·</span>}
+                  {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
+                </div>
+                <div className="flex items-center gap-3 shrink-0 ml-4">
+                  <span className="text-sm font-bold text-gray-700">#{r.placement}</span>
+                  <span className="text-xs text-gray-500">{r.total_kills}K</span>
+                </div>
               </div>
-              <div className="flex items-center gap-3 shrink-0 ml-4">
-                <span className="text-sm font-bold text-gray-700">#{r.placement}</span>
-                <span className="text-xs text-gray-500">{r.total_kills}K</span>
-              </div>
-            </div>
-          ))}
-          {filteredMatches.length > matchLimit && (
-            <p className="text-xs text-gray-400 text-center pt-1">+{filteredMatches.length - matchLimit} more</p>
-          )}
+            ))}
+          </div>
+          <Pagination
+            total={filteredMatches.length}
+            page={matchPage}
+            pageSize={matchPageSize}
+            onPageChange={setMatchPage}
+            onPageSizeChange={(s) => { setMatchPageSize(s); setMatchPage(1) }}
+          />
         </div>
       )}
     </div>
