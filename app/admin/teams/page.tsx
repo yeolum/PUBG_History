@@ -36,8 +36,15 @@ interface Row {
   description: string
   logo_url: string | null
   aliases: AliasEntry[]
-  _aliasInput: string
+  _aliasTag: string
+  _aliasName: string
   _dirty: boolean
+}
+
+function parseAlias(alias: string): { tag: string; name: string | null } {
+  const sep = alias.indexOf(' - ')
+  if (sep === -1) return { tag: alias, name: null }
+  return { tag: alias.slice(0, sep), name: alias.slice(sep + 3) }
 }
 
 function toRow(t: TeamWithAliases): Row {
@@ -49,7 +56,8 @@ function toRow(t: TeamWithAliases): Row {
     description: t.description ?? '',
     logo_url: t.logo_url ?? null,
     aliases: t.team_aliases?.map((a) => ({ alias: a.alias, logo_url: a.logo_url ?? null })) ?? [],
-    _aliasInput: '',
+    _aliasTag: '',
+    _aliasName: '',
     _dirty: false,
   }
 }
@@ -129,14 +137,17 @@ export default function AdminTeamsPage() {
   }
 
   async function addAlias(row: Row) {
-    const alias = row._aliasInput.trim()
-    if (!alias) return
+    const tag = row._aliasTag.trim()
+    if (!tag) return
+    const name = row._aliasName.trim()
+    const alias = name ? `${tag} - ${name}` : tag
     const { error } = await supabase.from('team_aliases').insert([{ team_id: row.id, alias }])
     if (!error) {
       setRows((rs) => rs.map((r) => r.id === row.id ? {
         ...r,
         aliases: [...r.aliases, { alias, logo_url: null }],
-        _aliasInput: '',
+        _aliasTag: '',
+        _aliasName: '',
       } : r))
     } else {
       alert('Alias already exists or is linked to another team')
@@ -410,25 +421,43 @@ export default function AdminTeamsPage() {
                               <p className="text-xs text-gray-400 mb-2">No aliases</p>
                             )}
                             <div className="flex flex-wrap gap-2 mb-2">
-                              {row.aliases.map((a) => (
-                                <div key={a.alias} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1">
-                                  <ImageUpload
-                                    currentUrl={a.logo_url}
-                                    storagePath={`teams/${row.id}/aliases/${a.alias}`}
-                                    onUpdate={(url) => updateAliasLogo(row.id, a.alias, url)}
-                                    shape="square" size="sm"
-                                  />
-                                  <span className="text-xs text-gray-700">{a.alias}</span>
-                                  <button onClick={() => removeAlias(row.id, a.alias)}
-                                    className="text-gray-300 hover:text-red-500 text-sm leading-none ml-0.5">×</button>
-                                </div>
-                              ))}
+                              {row.aliases.map((a) => {
+                                const { tag, name } = parseAlias(a.alias)
+                                return (
+                                  <div key={a.alias} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-2 py-1">
+                                    <ImageUpload
+                                      currentUrl={a.logo_url}
+                                      storagePath={`teams/${row.id}/aliases/${a.alias}`}
+                                      onUpdate={(url) => updateAliasLogo(row.id, a.alias, url)}
+                                      shape="square" size="sm"
+                                    />
+                                    <span className="text-[11px] font-mono font-semibold bg-gray-100 text-gray-700 px-1.5 py-0.5 rounded">{tag}</span>
+                                    {name && <span className="text-xs text-gray-600">{name}</span>}
+                                    <button onClick={() => removeAlias(row.id, a.alias)}
+                                      className="text-gray-300 hover:text-red-500 text-sm leading-none ml-0.5">×</button>
+                                  </div>
+                                )
+                              })}
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex gap-1.5 items-center flex-wrap">
                               <input
-                                value={row._aliasInput}
-                                onChange={(e) => updateRow(row.id, '_aliasInput', e.target.value)}
-                                placeholder="New alias"
+                                value={row._aliasTag}
+                                onChange={(e) => updateRow(row.id, '_aliasTag', e.target.value)}
+                                placeholder="TAG"
+                                className="border border-gray-300 rounded px-2 py-1 text-xs w-20 focus:outline-none focus:ring-2 focus:ring-yellow-400 font-mono uppercase"
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    const next = e.currentTarget.parentElement?.querySelector<HTMLElement>('[data-alias-name]')
+                                    next?.focus()
+                                  }
+                                }}
+                              />
+                              <span className="text-gray-400 text-xs">-</span>
+                              <input
+                                data-alias-name
+                                value={row._aliasName}
+                                onChange={(e) => updateRow(row.id, '_aliasName', e.target.value)}
+                                placeholder="Full Name (optional)"
                                 className="border border-gray-300 rounded px-2 py-1 text-xs w-40 focus:outline-none focus:ring-2 focus:ring-yellow-400"
                                 onKeyDown={(e) => { if (e.key === 'Enter') addAlias(row) }}
                               />

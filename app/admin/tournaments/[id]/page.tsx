@@ -327,13 +327,13 @@ export default function AdminTournamentDetailPage() {
       }
     }
 
-    const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
-    for (const alias of aliasesToUpsert) {
-      await supabase.from('team_aliases').upsert(
-        [{ team_id: teamId, alias }],
-        { onConflict: 'alias', ignoreDuplicates: true }
-      )
-    }
+    // Store as "TAG - Full Name" combined alias
+    const nameForAlias = displayName ?? entityName
+    const combinedAlias = `${pubgTeamName} - ${nameForAlias}`
+    await supabase.from('team_aliases').upsert(
+      [{ team_id: teamId, alias: combinedAlias }],
+      { onConflict: 'alias', ignoreDuplicates: true }
+    )
     setLinkModal(null)
     load()
   }

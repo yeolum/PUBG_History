@@ -140,7 +140,15 @@ export async function POST(req: NextRequest) {
   // team name/alias → team_id
   const teamByName: Record<string, string> = {}
   for (const t of teamRows ?? []) teamByName[t.name.toLowerCase()] = t.id
-  for (const a of teamAliasRows ?? []) teamByName[a.alias.toLowerCase()] = a.team_id
+  for (const a of teamAliasRows ?? []) {
+    teamByName[a.alias.toLowerCase()] = a.team_id
+    // "TAG - Full Name" format → also index the tag part alone
+    const dashIdx = a.alias.indexOf(' - ')
+    if (dashIdx !== -1) {
+      const tagPart = a.alias.slice(0, dashIdx).trim().toLowerCase()
+      if (tagPart && !teamByName[tagPart]) teamByName[tagPart] = a.team_id
+    }
+  }
 
   // player nickname/alias → player_id (exact match)
   const playerById: Record<string, string> = {}
