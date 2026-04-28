@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient } from '@/lib/supabase/server'
+
+export const revalidate = 30
 import Header from '@/components/Header'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -9,7 +11,7 @@ import { getMapDisplayName } from '@/lib/pubg-api'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = createPublicClient()
   const { data } = await supabase.from('teams').select('name').eq('id', id).single()
   return { title: data?.name ?? 'Team' }
 }
@@ -19,7 +21,7 @@ type AnyObj = Record<string, any>
 
 export default async function TeamDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = createPublicClient()
 
   const [{ data: team }, { data: playersData }, { data: aliasesData }] = await Promise.all([
     supabase.from('teams').select('*').eq('id', id).single(),

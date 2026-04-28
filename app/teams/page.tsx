@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient } from '@/lib/supabase/server'
+
+export const revalidate = 30
 import Header from '@/components/Header'
 import type { Team } from '@/lib/types'
 import type { Metadata } from 'next'
@@ -7,7 +9,7 @@ import TeamListClient from '@/components/TeamListClient'
 export const metadata: Metadata = { title: '팀' }
 
 export default async function TeamsPage() {
-  const supabase = await createClient()
+  const supabase = createPublicClient()
   const { data } = await supabase
     .from('teams')
     .select('*')

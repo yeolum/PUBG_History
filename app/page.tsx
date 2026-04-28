@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient } from '@/lib/supabase/server'
+
+export const revalidate = 30
 import Header from '@/components/Header'
 import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
@@ -15,7 +17,7 @@ const STATUS_COLOR: Record<string, string> = {
 }
 
 export default async function HomePage() {
-  const supabase = await createClient()
+  const supabase = createPublicClient()
   const { data: tournaments } = await supabase
     .from('tournaments')
     .select('*')

@@ -45,5 +45,17 @@ export async function POST(req: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Auto-insert combined alias "TAG - Name" (or just name if no tag)
+  if (data?.id) {
+    const tag = short_name?.trim()
+    const teamName = name.trim()
+    const alias = tag ? `${tag} - ${teamName}` : teamName
+    await db.from('team_aliases').insert([{ team_id: data.id, alias }]).select()
+    // Re-fetch with updated aliases
+    const { data: refreshed } = await db.from('teams').select('*, team_aliases(*)').eq('id', data.id).single()
+    return NextResponse.json({ data: refreshed ?? data })
+  }
+
   return NextResponse.json({ data })
 }

@@ -27,6 +27,15 @@ export async function createClient() {
   )
 }
 
+// 공개 페이지에서 사용 (쿠키 없음 → Next.js ISR 캐싱 가능)
+export function createPublicClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { auth: { persistSession: false } }
+  )
+}
+
 // Admin API Routes에서 사용 (RLS 우회, 서버 사이드 전용)
 export function createServiceClient() {
   return createSupabaseClient(

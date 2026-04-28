@@ -87,5 +87,17 @@ export async function POST(req: NextRequest) {
   }
 
   if (result.error) return NextResponse.json({ error: result.error.message }, { status: 500 })
+
+  // Auto-insert nickname as alias
+  if (result.data?.id) {
+    await db.from('player_aliases').insert([{ player_id: result.data.id, alias: nickname.trim() }])
+    const { data: refreshed } = await db
+      .from('players')
+      .select('*, player_aliases(*), teams(id, name, short_name)')
+      .eq('id', result.data.id)
+      .single()
+    return NextResponse.json({ data: refreshed ?? result.data })
+  }
+
   return NextResponse.json({ data: result.data })
 }

@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient } from '@/lib/supabase/server'
+
+export const revalidate = 30
 import Header from '@/components/Header'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -13,7 +15,7 @@ import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = createPublicClient()
   const { data } = await supabase.from('tournaments').select('name').eq('id', id).single()
   return { title: data?.name ?? 'Tournament' }
 }
@@ -30,7 +32,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = await createClient()
+  const supabase = createPublicClient()
 
   const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
     supabase.from('tournaments').select('*').eq('id', id).single(),
@@ -51,82 +53,70 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const playerStatsMap = new Map<string, PlayerStatRow>()
   const mapsSet = new Set<string>()
 
-  // Collect all imported matches upfront
-  const allImportedMatches: { id: string; map: string | null }[] = []
+  const allImportedMatchIds: string[] = []
   for (const stage of stagesList) {
     for (const m of stage.matches) {
       if (m.status === 'imported') {
-        allImportedMatches.push({ id: m.id, map: m.map })
+        allImportedMatchIds.push(m.id)
         if (m.map) mapsSet.add(m.map)
       }
     }
   }
 
-  // Step 1: match_team_results per-stage (16 rows/match → safe with stage batching)
-  await Promise.all(
-    stagesList.map(async (stage) => {
-      const stageMatchIds = stage.matches
-        .filter((m) => m.status === 'imported')
-        .map((m) => m.id)
-      if (stageMatchIds.length === 0) return
-      const { data: trData } = await supabase
-        .from('match_team_results')
+  // Round 2: fetch all data in parallel using match IDs
+  const [{ data: trData }, { data: psData }, { data: allAliasData }, { data: dropLocData }] = await Promise.all([
+    allImportedMatchIds.length === 0 ? Promise.resolve({ data: [] }) :
+      supabase.from('match_team_results')
         .select('*, teams(id, name, short_name, logo_url)')
-        .in('match_id', stageMatchIds)
+        .in('match_id', allImportedMatchIds)
         .order('placement')
-      for (const r of trData ?? []) {
-        const row = r as AnyRow
-        if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
-        resultsByMatch[row.match_id].push(row)
-      }
-    })
-  )
+        .limit(10000),
+    allImportedMatchIds.length === 0 ? Promise.resolve({ data: [] }) :
+      supabase.from('match_player_stats')
+        .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality), teams(id, name, short_name, logo_url)')
+        .in('match_id', allImportedMatchIds)
+        .limit(10000),
+    supabase.from('team_aliases').select('team_id, alias, logo_url'),
+    supabase.from('team_drop_locations')
+      .select('id, team_id, map_name, x, y, teams(name, logo_url)')
+      .eq('tournament_id', id),
+  ])
 
-  // Step 2: match_player_stats per-match (max ~64 rows/match → never hits 1000-row limit)
-  // Batch 20 matches per round to avoid excessive simultaneous connections
-  const PLAYER_BATCH = 20
-  for (let i = 0; i < allImportedMatches.length; i += PLAYER_BATCH) {
-    const batch = allImportedMatches.slice(i, i + PLAYER_BATCH)
-    await Promise.all(
-      batch.map(async (match) => {
-        const { data: pdData } = await supabase
-          .from('match_player_stats')
-          .select('match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname), teams(id, name, short_name, logo_url)')
-          .eq('match_id', match.id)
-
-        for (const d of pdData ?? []) {
-          const row = d as AnyRow
-
-          // damageByMatch
-          if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
-          damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
-
-          // Player stats aggregation
-          const key = row.player_id ?? `pubg:${row.pubg_player_name ?? ''}`
-          if (!playerStatsMap.has(key)) {
-            playerStatsMap.set(key, {
-              playerId: row.player_id ?? null,
-              nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
-              teamId: row.team_id ?? null,
-              teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
-              logoUrl: row.teams?.logo_url ?? null,
-              games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
-            })
-          }
-          const e = playerStatsMap.get(key)!
-          e.games++
-          e.kills += row.kills ?? 0
-          e.assists += row.assists ?? 0
-          e.knocks += row.knocks ?? 0
-          e.headshotKills += row.headshot_kills ?? 0
-          e.damage += Number(row.damage_dealt ?? 0)
-          e.survivalTime += row.survival_time ?? 0
-        }
-      })
-    )
+  // Build resultsByMatch from team results
+  for (const r of trData ?? []) {
+    const row = r as AnyRow
+    if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
+    resultsByMatch[row.match_id].push(row)
   }
 
-  // Build alias logo lookup: `${teamId}:displayName` → alias logo, `${teamId}:` → main logo
+  // Build damageByMatch + playerStatsMap from player stats
+  for (const d of psData ?? []) {
+    const row = d as AnyRow
+    if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
+    damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
+
+    const key = row.player_id ?? `pubg:${row.pubg_player_name ?? ''}`
+    if (!playerStatsMap.has(key)) {
+      playerStatsMap.set(key, {
+        playerId: row.player_id ?? null,
+        nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
+        teamId: row.team_id ?? null,
+        teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
+        logoUrl: row.teams?.logo_url ?? null,
+        games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+      })
+    }
+    const e = playerStatsMap.get(key)!
+    e.games++
+    e.kills += row.kills ?? 0
+    e.assists += row.assists ?? 0
+    e.knocks += row.knocks ?? 0
+    e.headshotKills += row.headshot_kills ?? 0
+    e.damage += Number(row.damage_dealt ?? 0)
+    e.survivalTime += row.survival_time ?? 0
+  }
+
+  // Build alias logo lookup
   const aliasLogoLookup: Record<string, string | null> = {}
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
@@ -136,9 +126,6 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       }
     }
   }
-  const { data: allAliasData } = await supabase
-    .from('team_aliases')
-    .select('team_id, alias, logo_url')
   for (const a of allAliasData ?? []) {
     const row = a as AnyRow
     if (row.logo_url) aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
@@ -146,7 +133,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   const aliasToTeamId = new Map<string, string>()
   for (const a of allAliasData ?? []) {
-    aliasToTeamId.set((a as AnyRow).alias.toLowerCase(), (a as AnyRow).team_id)
+    const row = a as AnyRow
+    aliasToTeamId.set(row.alias.toLowerCase(), row.team_id)
+    // Also index tag part from "TAG - Name" format
+    const dashIdx = row.alias.indexOf(' - ')
+    if (dashIdx !== -1) {
+      const tagPart = row.alias.slice(0, dashIdx).trim().toLowerCase()
+      if (tagPart && !aliasToTeamId.has(tagPart)) aliasToTeamId.set(tagPart, row.team_id)
+    }
   }
 
   for (const rows of Object.values(resultsByMatch)) {
@@ -188,19 +182,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   // Player stats array (sorted by kills)
   const playerStats: PlayerStatRow[] = [...playerStatsMap.values()].sort((a, b) => b.kills - a.kills)
 
-  // Roster query
-  const allImportedMatchIds = stagesList.flatMap((s) =>
-    s.matches.filter((m) => m.status === 'imported').map((m) => m.id)
-  )
-  const { data: rosterPlayerData } = allImportedMatchIds.length > 0
-    ? await supabase
-        .from('match_player_stats')
-        .select('team_id, player_id, players(id, nickname, nationality)')
-        .in('match_id', allImportedMatchIds)
-        .not('team_id', 'is', null)
-        .not('player_id', 'is', null)
-    : { data: [] }
-
+  // Build roster from already-fetched psData (reuse, no extra query)
   const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
@@ -211,10 +193,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       teamRosterMap.set(effectiveId, { name: displayName, logo_url: resolvedLogo, players: new Map() })
     }
   }
-  for (const r of rosterPlayerData ?? []) {
-    const row = r as AnyRow
+  for (const d of psData ?? []) {
+    const row = d as AnyRow
+    if (!row.team_id || !row.player_id || !row.players) continue
     const team = teamRosterMap.get(row.team_id)
-    if (team && row.player_id && row.players && !team.players.has(row.player_id)) {
+    if (team && !team.players.has(row.player_id)) {
       team.players.set(row.player_id, {
         id: row.player_id,
         nickname: row.players.nickname,
@@ -275,12 +258,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     rank: p.rank, prize: p.prize, pgs_points: p.pgs_points, pgc_points: p.pgc_points,
   }))
 
-  // Drop locations
-  const { data: dropLocData } = await supabase
-    .from('team_drop_locations')
-    .select('id, team_id, map_name, x, y, teams(name, logo_url)')
-    .eq('tournament_id', id)
-
+  // Drop locations (already fetched in round 2)
   const dropLocations: DropLocationRow[] = (dropLocData ?? []).map((d: AnyRow) => ({
     id: d.id,
     teamId: d.team_id,

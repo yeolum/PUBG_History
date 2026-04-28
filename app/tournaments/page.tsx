@@ -1,4 +1,6 @@
-import { createClient } from '@/lib/supabase/server'
+import { createPublicClient } from '@/lib/supabase/server'
+
+export const revalidate = 30
 import Header from '@/components/Header'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
@@ -7,7 +9,7 @@ import TournamentListClient from '@/components/TournamentListClient'
 export const metadata: Metadata = { title: '대회 목록' }
 
 export default async function TournamentsPage() {
-  const supabase = await createClient()
+  const supabase = createPublicClient()
   const { data } = await supabase
     .from('tournaments')
     .select('*')
