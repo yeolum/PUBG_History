@@ -5,7 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Stage, Match, MatchTeamResult, MatchPlayerStat } from '@/lib/types'
-import { getMapDisplayName } from '@/lib/pubg-api'
+import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPts } from '@/lib/scoring'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
@@ -392,7 +392,7 @@ export default function StageMatchesPage() {
                             <td className="py-1.5 text-gray-400 font-mono">{i + 1}</td>
                             <td className="py-1.5">
                               <span className={`font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
+                                {stripTagPrefix(r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-')}
                               </span>
                               {r.team_id && r.teams?.name && (
                                 <span className="ml-1 text-[10px] text-gray-400">→ {r.teams.name}</span>

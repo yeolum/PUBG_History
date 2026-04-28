@@ -8,7 +8,7 @@ import type { Tournament, Stage, Match, MatchTeamResult, MatchPlayerStat, Tourna
 import ImageUpload from '@/components/admin/ImageUpload'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
-import { getMapDisplayName } from '@/lib/pubg-api'
+import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPts } from '@/lib/scoring'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
@@ -746,7 +746,10 @@ export default function AdminTournamentDetailPage() {
                       </button>
                     </div>
                   ) : (
-                    <div className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100">
+                    <div
+                      className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+                      onClick={() => router.push(`/admin/tournaments/${id}/stages/${stage.id}`)}
+                    >
                       <div className="flex items-center gap-2">
                         <span className="text-sm font-medium text-gray-800">{stage.name}</span>
                         <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">
@@ -761,19 +764,16 @@ export default function AdminTournamentDetailPage() {
                       </div>
                       <div className="flex gap-3 items-center">
                         <button
-                          onClick={() => { setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type, seriesId: stage.series_id ?? '' }) }}
+                          onClick={(e) => { e.stopPropagation(); setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type, seriesId: stage.series_id ?? '' }) }}
                           className="text-xs text-blue-500 hover:text-blue-700"
                         >
                           Edit
                         </button>
-                        <Link
-                          href={`/admin/tournaments/${id}/stages/${stage.id}`}
-                          className="text-xs font-medium text-yellow-600 hover:text-yellow-700"
-                        >
-                          Import →
-                        </Link>
-                        <button onClick={() => deleteStage(stage.id)}
-                          className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                        <span className="text-xs font-medium text-yellow-600">Import →</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteStage(stage.id) }}
+                          className="text-xs text-red-400 hover:text-red-600"
+                        >Delete</button>
                       </div>
                     </div>
                   )}
@@ -845,7 +845,7 @@ export default function AdminTournamentDetailPage() {
                                       <td className="py-1 text-gray-400 font-mono">{i + 1}</td>
                                       <td className="py-1">
                                         <span className={`font-medium ${r.team_id ? 'text-gray-800' : 'text-orange-600'}`}>
-                                          {r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'}
+                                          {stripTagPrefix(r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-')}
                                         </span>
                                         {r.team_id && r.teams?.name && (
                                           <span className="ml-1 text-[10px] text-gray-400">→ {r.teams.name}</span>

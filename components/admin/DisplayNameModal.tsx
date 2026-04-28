@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { stripTagPrefix } from '@/lib/pubg-api'
 
 interface Props {
   type: 'team' | 'player'
@@ -35,7 +36,7 @@ export default function DisplayNameModal({
   const options: { value: string | null; label: string; badge: string }[] = [
     { value: null, label: pubgName, badge: 'PUBG name' },
     { value: entityName, label: entityName, badge: 'current name' },
-    ...aliases.map((a) => ({ value: a, label: a, badge: 'former name' })),
+    ...aliases.map((a) => ({ value: stripTagPrefix(a), label: stripTagPrefix(a), badge: 'former name' })),
   ]
 
   function handleConfirm() {
