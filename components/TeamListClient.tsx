@@ -11,7 +11,10 @@ interface TeamWithAliases extends Team {
 
 const IS_PNC = (t: TeamWithAliases) => t.league?.toLowerCase() === 'pnc'
 
+type Tab = 'teams' | 'national'
+
 export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) {
+  const [tab, setTab] = useState<Tab>('teams')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
   const [search, setSearch] = useState('')
@@ -25,7 +28,7 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
     [regularTeams]
   )
 
-  const filtered = useMemo(() => {
+  const filteredRegular = useMemo(() => {
     const q = search.toLowerCase().trim()
     return regularTeams.filter(t => {
       const matchSearch = !q ||
@@ -37,9 +40,7 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
     })
   }, [regularTeams, search, filterLeague])
 
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize)
-
-  const pncFiltered = useMemo(() => {
+  const filteredPnc = useMemo(() => {
     const q = search.toLowerCase().trim()
     if (!q) return pncTeams
     return pncTeams.filter(t =>
@@ -48,6 +49,16 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
       (t.team_aliases ?? []).some(a => a.alias.toLowerCase().includes(q))
     )
   }, [pncTeams, search])
+
+  const activeList = tab === 'teams' ? filteredRegular : filteredPnc
+  const paginated = activeList.slice((page - 1) * pageSize, page * pageSize)
+
+  function switchTab(next: Tab) {
+    setTab(next)
+    setPage(1)
+    setSearch('')
+    setFilterLeague('')
+  }
 
   const TeamCard = ({ team }: { team: TeamWithAliases }) => (
     <Link
@@ -71,7 +82,25 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
 
   return (
     <>
-      {/* Search + filters */}
+      {/* Tab toggle */}
+      {pncTeams.length > 0 && (
+        <div className="flex gap-1 mb-6 bg-gray-100 rounded-xl p-1 w-fit">
+          <button
+            onClick={() => switchTab('teams')}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-colors ${tab === 'teams' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            Teams
+          </button>
+          <button
+            onClick={() => switchTab('national')}
+            className={`px-4 py-1.5 text-sm font-semibold rounded-lg transition-colors ${tab === 'national' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+          >
+            National Teams
+          </button>
+        </div>
+      )}
+
+      {/* Search + league filter (Teams tab only) */}
       <div className="mb-5 space-y-3">
         <input
           value={search}
@@ -79,7 +108,7 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
           placeholder="Search by name, tag, former name..."
           className="w-full max-w-sm border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
         />
-        {leagues.length > 0 && (
+        {tab === 'teams' && leagues.length > 0 && (
           <div className="flex gap-1.5 flex-wrap">
             <button
               onClick={() => { setFilterLeague(''); setPage(1) }}
@@ -99,13 +128,13 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
           </div>
         )}
         {(search || filterLeague) && (
-          <p className="text-xs text-gray-400">{filtered.length} teams found</p>
+          <p className="text-xs text-gray-400">{activeList.length} teams found</p>
         )}
       </div>
 
-      {/* Regular teams */}
-      {filtered.length === 0 && !search ? null : filtered.length === 0 ? (
-        <p className="text-gray-400 text-center py-10">No teams found</p>
+      {/* Grid */}
+      {activeList.length === 0 ? (
+        <p className="text-gray-400 text-center py-20">No teams found</p>
       ) : (
         <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
           {paginated.map(team => <TeamCard key={team.id} team={team} />)}
@@ -113,25 +142,12 @@ export default function TeamListClient({ teams }: { teams: TeamWithAliases[] }) 
       )}
 
       <Pagination
-        total={filtered.length}
+        total={activeList.length}
         page={page}
         pageSize={pageSize}
         onPageChange={setPage}
         onPageSizeChange={s => { setPageSize(s); setPage(1) }}
       />
-
-      {/* PNC National Teams — separate section */}
-      {pncFiltered.length > 0 && (
-        <div className="mt-12">
-          <div className="flex items-center gap-3 mb-4">
-            <h2 className="text-lg font-bold text-gray-900">National Teams</h2>
-            <span className="text-xs font-semibold bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">PNC</span>
-          </div>
-          <div className="grid gap-3 grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-            {pncFiltered.map(team => <TeamCard key={team.id} team={team} />)}
-          </div>
-        </div>
-      )}
     </>
   )
 }
