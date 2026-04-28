@@ -36,6 +36,31 @@ interface RosterPlayer {
 
 type TourTypeFilter = 'all' | 'regional' | 'global'
 
+function StatBox({ label, value }: { label: string; value: string | number }) {
+  return (
+    <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
+      <p className="text-xs text-gray-400">{label}</p>
+      <p className="text-base font-bold text-gray-900 mt-0.5">{value}</p>
+    </div>
+  )
+}
+
+function LimitButtons({ limit, setLimit }: { limit: number; setLimit: (n: number) => void }) {
+  return (
+    <div className="flex gap-1">
+      {[10, 20, 30].map(n => (
+        <button
+          key={n}
+          onClick={() => setLimit(n)}
+          className={`px-2 py-0.5 text-xs rounded border transition-colors ${limit === n ? 'bg-gray-800 border-gray-800 text-white font-semibold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function TeamHistoryClient({
   tourList,
   matchResults,
@@ -56,6 +81,8 @@ export default function TeamHistoryClient({
 
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TourTypeFilter>('all')
+  const [tourLimit, setTourLimit] = useState(10)
+  const [matchLimit, setMatchLimit] = useState(20)
 
   function matchesFilter(year: number | null, tourType: string | null) {
     if (selectedYear !== 'all' && year !== selectedYear) return false
@@ -64,17 +91,26 @@ export default function TeamHistoryClient({
     return true
   }
 
-  const filteredTours = useMemo(
-    () => tourList.filter(t => matchesFilter(t.year, t.tourType)),
+  const filteredTours = useMemo(() => {
+    const list = tourList.filter(t => matchesFilter(t.year, t.tourType))
+    return list.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tourList, selectedYear, typeFilter]
-  )
+  }, [tourList, selectedYear, typeFilter])
 
   const filteredMatches = useMemo(
     () => matchResults.filter(r => matchesFilter(r.year, r.tourType)),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [matchResults, selectedYear, typeFilter]
   )
+
+  // Career stats
+  const totalMatches = filteredMatches.length
+  const wwcd = filteredMatches.filter(r => r.placement === 1).length
+  const totalKills = filteredMatches.reduce((s, r) => s + (r.total_kills ?? 0), 0)
+  const placedMatches = filteredMatches.filter(r => r.placement != null)
+  const avgPlacement = placedMatches.length > 0
+    ? placedMatches.reduce((s, r) => s + (r.placement ?? 0), 0) / placedMatches.length
+    : 0
 
   const btnYear = (y: number | 'all') =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${selectedYear === y ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
@@ -102,14 +138,33 @@ export default function TeamHistoryClient({
         </div>
       )}
 
+      {/* Career Stats */}
+      {totalMatches > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">
+            Career Stats{selectedYear !== 'all' ? ` · ${selectedYear}` : ''}{!isPnc && typeFilter !== 'all' ? ` · ${typeFilter}` : ''}
+          </h2>
+          <div className="grid grid-cols-4 gap-3">
+            <StatBox label="Matches" value={totalMatches} />
+            <StatBox label="WWCD" value={wwcd} />
+            <StatBox label="Total Kills" value={totalKills} />
+            <StatBox label="Avg Placement" value={avgPlacement > 0 ? avgPlacement.toFixed(1) : '-'} />
+          </div>
+        </div>
+      )}
+
       {/* PNC: Tournament blocks with roster */}
       {isPnc ? (
         <>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">Tournament History</h2>
+            <LimitButtons limit={tourLimit} setLimit={setTourLimit} />
+          </div>
           {filteredTours.length === 0 ? (
             <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-10">
-              {filteredTours.map((te) => {
+              {filteredTours.slice(0, tourLimit).map((te) => {
                 const roster = tourRosters[te.id] ?? []
                 return (
                   <div key={te.id} className="bg-white rounded-xl border border-gray-200 p-4">
@@ -138,46 +193,18 @@ export default function TeamHistoryClient({
               })}
             </div>
           )}
-
-          {/* Match history below blocks */}
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
-          {filteredMatches.length === 0 ? (
-            <p className="text-gray-400 text-sm">No match records</p>
-          ) : (
-            <div className="space-y-1.5">
-              {filteredMatches.map((r) => (
-                <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                    {r.tourId && (
-                      <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                        {r.tourName}
-                      </Link>
-                    )}
-                    {r.stageName && <span className="text-gray-300">·</span>}
-                    {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
-                    {r.matchNum > 0 && <span className="text-gray-300">·</span>}
-                    {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
-                    {r.mapName && <span className="text-gray-300">·</span>}
-                    {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 ml-4">
-                    <span className="text-sm font-bold text-gray-700">#{r.placement}</span>
-                    <span className="text-xs text-gray-500">{r.total_kills}K</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </>
       ) : (
         <>
-          {/* Regular teams: Tournament History */}
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold text-gray-800">Tournament History</h2>
+            <LimitButtons limit={tourLimit} setLimit={setTourLimit} />
+          </div>
           {filteredTours.length === 0 ? (
             <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
           ) : (
             <div className="space-y-2 mb-8">
-              {filteredTours.map((te) => (
+              {filteredTours.slice(0, tourLimit).map((te) => (
                 <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
                   <div>
                     <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
@@ -197,39 +224,48 @@ export default function TeamHistoryClient({
                   )}
                 </div>
               ))}
-            </div>
-          )}
-
-          {/* Match History */}
-          <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
-          {filteredMatches.length === 0 ? (
-            <p className="text-gray-400 text-sm">No match records</p>
-          ) : (
-            <div className="space-y-1.5">
-              {filteredMatches.map((r) => (
-                <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                    {r.tourId && (
-                      <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                        {r.tourName}
-                      </Link>
-                    )}
-                    {r.stageName && <span className="text-gray-300">·</span>}
-                    {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
-                    {r.matchNum > 0 && <span className="text-gray-300">·</span>}
-                    {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
-                    {r.mapName && <span className="text-gray-300">·</span>}
-                    {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
-                  </div>
-                  <div className="flex items-center gap-3 shrink-0 ml-4">
-                    <span className="text-sm font-bold text-gray-700">#{r.placement}</span>
-                    <span className="text-xs text-gray-500">{r.total_kills}K</span>
-                  </div>
-                </div>
-              ))}
+              {filteredTours.length > tourLimit && (
+                <p className="text-xs text-gray-400 text-center pt-1">+{filteredTours.length - tourLimit} more</p>
+              )}
             </div>
           )}
         </>
+      )}
+
+      {/* Match History */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-800">Match History</h2>
+        <LimitButtons limit={matchLimit} setLimit={setMatchLimit} />
+      </div>
+      {filteredMatches.length === 0 ? (
+        <p className="text-gray-400 text-sm">No match records</p>
+      ) : (
+        <div className="space-y-1.5">
+          {filteredMatches.slice(0, matchLimit).map((r) => (
+            <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
+              <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+                {r.tourId && (
+                  <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
+                    {r.tourName}
+                  </Link>
+                )}
+                {r.stageName && <span className="text-gray-300">·</span>}
+                {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
+                {r.matchNum > 0 && <span className="text-gray-300">·</span>}
+                {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
+                {r.mapName && <span className="text-gray-300">·</span>}
+                {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
+              </div>
+              <div className="flex items-center gap-3 shrink-0 ml-4">
+                <span className="text-sm font-bold text-gray-700">#{r.placement}</span>
+                <span className="text-xs text-gray-500">{r.total_kills}K</span>
+              </div>
+            </div>
+          ))}
+          {filteredMatches.length > matchLimit && (
+            <p className="text-xs text-gray-400 text-center pt-1">+{filteredMatches.length - matchLimit} more</p>
+          )}
+        </div>
       )}
     </div>
   )

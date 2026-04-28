@@ -42,6 +42,22 @@ function StatBox({ label, value }: { label: string; value: string | number }) {
   )
 }
 
+function LimitButtons({ limit, setLimit }: { limit: number; setLimit: (n: number) => void }) {
+  return (
+    <div className="flex gap-1">
+      {[10, 20, 30].map(n => (
+        <button
+          key={n}
+          onClick={() => setLimit(n)}
+          className={`px-2 py-0.5 text-xs rounded border transition-colors ${limit === n ? 'bg-gray-800 border-gray-800 text-white font-semibold' : 'bg-white border-gray-200 text-gray-500 hover:border-gray-400'}`}
+        >
+          {n}
+        </button>
+      ))}
+    </div>
+  )
+}
+
 export default function PlayerHistoryClient({
   tourList,
   stats,
@@ -58,6 +74,8 @@ export default function PlayerHistoryClient({
 
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TourTypeFilter>('all')
+  const [tourLimit, setTourLimit] = useState(10)
+  const [matchLimit, setMatchLimit] = useState(20)
 
   function matchesFilter(year: number | null, tourType: string | null) {
     if (selectedYear !== 'all' && year !== selectedYear) return false
@@ -66,11 +84,11 @@ export default function PlayerHistoryClient({
     return true
   }
 
-  const filteredTours = useMemo(
-    () => tourList.filter(t => matchesFilter(t.year, t.tourType)),
+  const filteredTours = useMemo(() => {
+    const list = tourList.filter(t => matchesFilter(t.year, t.tourType))
+    return list.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [tourList, selectedYear, typeFilter]
-  )
+  }, [tourList, selectedYear, typeFilter])
 
   const filteredStats = useMemo(
     () => stats.filter(r => matchesFilter(r.year, r.tourType)),
@@ -106,7 +124,7 @@ export default function PlayerHistoryClient({
         </div>
       )}
 
-      {/* Career Stats (filtered) */}
+      {/* Career Stats */}
       {filteredStats.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
           <h2 className="text-sm font-semibold text-gray-700 mb-3">
@@ -122,12 +140,15 @@ export default function PlayerHistoryClient({
       )}
 
       {/* Tournament History */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-800">Tournament History</h2>
+        <LimitButtons limit={tourLimit} setLimit={setTourLimit} />
+      </div>
       {filteredTours.length === 0 ? (
         <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
       ) : (
         <div className="space-y-2 mb-8">
-          {filteredTours.map((te) => (
+          {filteredTours.slice(0, tourLimit).map((te) => (
             <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
               <div>
                 <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
@@ -147,16 +168,22 @@ export default function PlayerHistoryClient({
               )}
             </div>
           ))}
+          {filteredTours.length > tourLimit && (
+            <p className="text-xs text-gray-400 text-center pt-1">+{filteredTours.length - tourLimit} more</p>
+          )}
         </div>
       )}
 
       {/* Match History */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-lg font-semibold text-gray-800">Match History</h2>
+        <LimitButtons limit={matchLimit} setLimit={setMatchLimit} />
+      </div>
       {filteredStats.length === 0 ? (
         <p className="text-gray-400 text-sm">No match records</p>
       ) : (
         <div className="space-y-1.5">
-          {filteredStats.map((s) => (
+          {filteredStats.slice(0, matchLimit).map((s) => (
             <div key={s.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5">
               <div className="flex items-center justify-between mb-1.5">
                 <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
@@ -194,6 +221,9 @@ export default function PlayerHistoryClient({
               </div>
             </div>
           ))}
+          {filteredStats.length > matchLimit && (
+            <p className="text-xs text-gray-400 text-center pt-1">+{filteredStats.length - matchLimit} more</p>
+          )}
         </div>
       )}
     </div>
