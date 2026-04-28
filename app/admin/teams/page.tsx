@@ -33,6 +33,7 @@ interface Row {
   name: string
   short_name: string
   nationality: string
+  league: string
   description: string
   logo_url: string | null
   aliases: AliasEntry[]
@@ -53,6 +54,7 @@ function toRow(t: TeamWithAliases): Row {
     name: t.name,
     short_name: t.short_name ?? '',
     nationality: t.nationality ?? '',
+    league: (t as unknown as { league?: string | null }).league ?? '',
     description: t.description ?? '',
     logo_url: t.logo_url ?? null,
     aliases: t.team_aliases?.map((a) => ({ alias: a.alias, logo_url: a.logo_url ?? null })) ?? [],
@@ -107,6 +109,7 @@ export default function AdminTeamsPage() {
       name: row.name.trim(),
       short_name: row.short_name.trim() || null,
       nationality: row.nationality.trim() || null,
+      league: row.league.trim() || null,
       description: row.description.trim() || null,
       logo_url: row.logo_url,
     }).eq('id', row.id)
@@ -347,6 +350,7 @@ export default function AdminTeamsPage() {
                     <th className={thCls + ' min-w-[140px]'}>Name</th>
                     <th className={thCls + ' w-24'}>Tag</th>
                     <th className={thCls + ' min-w-[100px]'}>Country</th>
+                    <th className={thCls + ' min-w-[100px]'}>League</th>
                     <th className={thCls + ' w-40 text-right'}>Actions</th>
                   </tr>
                 </thead>
@@ -386,6 +390,13 @@ export default function AdminTeamsPage() {
                             onKeyDown={(e) => navKey(e, i, 2)}
                             data-nav-row={i} data-nav-col={2}
                             className={CELL} placeholder="Korea" />
+                        </td>
+                        <td className="px-1 py-1">
+                          <input value={row.league}
+                            onChange={(e) => updateRow(row.id, 'league', e.target.value)}
+                            onKeyDown={(e) => navKey(e, i, 3)}
+                            data-nav-row={i} data-nav-col={3}
+                            className={CELL} placeholder="PGS" />
                         </td>
                         <td className="px-2 py-1">
                           <div className="flex gap-1 justify-end items-center">

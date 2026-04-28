@@ -8,6 +8,7 @@ import type { Player, TeamAlias } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
 import { getMapDisplayName } from '@/lib/pubg-api'
+import TeamHistoryClient from './TeamHistoryClient'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -39,7 +40,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
       id, placement, total_kills,
       matches(id, order_num, map,
         stages(id, name, type, order_num,
-          tournaments(id, name, short_name)))
+          tournaments(id, name, short_name, start_date, end_date, type)))
     `)
     .eq('team_id', id)
     .order('created_at', { ascending: false })
@@ -48,10 +49,10 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
 
   // --- Build tournament map ---
   type TourEntry = {
-    id: string; name: string; short_name: string | null
+    id: string; name: string; short_name: string | null; year: number | null; tourType: string | null
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
     finalStageId: string | null; finalStageName: string | null
-    finalStageRank: number | null; finalStagePts: number | null
+    finalStageRank: number | null; finalStagePrize: string | null
   }
   const tourMap = new Map<string, TourEntry>()
   const stageMatchInfo = new Map<string, Array<{ matchId: string; order_num: number }>>()
@@ -63,10 +64,13 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     if (!m || !stage || !tour) continue
 
     if (!tourMap.has(tour.id)) {
+      const year = tour.start_date ? new Date(tour.start_date).getFullYear() :
+                   tour.end_date ? new Date(tour.end_date).getFullYear() : null
       tourMap.set(tour.id, {
         id: tour.id, name: tour.name, short_name: tour.short_name,
+        year, tourType: tour.type ?? null,
         stages: new Map(), finalStageId: null, finalStageName: null,
-        finalStageRank: null, finalStagePts: null,
+        finalStageRank: null, finalStagePrize: null,
       })
     }
     const te = tourMap.get(tour.id)!
@@ -126,14 +130,60 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         for (const [, te] of tourMap) {
           if (te.finalStageId === stageId) {
             te.finalStageRank = rank > 0 ? rank : null
-            te.finalStagePts = ptsMap.get(id)?.pts ?? null
           }
         }
       }
     }
   }
 
+  // --- Fetch prize from prize_config ---
+  const tourIds = [...tourMap.keys()]
+  if (tourIds.length > 0) {
+    const { data: prizeData } = await supabase
+      .from('tournament_prize_config')
+      .select('tournament_id, rank, prize')
+      .in('tournament_id', tourIds)
+    for (const p of prizeData ?? []) {
+      const te = tourMap.get(p.tournament_id)
+      if (te && te.finalStageRank != null && p.rank === te.finalStageRank) {
+        te.finalStagePrize = p.prize ?? null
+      }
+    }
+  }
+
   const tourList = [...tourMap.values()]
+
+  // Serialize match results for client
+  const matchResults = results.map((r) => {
+    const m = r.matches as AnyObj | null
+    const stage = m?.stages as AnyObj | null
+    const tour = stage?.tournaments as AnyObj | null
+    return {
+      id: r.id as string,
+      placement: r.placement as number | null,
+      total_kills: r.total_kills as number,
+      matchId: m?.id as string | null,
+      matchNum: m ? (matchNumMap.get(m.id) ?? 0) : 0,
+      mapName: m?.map as string | null,
+      stageName: stage?.name as string | null,
+      tourId: tour?.id as string | null,
+      tourName: (tour?.short_name ?? tour?.name) as string | null,
+      year: tour?.start_date ? new Date(tour.start_date as string).getFullYear() :
+            tour?.end_date ? new Date(tour.end_date as string).getFullYear() : null,
+      tourType: tour?.type as string | null,
+    }
+  })
+
+  const tourListSerialized = tourList.map((te) => ({
+    id: te.id,
+    name: te.name,
+    short_name: te.short_name,
+    year: te.year,
+    tourType: te.tourType,
+    finalStageName: te.finalStageName,
+    finalStageRank: te.finalStageRank,
+    finalStagePrize: te.finalStagePrize,
+  }))
 
   return (
     <>
@@ -160,6 +210,9 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
               )}
               {team.nationality && (
                 <p className="text-sm text-gray-500 mt-2">{team.nationality}</p>
+              )}
+              {(team as AnyObj).league && (
+                <p className="text-sm text-blue-500 mt-1">{(team as AnyObj).league}</p>
               )}
               {team.description && (
                 <p className="text-sm text-gray-600 mt-3 leading-relaxed">{team.description}</p>
@@ -197,72 +250,11 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
             )}
           </aside>
 
-          <div>
-            {/* Tournament History */}
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
-            {tourList.length === 0 ? (
-              <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
-            ) : (
-              <div className="space-y-2 mb-8">
-                {tourList.map((te) => (
-                  <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
-                        {te.short_name ?? te.name}
-                      </Link>
-                      {te.finalStageName && (
-                        <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
-                      )}
-                    </div>
-                    {te.finalStageRank != null && (
-                      <div className="text-right">
-                        <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
-                        {te.finalStagePts != null && (
-                          <p className="text-xs text-gray-400">{te.finalStagePts} pts</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Match History */}
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
-            {results.length === 0 ? (
-              <p className="text-gray-400 text-sm">No match records</p>
-            ) : (
-              <div className="space-y-1.5">
-                {results.map((r) => {
-                  const m = r.matches as AnyObj | null
-                  const stage = m?.stages as AnyObj | null
-                  const tour = stage?.tournaments as AnyObj | null
-                  const matchNum = m ? (matchNumMap.get(m.id) ?? 0) : 0
-                  return (
-                    <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
-                      <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                        {tour && (
-                          <Link href={`/tournaments/${tour.id}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                            {tour.short_name ?? tour.name}
-                          </Link>
-                        )}
-                        {stage && <span className="text-gray-300">·</span>}
-                        {stage && <span className="text-xs text-gray-500 shrink-0">{stage.name}</span>}
-                        {matchNum > 0 && <span className="text-gray-300">·</span>}
-                        {matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{matchNum}</span>}
-                        {m?.map && <span className="text-gray-300">·</span>}
-                        {m?.map && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(m.map)}</span>}
-                      </div>
-                      <div className="flex items-center gap-3 shrink-0 ml-4">
-                        <span className="text-sm font-bold text-gray-900">#{r.placement}</span>
-                        <span className="text-xs text-gray-500">{r.total_kills}K</span>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          <TeamHistoryClient
+            tourList={tourListSerialized}
+            matchResults={matchResults}
+            getMapDisplayName={getMapDisplayName}
+          />
         </div>
       </main>
     </>

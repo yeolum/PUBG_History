@@ -166,11 +166,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           teamId: r.team_id ?? null,
           teamName,
           logoUrl: resolveLogoUrl(r.team_id, teamName, aliasLogoLookup),
-          games: 0, totalKills: 0, totalDamage: 0, totalPoints: 0, placementsSum: 0, gamesWithPlacement: 0,
+          games: 0, wwcd: 0, totalKills: 0, totalDamage: 0, totalPoints: 0, placementsSum: 0, gamesWithPlacement: 0,
         })
       }
       const e = teamStatsMap.get(key)!
       e.games++
+      if (r.placement === 1) e.wwcd++
       e.totalKills += r.total_kills ?? 0
       e.totalDamage += Number(r.total_damage ?? 0)
       e.totalPoints += calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0)

@@ -8,6 +8,7 @@ import type { PlayerAlias } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
 import { getMapDisplayName } from '@/lib/pubg-api'
+import PlayerHistoryClient from './PlayerHistoryClient'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -40,29 +41,24 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       id, kills, assists, knocks, damage_dealt, placement, team_id,
       matches(id, order_num, map,
         stages(id, name, type, order_num,
-          tournaments(id, name, short_name)))
+          tournaments(id, name, short_name, start_date, end_date, type)))
     `)
     .eq('player_id', id)
     .order('created_at', { ascending: false })
 
   const stats = (rawStats ?? []) as AnyObj[]
 
-  // Career totals
-  const totalKills = stats.reduce((s, r) => s + (r.kills ?? 0), 0)
-  const totalDamage = stats.reduce((s, r) => s + Number(r.damage_dealt ?? 0), 0)
-  const avgDamage = stats.length > 0 ? totalDamage / stats.length : 0
-
   // --- Build tournament map (keyed by tour.id) ---
   type TourEntry = {
-    id: string; name: string; short_name: string | null
+    id: string; name: string; short_name: string | null; year: number | null; tourType: string | null
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
     finalStageId: string | null; finalStageName: string | null
-    finalStageRank: number | null; finalStagePts: number | null
-    playerTeamId: string | null  // the team the player was on in the final stage
+    finalStageRank: number | null; finalStagePrize: string | null
+    playerTeamId: string | null
   }
   const tourMap = new Map<string, TourEntry>()
   const stageMatchInfo = new Map<string, Array<{ matchId: string; order_num: number }>>()
-  const stagePlayerTeam = new Map<string, string | null>() // stageId -> team_id
+  const stagePlayerTeam = new Map<string, string | null>()
 
   for (const r of stats) {
     const m = r.matches as AnyObj | null
@@ -71,10 +67,13 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     if (!m || !stage || !tour) continue
 
     if (!tourMap.has(tour.id)) {
+      const year = tour.start_date ? new Date(tour.start_date as string).getFullYear() :
+                   tour.end_date ? new Date(tour.end_date as string).getFullYear() : null
       tourMap.set(tour.id, {
         id: tour.id, name: tour.name, short_name: tour.short_name,
+        year, tourType: tour.type ?? null,
         stages: new Map(), finalStageId: null, finalStageName: null,
-        finalStageRank: null, finalStagePts: null, playerTeamId: null,
+        finalStageRank: null, finalStagePrize: null, playerTeamId: null,
       })
     }
     const te = tourMap.get(tour.id)!
@@ -84,7 +83,6 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     if (!stageMatchInfo.has(stage.id)) stageMatchInfo.set(stage.id, [])
     const sl = stageMatchInfo.get(stage.id)!
     if (!sl.find((x) => x.matchId === m.id)) sl.push({ matchId: m.id, order_num: m.order_num ?? 0 })
-    // Track the player's team for this stage
     if (r.team_id && !stagePlayerTeam.has(stage.id)) stagePlayerTeam.set(stage.id, r.team_id)
   }
 
@@ -140,14 +138,60 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
           if (te.finalStageId === stageId && te.playerTeamId) {
             const rank = sorted.findIndex(([key]) => key === te.playerTeamId) + 1
             te.finalStageRank = rank > 0 ? rank : null
-            te.finalStagePts = ptsMap.get(te.playerTeamId)?.pts ?? null
           }
         }
       }
     }
   }
 
-  const tourList = [...tourMap.values()]
+  // --- Fetch prize from prize_config ---
+  const tourIds = [...tourMap.keys()]
+  if (tourIds.length > 0) {
+    const { data: prizeData } = await supabase
+      .from('tournament_prize_config')
+      .select('tournament_id, rank, prize')
+      .in('tournament_id', tourIds)
+    for (const p of prizeData ?? []) {
+      const te = tourMap.get(p.tournament_id)
+      if (te && te.finalStageRank != null && p.rank === te.finalStageRank) {
+        te.finalStagePrize = p.prize ?? null
+      }
+    }
+  }
+
+  const tourListSerialized = [...tourMap.values()].map((te) => ({
+    id: te.id,
+    name: te.name,
+    short_name: te.short_name,
+    year: te.year,
+    tourType: te.tourType,
+    finalStageName: te.finalStageName,
+    finalStageRank: te.finalStageRank,
+    finalStagePrize: te.finalStagePrize,
+  }))
+
+  // Serialize match stats for client
+  const statsSerialized = stats.map((s) => {
+    const m = s.matches as AnyObj | null
+    const stage = m?.stages as AnyObj | null
+    const tour = stage?.tournaments as AnyObj | null
+    return {
+      id: s.id as string,
+      kills: s.kills as number,
+      assists: s.assists as number,
+      knocks: s.knocks as number,
+      damage_dealt: Number(s.damage_dealt ?? 0),
+      placement: s.placement as number | null,
+      matchNum: m ? (matchNumMap.get(m.id) ?? 0) : 0,
+      mapName: m?.map as string | null,
+      stageName: stage?.name as string | null,
+      tourId: tour?.id as string | null,
+      tourName: (tour?.short_name ?? tour?.name) as string | null,
+      year: tour?.start_date ? new Date(tour.start_date as string).getFullYear() :
+            tour?.end_date ? new Date(tour.end_date as string).getFullYear() : null,
+      tourType: tour?.type as string | null,
+    }
+  })
 
   return (
     <>
@@ -203,114 +247,15 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
                 </div>
               )}
             </div>
-
-            {stats.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mt-4">
-                <h2 className="text-sm font-semibold text-gray-700 mb-3">Career Stats</h2>
-                <div className="grid grid-cols-2 gap-3">
-                  <StatBox label="Matches" value={stats.length} />
-                  <StatBox label="Total Kills" value={totalKills} />
-                  <StatBox label="Avg Damage" value={avgDamage.toFixed(0)} />
-                  <StatBox label="Avg Kills" value={(totalKills / stats.length).toFixed(1)} />
-                </div>
-              </div>
-            )}
           </aside>
 
-          <div>
-            {/* Tournament History */}
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Tournament History</h2>
-            {tourList.length === 0 ? (
-              <p className="text-gray-400 text-sm mb-8">No tournament results recorded</p>
-            ) : (
-              <div className="space-y-2 mb-8">
-                {tourList.map((te) => (
-                  <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
-                        {te.short_name ?? te.name}
-                      </Link>
-                      {te.finalStageName && (
-                        <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
-                      )}
-                    </div>
-                    {te.finalStageRank != null && (
-                      <div className="text-right">
-                        <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
-                        {te.finalStagePts != null && (
-                          <p className="text-xs text-gray-400">{te.finalStagePts} pts</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Match History */}
-            <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
-            {stats.length === 0 ? (
-              <p className="text-gray-400 text-sm">No match records</p>
-            ) : (
-              <div className="space-y-1.5">
-                {stats.map((s) => {
-                  const m = s.matches as AnyObj | null
-                  const stage = m?.stages as AnyObj | null
-                  const tour = stage?.tournaments as AnyObj | null
-                  const matchNum = m ? (matchNumMap.get(m.id) ?? 0) : 0
-                  return (
-                    <div key={s.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5">
-                      <div className="flex items-center justify-between mb-1.5">
-                        <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                          {tour && (
-                            <Link href={`/tournaments/${tour.id}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                              {tour.short_name ?? tour.name}
-                            </Link>
-                          )}
-                          {stage && <span className="text-gray-300">·</span>}
-                          {stage && <span className="text-xs text-gray-500 shrink-0">{stage.name}</span>}
-                          {matchNum > 0 && <span className="text-gray-300">·</span>}
-                          {matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{matchNum}</span>}
-                          {m?.map && <span className="text-gray-300">·</span>}
-                          {m?.map && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(m.map)}</span>}
-                        </div>
-                        <span className="text-sm font-bold text-gray-700 shrink-0 ml-4">#{s.placement}</span>
-                      </div>
-                      <div className="grid grid-cols-4 gap-2 text-xs text-center">
-                        <div>
-                          <p className="text-gray-400">Kills</p>
-                          <p className="font-semibold text-gray-800">{s.kills}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400">Assists</p>
-                          <p className="font-semibold text-gray-800">{s.assists}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400">Knocks</p>
-                          <p className="font-semibold text-gray-800">{s.knocks}</p>
-                        </div>
-                        <div>
-                          <p className="text-gray-400">Damage</p>
-                          <p className="font-semibold text-gray-800">{Number(s.damage_dealt).toFixed(0)}</p>
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+          <PlayerHistoryClient
+            tourList={tourListSerialized}
+            stats={statsSerialized}
+            getMapDisplayName={getMapDisplayName}
+          />
         </div>
       </main>
     </>
-  )
-}
-
-function StatBox({ label, value }: { label: string; value: string | number }) {
-  return (
-    <div className="bg-gray-50 rounded-lg px-3 py-2 text-center">
-      <p className="text-xs text-gray-400">{label}</p>
-      <p className="text-base font-bold text-gray-900 mt-0.5">{value}</p>
-    </div>
   )
 }

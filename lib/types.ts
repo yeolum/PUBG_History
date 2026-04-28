@@ -10,6 +10,7 @@ export interface Team {
   logo_url: string | null
   nationality: string | null
   description: string | null
+  league: string | null
   is_active: boolean
   created_at: string
   updated_at: string

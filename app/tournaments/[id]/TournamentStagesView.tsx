@@ -80,19 +80,20 @@ export default function TournamentStagesView({
     if (!selectedSeriesId || selectedStageId) return []
     const seriesStages = stages.filter(s => s.series_id === selectedSeriesId)
     const seriesMatchIds = new Set(seriesStages.flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id)))
-    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; matches: number }>()
+    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; matches: number; wwcd: number }>()
     for (const [matchId, results] of Object.entries(resultsByMatch)) {
       if (!seriesMatchIds.has(matchId)) continue
       for (const r of results as AnyObj[]) {
         const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
-          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', totalPts: 0, placePts: 0, matches: 0 })
+          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', totalPts: 0, placePts: 0, matches: 0, wwcd: 0 })
         }
         const e = ptsMap.get(key)!
         const pp = calcPlacementPts(r.placement ?? 99)
         e.totalPts += pp + (r.total_kills ?? 0)
         e.placePts += pp
         e.matches++
+        if ((r.placement ?? 99) === 1) e.wwcd++
       }
     }
     return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
@@ -326,6 +327,7 @@ export default function TournamentStagesView({
                           <th className="text-left px-4 py-2 w-8">#</th>
                           <th className="text-left px-4 py-2">Team</th>
                           <th className="text-right px-4 py-2">M</th>
+                          <th className="text-right px-4 py-2">WWCD</th>
                           <th className="text-right px-4 py-2">Plc Pts</th>
                           <th className="text-right px-4 py-2">Kills</th>
                           <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
@@ -351,6 +353,7 @@ export default function TournamentStagesView({
                                 </div>
                               </td>
                               <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
+                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
                               <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
                               <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.placePts}</td>
                               <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
@@ -372,6 +375,7 @@ export default function TournamentStagesView({
                           <th className="text-left px-4 py-2 w-8">#</th>
                           <th className="text-left px-4 py-2">Team</th>
                           <th className="text-right px-4 py-2">Plc</th>
+                          <th className="text-right px-4 py-2">WWCD</th>
                           <th className="text-right px-4 py-2">Plc Pts</th>
                           <th className="text-right px-4 py-2">Kills</th>
                           <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
@@ -398,6 +402,7 @@ export default function TournamentStagesView({
                                 </div>
                               </td>
                               <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
+                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{r.placement === 1 ? 1 : 0}</td>
                               <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
                               <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
                               <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>

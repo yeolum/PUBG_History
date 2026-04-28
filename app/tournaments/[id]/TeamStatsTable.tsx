@@ -9,6 +9,7 @@ export interface TeamStatRow {
   teamName: string
   logoUrl: string | null
   games: number
+  wwcd: number
   totalKills: number
   totalDamage: number
   totalPoints: number
@@ -26,7 +27,7 @@ export interface DropLocationRow {
   y: number
 }
 
-type SortKey = 'teamName' | 'games' | 'totalPoints' | 'avgPlacement' | 'totalKills' | 'kpg' | 'totalDamage' | 'adr'
+type SortKey = 'teamName' | 'games' | 'wwcd' | 'totalPoints' | 'avgPlacement' | 'totalKills' | 'kpg' | 'totalDamage' | 'adr'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
@@ -119,6 +120,7 @@ export default function TeamStatsTable({
                   <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
                   <th onClick={() => toggleSort('teamName')} className={thLeft('teamName')}>Team{arr('teamName')}</th>
                   <th onClick={() => toggleSort('games')} className={thCls('games')}>Games{arr('games')}</th>
+                  <th onClick={() => toggleSort('wwcd')} className={thCls('wwcd')}>WWCD{arr('wwcd')}</th>
                   <th onClick={() => toggleSort('totalPoints')} className={thCls('totalPoints')}>Total Pts{arr('totalPoints')}</th>
                   <th onClick={() => toggleSort('avgPlacement')} className={thCls('avgPlacement')}>Avg Plc{arr('avgPlacement')}</th>
                   <th onClick={() => toggleSort('totalKills')} className={thCls('totalKills')}>Kills{arr('totalKills')}</th>
@@ -147,6 +149,7 @@ export default function TeamStatsTable({
                       </div>
                     </td>
                     <td className="px-3 py-2 text-right text-gray-500">{t.games}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{t.wwcd}</td>
                     <td className="px-3 py-2 text-right font-bold text-gray-900">{t.totalPoints}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{t.avgPlacement < 99 ? t.avgPlacement.toFixed(1) : '—'}</td>
                     <td className="px-3 py-2 text-right font-semibold text-gray-700">{t.totalKills}</td>

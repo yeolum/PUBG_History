@@ -13,6 +13,17 @@ import { calcPlacementPts } from '@/lib/scoring'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
+function navPrize(e: React.KeyboardEvent, rowIdx: number, colIdx: number) {
+  const delta: Record<string, [number, number]> = {
+    ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
+  }
+  const d = delta[e.key]
+  if (!d) return
+  e.preventDefault()
+  const el = document.querySelector<HTMLElement>(`[data-prize-row="${rowIdx + d[0]}"][data-prize-col="${colIdx + d[1]}"]`)
+  el?.focus()
+}
+
 const CURRENCIES = [
   { code: 'USD', symbol: '$' },
   { code: 'EUR', symbol: '€' },
@@ -84,9 +95,15 @@ export default function AdminTournamentDetailPage() {
   const [newSeriesId, setNewSeriesId] = useState('')
   const [editingStageId, setEditingStageId] = useState<string | null>(null)
   const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group', seriesId: '' })
+  const [dragStageId, setDragStageId] = useState<string | null>(null)
+  const [dragOverStageId, setDragOverStageId] = useState<string | null>(null)
+  const [dragSeriesId, setDragSeriesId] = useState<string | null>(null)
+  const [dragOverSeriesId, setDragOverSeriesId] = useState<string | null>(null)
 
   type PrizeRow = { rank: number; stageId: string; stageRank: number; prize: string; pgs: string; pgc: string }
   const [prizeRows, setPrizeRows] = useState<PrizeRow[]>([])
+  const [selectedPrizeRanks, setSelectedPrizeRanks] = useState<Set<number>>(new Set())
+  const [batchStageId, setBatchStageId] = useState('')
   const [savingPrize, setSavingPrize] = useState(false)
   const [prizeCurrency, setPrizeCurrency] = useState('USD')
   const [prizePoolInput, setPrizePoolInput] = useState('')
@@ -223,6 +240,36 @@ export default function AdminTournamentDetailPage() {
     if (!confirm('Delete this stage and all its matches?')) return
     await supabase.from('stages').delete().eq('id', stageId)
     setSelectedMatchByStage((prev) => { const n = { ...prev }; delete n[stageId]; return n })
+    load()
+  }
+
+  async function reorderStages(fromId: string, toId: string) {
+    if (fromId === toId) return
+    const sorted = [...stageList].sort((a, b) => a.order_num - b.order_num)
+    const fromIdx = sorted.findIndex(s => s.id === fromId)
+    const toIdx = sorted.findIndex(s => s.id === toId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const reordered = [...sorted]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    await Promise.all(reordered.map((s, i) =>
+      supabase.from('stages').update({ order_num: i + 1 }).eq('id', s.id)
+    ))
+    load()
+  }
+
+  async function reorderSeries(fromId: string, toId: string) {
+    if (fromId === toId) return
+    const sorted = [...seriesList].sort((a, b) => a.order_num - b.order_num)
+    const fromIdx = sorted.findIndex(s => s.id === fromId)
+    const toIdx = sorted.findIndex(s => s.id === toId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const reordered = [...sorted]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    await Promise.all(reordered.map((s, i) =>
+      supabase.from('series').update({ order_num: i + 1 }).eq('id', s.id)
+    ))
     load()
   }
 
@@ -556,7 +603,19 @@ export default function AdminTournamentDetailPage() {
         </div>
         <div className="flex flex-wrap gap-2 items-center">
           {seriesList.map((s) => (
-            <div key={s.id} className="flex items-center gap-1.5 bg-white border border-gray-200 rounded-lg px-3 py-1.5">
+            <div
+              key={s.id}
+              draggable
+              onDragStart={() => setDragSeriesId(s.id)}
+              onDragOver={(e) => { e.preventDefault(); setDragOverSeriesId(s.id) }}
+              onDrop={() => {
+                if (dragSeriesId && dragSeriesId !== s.id) reorderSeries(dragSeriesId, s.id)
+                setDragSeriesId(null); setDragOverSeriesId(null)
+              }}
+              onDragEnd={() => { setDragSeriesId(null); setDragOverSeriesId(null) }}
+              className={`flex items-center gap-1.5 bg-white border rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing transition-all ${dragOverSeriesId === s.id && dragSeriesId !== s.id ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'}`}
+            >
+              <span className="text-gray-300 text-xs select-none">⠿</span>
               <span className="text-sm text-gray-700">{s.name}</span>
               <button
                 onClick={() => deleteSeries(s.id, s.name)}
@@ -605,6 +664,7 @@ export default function AdminTournamentDetailPage() {
             .slice()
             .sort((a, b) => a.order_num - b.order_num)
             .map((stage) => {
+              const isDragOver = dragOverStageId === stage.id && dragStageId !== stage.id
               const sortedMatches = [...stage.matches].sort((a, b) => a.order_num - b.order_num)
               const importedMatches = sortedMatches.filter((m) => m.status === 'imported')
               const selectedMatchId = selectedMatchByStage[stage.id] ?? null
@@ -633,7 +693,18 @@ export default function AdminTournamentDetailPage() {
                 : 0
 
               return (
-                <div key={stage.id} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div
+                  key={stage.id}
+                  draggable
+                  onDragStart={() => setDragStageId(stage.id)}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverStageId(stage.id) }}
+                  onDrop={() => {
+                    if (dragStageId && dragStageId !== stage.id) reorderStages(dragStageId, stage.id)
+                    setDragStageId(null); setDragOverStageId(null)
+                  }}
+                  onDragEnd={() => { setDragStageId(null); setDragOverStageId(null) }}
+                  className={`bg-white rounded-xl border overflow-hidden cursor-grab active:cursor-grabbing transition-all ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'}`}
+                >
                   {/* Stage header row */}
                   {editingStageId === stage.id ? (
                     <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 flex-wrap">
@@ -955,10 +1026,48 @@ export default function AdminTournamentDetailPage() {
             )}
           </div>
 
+          {selectedPrizeRanks.size > 0 && (
+            <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200 flex items-center gap-3 flex-wrap">
+              <span className="text-xs font-medium text-yellow-700">{selectedPrizeRanks.size} rows selected</span>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-600">Set Stage:</label>
+                <select
+                  value={batchStageId}
+                  onChange={(e) => setBatchStageId(e.target.value)}
+                  className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                >
+                  <option value="">— none —</option>
+                  {stageList.map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}</option>
+                  ))}
+                </select>
+                <button
+                  onClick={() => {
+                    setPrizeRows((rows) => rows.map((r) =>
+                      selectedPrizeRanks.has(r.rank) ? { ...r, stageId: batchStageId } : r
+                    ))
+                    setSelectedPrizeRanks(new Set())
+                  }}
+                  className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-3 py-1 rounded"
+                >
+                  Apply
+                </button>
+              </div>
+              <button onClick={() => setSelectedPrizeRanks(new Set())} className="text-xs text-gray-400 hover:text-gray-600 ml-auto">Clear</button>
+            </div>
+          )}
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-xs text-gray-400 border-b border-gray-100">
+                  <th className="px-3 py-2 w-8">
+                    <input
+                      type="checkbox"
+                      checked={prizeRows.length > 0 && selectedPrizeRanks.size === prizeRows.length}
+                      onChange={(e) => setSelectedPrizeRanks(e.target.checked ? new Set(prizeRows.map(r => r.rank)) : new Set())}
+                      className="rounded"
+                    />
+                  </th>
                   <th className="text-left px-4 py-2 w-10">#</th>
                   <th className="text-left px-4 py-2">Stage</th>
                   <th className="text-left px-4 py-2 w-24">Stage Rank</th>
@@ -968,13 +1077,29 @@ export default function AdminTournamentDetailPage() {
                 </tr>
               </thead>
               <tbody>
-                {prizeRows.map((row, i) => (
-                  <tr key={row.rank} className="border-b border-gray-50 last:border-0">
+                {prizeRows.map((row, i) => {
+                  const colStart = 0
+                  return (
+                  <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${selectedPrizeRanks.has(row.rank) ? 'bg-yellow-50/60' : ''}`}>
+                    <td className="px-3 py-2 text-center">
+                      <input
+                        type="checkbox"
+                        checked={selectedPrizeRanks.has(row.rank)}
+                        onChange={(e) => setSelectedPrizeRanks((s) => {
+                          const n = new Set(s)
+                          e.target.checked ? n.add(row.rank) : n.delete(row.rank)
+                          return n
+                        })}
+                        className="rounded"
+                      />
+                    </td>
                     <td className="px-4 py-2 text-gray-400 font-mono text-xs">{row.rank}</td>
                     <td className="px-4 py-2">
                       <select
                         value={row.stageId}
                         onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
+                        data-prize-row={i} data-prize-col={colStart}
+                        onKeyDown={(e) => navPrize(e, i, colStart)}
                         className="w-40 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                       >
                         <option value="">— none —</option>
@@ -989,6 +1114,8 @@ export default function AdminTournamentDetailPage() {
                         min={1}
                         value={row.stageRank}
                         onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageRank: parseInt(e.target.value) || 1 } : r))}
+                        data-prize-row={i} data-prize-col={colStart + 1}
+                        onKeyDown={(e) => navPrize(e, i, colStart + 1)}
                         className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                       />
                     </td>
@@ -1000,6 +1127,8 @@ export default function AdminTournamentDetailPage() {
                             value={row.prize}
                             onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
                             placeholder="0"
+                            data-prize-row={i} data-prize-col={colStart + 2}
+                            onKeyDown={(e) => navPrize(e, i, colStart + 2)}
                             className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                           />
                         </div>
@@ -1012,6 +1141,8 @@ export default function AdminTournamentDetailPage() {
                           value={row.pgs}
                           onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
                           placeholder="0"
+                          data-prize-row={i} data-prize-col={colStart + 3}
+                          onKeyDown={(e) => navPrize(e, i, colStart + 3)}
                           className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                         />
                       </td>
@@ -1023,12 +1154,15 @@ export default function AdminTournamentDetailPage() {
                           value={row.pgc}
                           onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
                           placeholder="0"
+                          data-prize-row={i} data-prize-col={colStart + 4}
+                          onKeyDown={(e) => navPrize(e, i, colStart + 4)}
                           className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                         />
                       </td>
                     )}
                   </tr>
-                ))}
+                  )
+                })}
               </tbody>
             </table>
           </div>

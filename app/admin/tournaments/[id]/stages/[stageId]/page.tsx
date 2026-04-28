@@ -22,6 +22,7 @@ interface ComputedStanding {
   teamId: string | null
   teamName: string
   matchesPlayed: number
+  wwcd: number
   totalPts: number
   totalPlacementPts: number
   lastMatchPts: number
@@ -48,10 +49,11 @@ function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
         .filter(ps => (ps.placement ?? -1) === (r.placement ?? -2))
         .reduce((s, ps) => s + Number(ps.damage_dealt ?? 0), 0)
       if (!statMap.has(key)) {
-        statMap.set(key, { key, teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', matchesPlayed: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0 })
+        statMap.set(key, { key, teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0 })
       }
       const stat = statMap.get(key)!
       stat.matchesPlayed++
+      if ((r.placement ?? 99) === 1) stat.wwcd++
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
       if (match.order_num > stat.lastMatchOrder) {
@@ -80,6 +82,8 @@ export default function StageMatchesPage() {
   const [stage, setStage] = useState<Stage | null>(null)
   const [matches, setMatches] = useState<MatchWithResults[]>([])
   const [selectedMatch, setSelectedMatch] = useState<string | null>(null)
+  const [dragMatchId, setDragMatchId] = useState<string | null>(null)
+  const [dragOverMatchId, setDragOverMatchId] = useState<string | null>(null)
 
   const [importRows, setImportRows] = useState<ImportRow[]>([{ rowId: 'r0', matchId: '', status: 'pending' }])
   const [anyImporting, setAnyImporting] = useState(false)
@@ -149,17 +153,18 @@ export default function StageMatchesPage() {
     load()
   }
 
-  async function moveMatch(matchId: string, direction: 'up' | 'down') {
+  async function reorderMatches(fromId: string, toId: string) {
+    if (fromId === toId) return
     const sorted = [...matches].sort((a, b) => a.order_num - b.order_num)
-    const idx = sorted.findIndex(m => m.id === matchId)
-    const swapIdx = direction === 'up' ? idx - 1 : idx + 1
-    if (swapIdx < 0 || swapIdx >= sorted.length) return
-    const a = sorted[idx]
-    const b = sorted[swapIdx]
-    await Promise.all([
-      supabase.from('matches').update({ order_num: b.order_num }).eq('id', a.id),
-      supabase.from('matches').update({ order_num: a.order_num }).eq('id', b.id),
-    ])
+    const fromIdx = sorted.findIndex(m => m.id === fromId)
+    const toIdx = sorted.findIndex(m => m.id === toId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const reordered = [...sorted]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    await Promise.all(reordered.map((m, i) =>
+      supabase.from('matches').update({ order_num: i + 1 }).eq('id', m.id)
+    ))
     load()
   }
 
@@ -230,6 +235,7 @@ export default function StageMatchesPage() {
                   <th className="text-left px-5 py-2">#</th>
                   <th className="text-left px-5 py-2">Team</th>
                   <th className="text-right px-5 py-2">Matches</th>
+                  <th className="text-right px-5 py-2">WWCD</th>
                   <th className="text-right px-5 py-2">Plc Pts</th>
                   <th className="text-right px-5 py-2">Kill Pts</th>
                   <th className="text-right px-5 py-2 font-bold text-gray-600">Total</th>
@@ -244,6 +250,7 @@ export default function StageMatchesPage() {
                       {!s.teamId && <span className="ml-1.5 text-xs text-orange-400 font-normal">(unlinked)</span>}
                     </td>
                     <td className="px-5 py-2 text-right text-gray-500">{s.matchesPlayed}</td>
+                    <td className="px-5 py-2 text-right text-gray-500">{s.wwcd}</td>
                     <td className="px-5 py-2 text-right text-gray-500">{s.totalPlacementPts}</td>
                     <td className="px-5 py-2 text-right text-gray-500">{s.totalPts - s.totalPlacementPts}</td>
                     <td className="px-5 py-2 text-right font-bold text-gray-900">{s.totalPts}</td>
@@ -309,20 +316,19 @@ export default function StageMatchesPage() {
         <>
           <div className="flex flex-wrap gap-2 mb-4">
             {sortedMatches.map((match, i) => (
-              <div key={match.id} className="flex items-center gap-1">
-                {/* Reorder buttons */}
-                <div className="flex flex-col">
-                  <button
-                    onClick={() => moveMatch(match.id, 'up')}
-                    disabled={i === 0}
-                    className="text-[10px] leading-none text-gray-300 hover:text-gray-600 disabled:opacity-20 px-0.5"
-                  >▲</button>
-                  <button
-                    onClick={() => moveMatch(match.id, 'down')}
-                    disabled={i === sortedMatches.length - 1}
-                    className="text-[10px] leading-none text-gray-300 hover:text-gray-600 disabled:opacity-20 px-0.5"
-                  >▼</button>
-                </div>
+              <div
+                key={match.id}
+                draggable
+                onDragStart={() => setDragMatchId(match.id)}
+                onDragOver={(e) => { e.preventDefault(); setDragOverMatchId(match.id) }}
+                onDrop={() => {
+                  if (dragMatchId && dragMatchId !== match.id) reorderMatches(dragMatchId, match.id)
+                  setDragMatchId(null); setDragOverMatchId(null)
+                }}
+                onDragEnd={() => { setDragMatchId(null); setDragOverMatchId(null) }}
+                className={`flex items-center gap-1 cursor-grab active:cursor-grabbing rounded-lg transition-all ${dragOverMatchId === match.id && dragMatchId !== match.id ? 'ring-2 ring-yellow-400' : ''}`}
+              >
+                <span className="text-gray-300 text-sm px-0.5 select-none">⠿</span>
                 <button
                   onClick={() => setSelectedMatch(selectedMatch === match.id ? null : match.id)}
                   className={`flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-medium border transition-colors ${

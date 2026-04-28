@@ -14,6 +14,7 @@ interface ComputedStanding {
   teamId: string | null
   teamName: string
   matchesPlayed: number
+  wwcd: number
   totalPts: number
   totalPlacementPts: number
   lastMatchPts: number
@@ -72,6 +73,7 @@ function computeStandings(
           teamId: r.team_id,
           teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
           matchesPlayed: 0,
+          wwcd: 0,
           totalPts: 0,
           totalPlacementPts: 0,
           lastMatchOrder: -Infinity,
@@ -83,6 +85,7 @@ function computeStandings(
 
       const stat = statMap.get(key)!
       stat.matchesPlayed++
+      if (placement === 1) stat.wwcd++
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
 
@@ -156,6 +159,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                   <th className="text-left px-4 py-2 w-8">#</th>
                   <th className="text-left px-4 py-2">Team</th>
                   <th className="text-right px-4 py-2">M</th>
+                  <th className="text-right px-4 py-2">WWCD</th>
                   <th className="text-right px-4 py-2">Plc Pts</th>
                   <th className="text-right px-4 py-2">Kills</th>
                   <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
@@ -181,6 +185,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                       </div>
                     </td>
                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matchesPlayed}</td>
+                    <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPlacementPts}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.totalPlacementPts}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
@@ -200,6 +205,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                   <th className="text-left px-4 py-2 w-8">#</th>
                   <th className="text-left px-4 py-2">Team</th>
                   <th className="text-right px-4 py-2">Plc</th>
+                  <th className="text-right px-4 py-2">WWCD</th>
                   <th className="text-right px-4 py-2">Plc Pts</th>
                   <th className="text-right px-4 py-2">Kills</th>
                   <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
@@ -226,6 +232,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                       </div>
                     </td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
+                    <td className="px-4 py-2 text-right text-gray-400 text-xs">{r.placement === 1 ? 1 : 0}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>
