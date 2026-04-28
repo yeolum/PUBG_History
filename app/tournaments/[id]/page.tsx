@@ -65,39 +65,35 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   // Round 2: fetch all data in parallel using match IDs
   const PS_SELECT = 'match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
+  const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
   const PAGE = 1000
 
-  const [{ data: trData }, { data: allAliasData }, { data: dropLocData }, { data: playerAliasData }] = await Promise.all([
-    allImportedMatchIds.length === 0 ? Promise.resolve({ data: [] }) :
-      supabase.from('match_team_results')
-        .select('*, teams(id, name, short_name, logo_url)')
-        .in('match_id', allImportedMatchIds)
-        .order('placement')
-        .limit(10000),
-    supabase.from('team_aliases').select('team_id, alias, logo_url'),
-    supabase.from('team_drop_locations')
-      .select('id, team_id, map_name, x, y, teams(name, logo_url)')
-      .eq('tournament_id', id),
-    supabase.from('player_aliases').select('alias, player_id'),
-  ])
-
-  // Paginate player stats to bypass the Supabase default 1000-row limit
-  // (16 matches × 64 players = 1024 rows which exceeds the default)
-  let psData: AnyRow[] = []
-  if (allImportedMatchIds.length > 0) {
+  async function fetchAllPages(table: string, select: string, matchIds: string[]): Promise<AnyRow[]> {
+    const rows: AnyRow[] = []
     let page = 0
     while (true) {
       const { data: batch } = await supabase
-        .from('match_player_stats')
-        .select(PS_SELECT)
-        .in('match_id', allImportedMatchIds)
+        .from(table)
+        .select(select)
+        .in('match_id', matchIds)
         .range(page * PAGE, (page + 1) * PAGE - 1)
       if (!batch || batch.length === 0) break
-      psData = [...psData, ...(batch as AnyRow[])]
+      rows.push(...(batch as AnyRow[]))
       if (batch.length < PAGE) break
       page++
     }
+    return rows
   }
+
+  const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }]] = await Promise.all([
+    allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages('match_team_results', TR_SELECT, allImportedMatchIds),
+    allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages('match_player_stats', PS_SELECT, allImportedMatchIds),
+    Promise.all([
+      supabase.from('team_aliases').select('team_id, alias, logo_url'),
+      supabase.from('team_drop_locations').select('id, team_id, map_name, x, y, teams(name, logo_url)').eq('tournament_id', id),
+      supabase.from('player_aliases').select('alias, player_id'),
+    ]),
+  ])
 
   // Build pubg name → player_id lookup from aliases (for resolving unlinked stats)
   const pubgNameToPlayerId = new Map<string, string>()
