@@ -64,7 +64,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   }
 
   // Round 2: fetch all data in parallel using match IDs
-  const [{ data: trData }, { data: psData }, { data: allAliasData }, { data: dropLocData }] = await Promise.all([
+  const [{ data: trData }, { data: psData }, { data: allAliasData }, { data: dropLocData }, { data: playerAliasData }] = await Promise.all([
     allImportedMatchIds.length === 0 ? Promise.resolve({ data: [] }) :
       supabase.from('match_team_results')
         .select('*, teams(id, name, short_name, logo_url)')
@@ -80,7 +80,15 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     supabase.from('team_drop_locations')
       .select('id, team_id, map_name, x, y, teams(name, logo_url)')
       .eq('tournament_id', id),
+    supabase.from('player_aliases').select('alias, player_id'),
   ])
+
+  // Build pubg name → player_id lookup from aliases (for resolving unlinked stats)
+  const pubgNameToPlayerId = new Map<string, string>()
+  for (const a of playerAliasData ?? []) {
+    const row = a as AnyRow
+    pubgNameToPlayerId.set((row.alias as string).toLowerCase(), row.player_id as string)
+  }
 
   // Build resultsByMatch from team results
   for (const r of trData ?? []) {
@@ -95,10 +103,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
     damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
 
-    const key = row.player_id ?? `pubg:${row.pubg_player_name ?? ''}`
+    // Resolve player_id from aliases when not directly linked
+    const resolvedPlayerId: string | null = row.player_id ??
+      (row.pubg_player_name ? (pubgNameToPlayerId.get((row.pubg_player_name as string).toLowerCase()) ?? null) : null)
+
+    const key = resolvedPlayerId ?? `pubg:${row.pubg_player_name ?? ''}`
     if (!playerStatsMap.has(key)) {
       playerStatsMap.set(key, {
-        playerId: row.player_id ?? null,
+        playerId: resolvedPlayerId,
         nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
         teamId: row.team_id ?? null,
         teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
