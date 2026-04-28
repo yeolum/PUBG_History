@@ -189,6 +189,11 @@ GROUP BY s.id, s.name, mtr.team_id, t.name, t.short_name, mtr.pubg_team_name
 ORDER BY total_points DESC;
 
 -- =====================================================
+-- Migration: league field for teams
+-- =====================================================
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS league TEXT;
+
+-- =====================================================
 -- Migration: nationality_code for players + team drop locations
 -- =====================================================
 

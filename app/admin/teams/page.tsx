@@ -105,7 +105,7 @@ export default function AdminTeamsPage() {
 
   async function saveRow(row: Row) {
     setSaving(row.id)
-    await supabase.from('teams').update({
+    const { error } = await supabase.from('teams').update({
       name: row.name.trim(),
       short_name: row.short_name.trim() || null,
       nationality: row.nationality.trim() || null,
@@ -114,6 +114,10 @@ export default function AdminTeamsPage() {
       logo_url: row.logo_url,
     }).eq('id', row.id)
     setSaving(null)
+    if (error) {
+      alert(`Save failed: ${error.message}\n\nIf this mentions "league", run the migration SQL in Supabase dashboard:\nALTER TABLE teams ADD COLUMN IF NOT EXISTS league TEXT;`)
+      return
+    }
     setRows((rs) => rs.map((r) => r.id === row.id ? { ...r, _dirty: false } : r))
   }
 

@@ -80,20 +80,21 @@ export default function PlayerListClient({ players }: { players: PlayerWithTeam[
             <Link
               key={p.id}
               href={`/players/${p.id}`}
-              className="bg-white rounded-xl border border-gray-200 p-4 hover:border-yellow-400 hover:shadow-md transition-all"
+              className="bg-white rounded-xl border border-gray-200 overflow-hidden hover:border-yellow-400 hover:shadow-md transition-all flex"
             >
-              <div className="mb-3 w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center overflow-hidden">
+              <div className="w-1/2 shrink-0 bg-gray-100 aspect-square flex items-center justify-center overflow-hidden">
                 {p.profile_pic ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img src={p.profile_pic} alt={p.nickname} className="w-full h-full object-cover" />
                 ) : (
-                  <span className="text-base font-bold text-gray-400">{p.nickname[0]}</span>
+                  <span className="text-xl font-bold text-gray-300">{p.nickname[0]}</span>
                 )}
               </div>
-              <p className="font-semibold text-gray-900 text-sm truncate">{p.nickname}</p>
-              {p.real_name && <p className="text-xs text-gray-400 mt-0.5 truncate">{p.real_name}</p>}
-              {p.nationality && <p className="text-xs text-gray-500 mt-0.5">{p.nationality}</p>}
-              {p.teams && <p className="text-xs text-blue-500 mt-0.5 truncate">{p.teams.short_name ?? p.teams.name}</p>}
+              <div className="w-1/2 p-2.5 flex flex-col justify-center min-w-0">
+                <p className="font-semibold text-gray-900 text-xs leading-tight truncate">{p.nickname}</p>
+                {p.nationality && <p className="text-[11px] text-gray-500 mt-0.5 truncate">{p.nationality}</p>}
+                {p.teams && <p className="text-[11px] text-blue-500 mt-0.5 truncate">{p.teams.name}</p>}
+              </div>
             </Link>
           ))}
         </div>
