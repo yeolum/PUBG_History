@@ -24,7 +24,10 @@ interface MatchResult {
   matchNum: number
   matchDate: string | null
   mapName: string | null
+  stageId: string | null
   stageName: string | null
+  seriesId: string | null
+  seriesName: string | null
   tourId: string | null
   tourName: string | null
   year: number | null
@@ -36,7 +39,20 @@ interface RosterPlayer {
   nickname: string
 }
 
+interface GroupedRow {
+  key: string
+  tourId: string | null
+  tourName: string | null
+  label: string
+  year: number | null
+  games: number
+  wwcd: number
+  kills: number
+  placements: number[]
+}
+
 type TourTypeFilter = 'all' | 'regional' | 'global'
+type ViewMode = 'match' | 'stage' | 'series' | 'total'
 
 function StatBox({ label, value }: { label: string; value: string | number }) {
   return (
@@ -67,6 +83,7 @@ export default function TeamHistoryClient({
 
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TourTypeFilter>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('match')
   const [tourPage, setTourPage] = useState(1)
   const [tourPageSize, setTourPageSize] = useState(10)
   const [matchPage, setMatchPage] = useState(1)
@@ -91,6 +108,39 @@ export default function TeamHistoryClient({
     [matchResults, selectedYear, typeFilter]
   )
 
+  const groupedRows = useMemo((): GroupedRow[] => {
+    if (viewMode === 'match') return []
+    const map = new Map<string, GroupedRow>()
+    for (const r of filteredMatches) {
+      let key: string
+      let label: string
+      if (viewMode === 'stage') {
+        key = `${r.tourId ?? ''}::${r.stageId ?? r.stageName ?? ''}`
+        label = r.stageName ?? '—'
+      } else if (viewMode === 'series') {
+        key = r.seriesId
+          ? `${r.tourId ?? ''}::series::${r.seriesId}`
+          : `${r.tourId ?? ''}::stage::${r.stageId ?? r.stageName ?? ''}`
+        label = r.seriesName ?? r.stageName ?? '—'
+      } else {
+        key = r.tourId ?? 'none'
+        label = r.tourName ?? '—'
+      }
+      if (!map.has(key)) {
+        map.set(key, { key, tourId: r.tourId, tourName: r.tourName, label, year: r.year, games: 0, wwcd: 0, kills: 0, placements: [] })
+      }
+      const g = map.get(key)!
+      g.games++
+      g.kills += r.total_kills
+      if (r.placement === 1) g.wwcd++
+      if (r.placement != null) g.placements.push(r.placement)
+    }
+    return [...map.values()].sort((a, b) => {
+      if ((b.year ?? 0) !== (a.year ?? 0)) return (b.year ?? 0) - (a.year ?? 0)
+      return (a.tourName ?? '').localeCompare(b.tourName ?? '')
+    })
+  }, [filteredMatches, viewMode])
+
   const totalMatches = filteredMatches.length
   const wwcd = filteredMatches.filter(r => r.placement === 1).length
   const totalKills = filteredMatches.reduce((s, r) => s + (r.total_kills ?? 0), 0)
@@ -101,11 +151,14 @@ export default function TeamHistoryClient({
 
   const pagedTours = filteredTours.slice((tourPage - 1) * tourPageSize, tourPage * tourPageSize)
   const pagedMatches = filteredMatches.slice((matchPage - 1) * matchPageSize, matchPage * matchPageSize)
+  const pagedGrouped = groupedRows.slice((matchPage - 1) * matchPageSize, matchPage * matchPageSize)
 
   const btnYear = (y: number | 'all') =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${selectedYear === y ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
   const btnType = (t: TourTypeFilter) =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${typeFilter === t ? 'bg-gray-800 border-gray-800 text-white font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`
+  const btnView = (v: ViewMode) =>
+    `px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${viewMode === v ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`
 
   return (
     <div>
@@ -231,11 +284,25 @@ export default function TeamHistoryClient({
         </>
       )}
 
-      {/* Match History */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
+      {/* Match History with view mode tabs */}
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold text-gray-800">Match History</h2>
+        <div className="flex border-b border-gray-200">
+          {(['match', 'stage', 'series', 'total'] as ViewMode[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => { setViewMode(v); setMatchPage(1) }}
+              className={btnView(v)}
+            >
+              {v.charAt(0).toUpperCase() + v.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {filteredMatches.length === 0 ? (
         <p className="text-gray-400 text-sm">No match records</p>
-      ) : (
+      ) : viewMode === 'match' ? (
         <div>
           <div className="space-y-1.5">
             {pagedMatches.map((r) => (
@@ -262,6 +329,64 @@ export default function TeamHistoryClient({
           </div>
           <Pagination
             total={filteredMatches.length}
+            page={matchPage}
+            pageSize={matchPageSize}
+            onPageChange={setMatchPage}
+            onPageSizeChange={(s) => { setMatchPageSize(s); setMatchPage(1) }}
+          />
+        </div>
+      ) : (
+        <div>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+                    {viewMode === 'total' ? 'Tournament' : viewMode === 'series' ? 'Series' : 'Stage'}
+                  </th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">GP</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">WWCD</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Kills</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">KPG</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Avg Plc</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedGrouped.map((g) => {
+                  const avgPlc = g.placements.length > 0
+                    ? g.placements.reduce((a, b) => a + b, 0) / g.placements.length
+                    : null
+                  return (
+                    <tr key={g.key} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                      <td className="px-3 py-2.5">
+                        {viewMode !== 'total' && g.tourId ? (
+                          <div>
+                            <Link href={`/tournaments/${g.tourId}`} className="text-[11px] text-gray-400 hover:text-yellow-600 block">
+                              {g.tourName}
+                            </Link>
+                            <span className="font-medium text-gray-800">{g.label}</span>
+                          </div>
+                        ) : g.tourId ? (
+                          <Link href={`/tournaments/${g.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600">
+                            {g.label}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-gray-800">{g.label}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{g.games}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{g.wwcd}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-gray-700">{g.kills}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">{(g.kills / g.games).toFixed(2)}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{avgPlc != null ? avgPlc.toFixed(1) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            total={groupedRows.length}
             page={matchPage}
             pageSize={matchPageSize}
             onPageChange={setMatchPage}

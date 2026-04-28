@@ -26,14 +26,32 @@ interface StatRow {
   matchNum: number
   matchDate: string | null
   mapName: string | null
+  stageId: string | null
   stageName: string | null
+  seriesId: string | null
+  seriesName: string | null
   tourId: string | null
   tourName: string | null
   year: number | null
   tourType: string | null
 }
 
+interface GroupedRow {
+  key: string
+  tourId: string | null
+  tourName: string | null
+  label: string
+  year: number | null
+  games: number
+  kills: number
+  assists: number
+  knocks: number
+  damage: number
+  placements: number[]
+}
+
 type TourTypeFilter = 'all' | 'regional' | 'global'
+type ViewMode = 'match' | 'stage' | 'series' | 'total'
 
 function StatBox({ label, value }: { label: string; value: string | number }) {
   return (
@@ -60,6 +78,7 @@ export default function PlayerHistoryClient({
 
   const [selectedYear, setSelectedYear] = useState<number | 'all'>('all')
   const [typeFilter, setTypeFilter] = useState<TourTypeFilter>('all')
+  const [viewMode, setViewMode] = useState<ViewMode>('match')
   const [tourPage, setTourPage] = useState(1)
   const [tourPageSize, setTourPageSize] = useState(10)
   const [matchPage, setMatchPage] = useState(1)
@@ -84,17 +103,55 @@ export default function PlayerHistoryClient({
     [stats, selectedYear, typeFilter]
   )
 
+  const groupedRows = useMemo((): GroupedRow[] => {
+    if (viewMode === 'match') return []
+    const map = new Map<string, GroupedRow>()
+    for (const s of filteredStats) {
+      let key: string
+      let label: string
+      if (viewMode === 'stage') {
+        key = `${s.tourId ?? ''}::${s.stageId ?? s.stageName ?? ''}`
+        label = s.stageName ?? '—'
+      } else if (viewMode === 'series') {
+        key = s.seriesId
+          ? `${s.tourId ?? ''}::series::${s.seriesId}`
+          : `${s.tourId ?? ''}::stage::${s.stageId ?? s.stageName ?? ''}`
+        label = s.seriesName ?? s.stageName ?? '—'
+      } else {
+        key = s.tourId ?? 'none'
+        label = s.tourName ?? '—'
+      }
+      if (!map.has(key)) {
+        map.set(key, { key, tourId: s.tourId, tourName: s.tourName, label, year: s.year, games: 0, kills: 0, assists: 0, knocks: 0, damage: 0, placements: [] })
+      }
+      const g = map.get(key)!
+      g.games++
+      g.kills += s.kills
+      g.assists += s.assists
+      g.knocks += s.knocks
+      g.damage += s.damage_dealt
+      if (s.placement != null) g.placements.push(s.placement)
+    }
+    return [...map.values()].sort((a, b) => {
+      if ((b.year ?? 0) !== (a.year ?? 0)) return (b.year ?? 0) - (a.year ?? 0)
+      return (a.tourName ?? '').localeCompare(b.tourName ?? '')
+    })
+  }, [filteredStats, viewMode])
+
   const totalKills = filteredStats.reduce((s, r) => s + (r.kills ?? 0), 0)
   const totalDamage = filteredStats.reduce((s, r) => s + (r.damage_dealt ?? 0), 0)
   const avgDamage = filteredStats.length > 0 ? totalDamage / filteredStats.length : 0
 
   const pagedTours = filteredTours.slice((tourPage - 1) * tourPageSize, tourPage * tourPageSize)
   const pagedStats = filteredStats.slice((matchPage - 1) * matchPageSize, matchPage * matchPageSize)
+  const pagedGrouped = groupedRows.slice((matchPage - 1) * matchPageSize, matchPage * matchPageSize)
 
   const btnYear = (y: number | 'all') =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${selectedYear === y ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
   const btnType = (t: TourTypeFilter) =>
     `px-3 py-1 text-xs rounded-lg border transition-colors ${typeFilter === t ? 'bg-gray-800 border-gray-800 text-white font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`
+  const btnView = (v: ViewMode) =>
+    `px-3 py-1.5 text-xs font-medium border-b-2 transition-colors ${viewMode === v ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`
 
   return (
     <div>
@@ -168,11 +225,25 @@ export default function PlayerHistoryClient({
         </div>
       )}
 
-      {/* Match History */}
-      <h2 className="text-lg font-semibold text-gray-800 mb-4">Match History</h2>
+      {/* Match History with view mode tabs */}
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-lg font-semibold text-gray-800">Match History</h2>
+        <div className="flex border-b border-gray-200">
+          {(['match', 'stage', 'series', 'total'] as ViewMode[]).map((v) => (
+            <button
+              key={v}
+              onClick={() => { setViewMode(v); setMatchPage(1) }}
+              className={btnView(v)}
+            >
+              {v.charAt(0).toUpperCase() + v.slice(1)}
+            </button>
+          ))}
+        </div>
+      </div>
+
       {filteredStats.length === 0 ? (
         <p className="text-gray-400 text-sm">No match records</p>
-      ) : (
+      ) : viewMode === 'match' ? (
         <div>
           <div className="space-y-1.5">
             {pagedStats.map((s) => (
@@ -194,28 +265,76 @@ export default function PlayerHistoryClient({
                   <span className="text-sm font-bold text-gray-700 shrink-0 ml-4">#{s.placement}</span>
                 </div>
                 <div className="grid grid-cols-4 gap-2 text-xs text-center">
-                  <div>
-                    <p className="text-gray-400">Kills</p>
-                    <p className="font-semibold text-gray-800">{s.kills}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400">Assists</p>
-                    <p className="font-semibold text-gray-800">{s.assists}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400">Knocks</p>
-                    <p className="font-semibold text-gray-800">{s.knocks}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-400">Damage</p>
-                    <p className="font-semibold text-gray-800">{s.damage_dealt.toFixed(0)}</p>
-                  </div>
+                  <div><p className="text-gray-400">Kills</p><p className="font-semibold text-gray-800">{s.kills}</p></div>
+                  <div><p className="text-gray-400">Assists</p><p className="font-semibold text-gray-800">{s.assists}</p></div>
+                  <div><p className="text-gray-400">Knocks</p><p className="font-semibold text-gray-800">{s.knocks}</p></div>
+                  <div><p className="text-gray-400">Damage</p><p className="font-semibold text-gray-800">{s.damage_dealt.toFixed(0)}</p></div>
                 </div>
               </div>
             ))}
           </div>
           <Pagination
             total={filteredStats.length}
+            page={matchPage}
+            pageSize={matchPageSize}
+            onPageChange={setMatchPage}
+            onPageSizeChange={(s) => { setMatchPageSize(s); setMatchPage(1) }}
+          />
+        </div>
+      ) : (
+        <div>
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <table className="w-full text-xs border-collapse">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50/50">
+                  <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">
+                    {viewMode === 'total' ? 'Tournament' : viewMode === 'series' ? 'Series' : 'Stage'}
+                  </th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">GP</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Kills</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">KPG</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Damage</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">ADR</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Avg Plc</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pagedGrouped.map((g) => {
+                  const avgPlc = g.placements.length > 0
+                    ? g.placements.reduce((a, b) => a + b, 0) / g.placements.length
+                    : null
+                  return (
+                    <tr key={g.key} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+                      <td className="px-3 py-2.5">
+                        {viewMode !== 'total' && g.tourId ? (
+                          <div>
+                            <Link href={`/tournaments/${g.tourId}`} className="text-[11px] text-gray-400 hover:text-yellow-600 block">
+                              {g.tourName}
+                            </Link>
+                            <span className="font-medium text-gray-800">{g.label}</span>
+                          </div>
+                        ) : g.tourId ? (
+                          <Link href={`/tournaments/${g.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600">
+                            {g.label}
+                          </Link>
+                        ) : (
+                          <span className="font-medium text-gray-800">{g.label}</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{g.games}</td>
+                      <td className="px-3 py-2.5 text-right font-semibold text-gray-700">{g.kills}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">{(g.kills / g.games).toFixed(2)}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{Math.round(g.damage).toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(g.damage / g.games).toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{avgPlc != null ? avgPlc.toFixed(1) : '—'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          <Pagination
+            total={groupedRows.length}
             page={matchPage}
             pageSize={matchPageSize}
             onPageChange={setMatchPage}

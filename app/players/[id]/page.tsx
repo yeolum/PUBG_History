@@ -43,6 +43,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     id, kills, assists, knocks, damage_dealt, placement, team_id,
     matches(id, order_num, map, match_date,
       stages(id, name, type, order_num,
+        series(id, name, order_num),
         tournaments(id, name, short_name, start_date, end_date, type)))
   `
 
@@ -198,6 +199,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   const statsSerialized = stats.map((s) => {
     const m = s.matches as AnyObj | null
     const stage = m?.stages as AnyObj | null
+    const series = stage?.series as AnyObj | null
     const tour = stage?.tournaments as AnyObj | null
     return {
       id: s.id as string,
@@ -209,7 +211,10 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       matchNum: m ? (matchNumMap.get(m.id) ?? 0) : 0,
       matchDate: m?.match_date as string | null,
       mapName: m?.map as string | null,
+      stageId: stage?.id as string | null,
       stageName: stage?.name as string | null,
+      seriesId: series?.id as string | null,
+      seriesName: series?.name as string | null,
       tourId: tour?.id as string | null,
       tourName: (tour?.short_name ?? tour?.name) as string | null,
       year: tour?.start_date ? new Date(tour.start_date as string).getFullYear() :
