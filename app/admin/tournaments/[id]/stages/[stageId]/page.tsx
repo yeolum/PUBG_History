@@ -183,9 +183,21 @@ export default function StageMatchesPage() {
   }
 
   async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null, entityName: string) {
-    await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName }).eq('id', statId)
-    const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
-    for (const alias of aliasesToUpsert) {
+    // Update ALL stats with same pubg_player_name across the entire stage
+    if (pubgPlayerName && matches.length > 0) {
+      const matchIds = matches.map(m => m.id)
+      await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName })
+        .in('match_id', matchIds).eq('pubg_player_name', pubgPlayerName)
+    } else {
+      await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName }).eq('id', statId)
+    }
+    // Always store the raw pubg_player_name as alias so Q2 can find it later
+    const aliasSet = new Set<string>([
+      ...(pubgPlayerName ? [pubgPlayerName] : []),
+      entityName,
+      ...(displayName && displayName !== entityName ? [displayName] : []),
+    ].filter(Boolean))
+    for (const alias of aliasSet) {
       await supabase.from('player_aliases').upsert([{ player_id: playerId, alias }], { onConflict: 'alias', ignoreDuplicates: true })
     }
     setLinkModal(null)
