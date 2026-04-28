@@ -33,19 +33,42 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const team = (player as any).teams
 
-  // Fetch all match stats for this player, with full tournament/stage hierarchy
-  const { data: rawStats } = await supabase
+  // All known names for this player (nickname + all aliases)
+  const allNames = [
+    (player as AnyObj).nickname as string,
+    ...(aliasesData ?? []).map((a: AnyObj) => a.alias as string),
+  ].filter(Boolean)
+
+  const STAT_SELECT = `
+    id, kills, assists, knocks, damage_dealt, placement, team_id,
+    matches(id, order_num, map,
+      stages(id, name, type, order_num,
+        tournaments(id, name, short_name, start_date, end_date, type)))
+  `
+
+  // Q1: explicitly linked stats
+  const { data: linkedData } = await supabase
     .from('match_player_stats')
-    .select(`
-      id, kills, assists, knocks, damage_dealt, placement, team_id,
-      matches(id, order_num, map,
-        stages(id, name, type, order_num,
-          tournaments(id, name, short_name, start_date, end_date, type)))
-    `)
+    .select(STAT_SELECT)
     .eq('player_id', id)
     .order('created_at', { ascending: false })
+    .limit(2000)
 
-  const stats = (rawStats ?? []) as AnyObj[]
+  // Q2: stats matching any known name but not yet linked to any player
+  const { data: nameData } = allNames.length > 0
+    ? await supabase
+        .from('match_player_stats')
+        .select(STAT_SELECT)
+        .in('pubg_player_name', allNames)
+        .is('player_id', null)
+        .limit(2000)
+    : { data: [] }
+
+  // Merge and deduplicate by id
+  const linkedStats = (linkedData ?? []) as AnyObj[]
+  const nameStats = (nameData ?? []) as AnyObj[]
+  const seenIds = new Set(linkedStats.map((s) => s.id))
+  const stats = [...linkedStats, ...nameStats.filter((s) => !seenIds.has(s.id))]
 
   // --- Build tournament map (keyed by tour.id) ---
   type TourEntry = {

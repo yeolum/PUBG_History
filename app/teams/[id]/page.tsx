@@ -33,18 +33,48 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const players = (playersData ?? []) as Player[]
   const aliases = (aliasesData ?? []) as TeamAlias[]
 
-  const { data: rawResults } = await supabase
+  // All known PUBG team tags for this team (short_name + tag parts from "TAG - Name" aliases)
+  const allTags = [
+    ...([(team as AnyObj).short_name as string].filter(Boolean)),
+    ...(aliasesData ?? []).flatMap((a: AnyObj) => {
+      const alias = a.alias as string
+      if (!alias) return []
+      const dashIdx = alias.indexOf(' - ')
+      return dashIdx !== -1 ? [alias.slice(0, dashIdx).trim()] : [alias]
+    }),
+  ].filter(Boolean)
+  const uniqueTags = [...new Set(allTags)] as string[]
+
+  const RESULT_SELECT = `
+    id, placement, total_kills,
+    matches(id, order_num, map,
+      stages(id, name, type, order_num,
+        tournaments(id, name, short_name, start_date, end_date, type)))
+  `
+
+  // Q1: explicitly linked results
+  const { data: linkedData } = await supabase
     .from('match_team_results')
-    .select(`
-      id, placement, total_kills,
-      matches(id, order_num, map,
-        stages(id, name, type, order_num,
-          tournaments(id, name, short_name, start_date, end_date, type)))
-    `)
+    .select(RESULT_SELECT)
     .eq('team_id', id)
     .order('created_at', { ascending: false })
+    .limit(2000)
 
-  const results = (rawResults ?? []) as AnyObj[]
+  // Q2: tag-matched results not yet linked to any team
+  const { data: tagData } = uniqueTags.length > 0
+    ? await supabase
+        .from('match_team_results')
+        .select(RESULT_SELECT)
+        .in('pubg_team_name', uniqueTags)
+        .is('team_id', null)
+        .limit(2000)
+    : { data: [] }
+
+  // Merge and deduplicate by id
+  const linkedResults = (linkedData ?? []) as AnyObj[]
+  const tagResults = (tagData ?? []) as AnyObj[]
+  const seenIds = new Set(linkedResults.map((r) => r.id))
+  const results = [...linkedResults, ...tagResults.filter((r) => !seenIds.has(r.id))]
 
   // --- Build tournament map ---
   type TourEntry = {
