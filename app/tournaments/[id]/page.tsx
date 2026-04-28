@@ -97,15 +97,28 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     resultsByMatch[row.match_id].push(row)
   }
 
+  // Build pubg_player_name → player_id from stats that ARE linked within this tournament's own data.
+  // This self-heals unlinked stats without needing external aliases.
+  const nameToPlayerIdLocal = new Map<string, string>()
+  for (const d of psData ?? []) {
+    const row = d as AnyRow
+    if (row.player_id && row.pubg_player_name) {
+      nameToPlayerIdLocal.set((row.pubg_player_name as string).toLowerCase(), row.player_id as string)
+    }
+  }
+
   // Build damageByMatch + playerStatsMap from player stats
   for (const d of psData ?? []) {
     const row = d as AnyRow
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
     damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
 
-    // Resolve player_id from aliases when not directly linked
-    const resolvedPlayerId: string | null = row.player_id ??
-      (row.pubg_player_name ? (pubgNameToPlayerId.get((row.pubg_player_name as string).toLowerCase()) ?? null) : null)
+    // Resolve player_id: prefer directly linked, then local tournament data, then player_aliases
+    const resolvedPlayerId: string | null =
+      row.player_id ??
+      nameToPlayerIdLocal.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
+      pubgNameToPlayerId.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
+      null
 
     const key = resolvedPlayerId ?? `pubg:${row.pubg_player_name ?? ''}`
     if (!playerStatsMap.has(key)) {
