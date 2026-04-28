@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { PlayerAlias } from '@/lib/types'
 import type { Metadata } from 'next'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPts, getSuffix } from '@/lib/scoring'
 import PlayerHistoryClient from './PlayerHistoryClient'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -64,11 +64,55 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
         .limit(2000)
     : { data: [] }
 
+  // Q3: suffix (TAG_Nickname → Nickname) based ILIKE matching for unlinked stats
+  // Catches cases like "GEN_PlayerA" when alias is only "PlayerA"
+  const suffixes = [...new Set(
+    allNames.map((n) => getSuffix(n)).filter((s) => s.length > 2 && !allNames.includes(s))
+  )]
+  const { data: suffixData } = suffixes.length > 0
+    ? await supabase
+        .from('match_player_stats')
+        .select(STAT_SELECT)
+        .is('player_id', null)
+        .or(suffixes.map((s) => `pubg_player_name.ilike.*_${s}`).join(','))
+        .limit(500)
+    : { data: [] }
+
   // Merge and deduplicate by id
   const linkedStats = (linkedData ?? []) as AnyObj[]
   const nameStats = (nameData ?? []) as AnyObj[]
-  const seenIds = new Set(linkedStats.map((s) => s.id))
-  const stats = [...linkedStats, ...nameStats.filter((s) => !seenIds.has(s.id))]
+  const suffixStats = (suffixData ?? []) as AnyObj[]
+  const seen = new Set<string>()
+  const stats: AnyObj[] = []
+  for (const s of [...linkedStats, ...nameStats, ...suffixStats]) {
+    if (!seen.has(s.id)) { seen.add(s.id); stats.push(s) }
+  }
+
+  // Patch null team_id in player stats using match_team_results (same match + placement)
+  const nullTeamStats = stats.filter((s) => !s.team_id && s.placement != null)
+  if (nullTeamStats.length > 0) {
+    const nullMatchIds = [...new Set(
+      nullTeamStats.map((s) => (s.matches as AnyObj | null)?.id).filter(Boolean) as string[]
+    )]
+    if (nullMatchIds.length > 0) {
+      const { data: teamResultData } = await supabase
+        .from('match_team_results')
+        .select('match_id, placement, team_id')
+        .in('match_id', nullMatchIds)
+        .not('team_id', 'is', null)
+      const teamByKey = new Map<string, string>()
+      for (const r of teamResultData ?? []) {
+        if (r.team_id) teamByKey.set(`${r.match_id}_${r.placement}`, r.team_id)
+      }
+      for (const s of nullTeamStats) {
+        const matchId = (s.matches as AnyObj | null)?.id
+        if (matchId) {
+          const tid = teamByKey.get(`${matchId}_${s.placement}`)
+          if (tid) s.team_id = tid
+        }
+      }
+    }
+  }
 
   // --- Build tournament map (keyed by tour.id) ---
   type TourEntry = {
@@ -122,7 +166,10 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     if (final) {
       te.finalStageId = final.id
       te.finalStageName = final.name
-      te.playerTeamId = stagePlayerTeam.get(final.id) ?? null
+      // Fall back to any stage's team if final stage has no team_id
+      te.playerTeamId = stagePlayerTeam.get(final.id)
+        ?? [...te.stages.keys()].map((sid) => stagePlayerTeam.get(sid)).find((tid): tid is string => !!tid)
+        ?? null
     }
   }
 

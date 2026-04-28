@@ -100,42 +100,56 @@ export default function StageMatchesPage() {
     load()
   }
 
+  async function getTournamentMatchIds(): Promise<string[]> {
+    const { data: stagesData } = await supabase.from('stages').select('id').eq('tournament_id', tournamentId)
+    const stageIds = (stagesData ?? []).map((s) => s.id)
+    if (stageIds.length === 0) return []
+    const { data: matchesData } = await supabase.from('matches').select('id').in('stage_id', stageIds)
+    return (matchesData ?? []).map((m) => m.id)
+  }
+
   async function linkTeam(matchId: string, teamResultId: string, teamId: string) {
-    // match_team_results의 team_id 업데이트 + pubg_team_name을 team_aliases에 등록
-    const row = matches
-      .find((m) => m.id === matchId)
-      ?.match_team_results.find((r) => r.id === teamResultId)
+    const row = matches.find((m) => m.id === matchId)?.match_team_results.find((r) => r.id === teamResultId)
+    const pubgTeamName = row?.pubg_team_name
 
-    await supabase.from('match_team_results').update({ team_id: teamId }).eq('id', teamResultId)
+    // Update all match_team_results with same pubg_team_name across the entire tournament
+    const allMatchIds = await getTournamentMatchIds()
+    if (pubgTeamName && allMatchIds.length > 0) {
+      await supabase.from('match_team_results').update({ team_id: teamId })
+        .in('match_id', allMatchIds).eq('pubg_team_name', pubgTeamName)
+      // Propagate to player stats (same match + placement)
+      for (const r of matches.flatMap((m) => m.match_team_results.filter((tr) => tr.pubg_team_name === pubgTeamName))) {
+        await supabase.from('match_player_stats').update({ team_id: teamId })
+          .eq('match_id', r.match_id ?? matchId).is('team_id', null).eq('placement', r.placement ?? -1)
+      }
+    } else {
+      await supabase.from('match_team_results').update({ team_id: teamId }).eq('id', teamResultId)
+    }
 
-    // 별칭 등록 (이미 있으면 무시)
-    if (row?.pubg_team_name) {
-      await supabase.from('team_aliases').upsert(
-        [{ team_id: teamId, alias: row.pubg_team_name }],
-        { onConflict: 'alias', ignoreDuplicates: true }
-      )
-      // 같은 매치의 player stats도 같은 팀 이름이면 team_id 업데이트
-      await supabase
-        .from('match_player_stats')
-        .update({ team_id: teamId })
-        .eq('match_id', matchId)
-        .is('team_id', null)
-        .eq('placement', row.placement ?? -1)
+    if (pubgTeamName) {
+      const canonical = pubgTeamName.includes(' - ') ? pubgTeamName : pubgTeamName
+      await supabase.from('team_aliases').upsert([{ team_id: teamId, alias: canonical }], { onConflict: 'alias', ignoreDuplicates: true })
     }
     setLinkModal(null)
     load()
   }
 
   async function linkPlayer(matchId: string, statId: string, playerId: string) {
-    const row = matches
-      .find((m) => m.id === matchId)
-      ?.match_player_stats.find((s) => s.id === statId)
+    const row = matches.find((m) => m.id === matchId)?.match_player_stats.find((s) => s.id === statId)
+    const pubgPlayerName = row?.pubg_player_name
 
-    await supabase.from('match_player_stats').update({ player_id: playerId }).eq('id', statId)
+    // Update all player stats with same pubg_player_name across the entire tournament
+    const allMatchIds = await getTournamentMatchIds()
+    if (pubgPlayerName && allMatchIds.length > 0) {
+      await supabase.from('match_player_stats').update({ player_id: playerId })
+        .in('match_id', allMatchIds).eq('pubg_player_name', pubgPlayerName)
+    } else {
+      await supabase.from('match_player_stats').update({ player_id: playerId }).eq('id', statId)
+    }
 
-    if (row?.pubg_player_name) {
+    if (pubgPlayerName) {
       await supabase.from('player_aliases').upsert(
-        [{ player_id: playerId, alias: row.pubg_player_name }],
+        [{ player_id: playerId, alias: pubgPlayerName }],
         { onConflict: 'alias', ignoreDuplicates: true }
       )
     }
