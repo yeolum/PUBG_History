@@ -251,6 +251,15 @@ export async function POST(req: NextRequest) {
     await db.from('match_player_stats').insert(cleanStats)
   }
 
+  // Persist resolved pubg_player_name → player_id mappings as aliases
+  // so that future Q2 lookups on the player page can find these stats even if player_id is later null
+  const playerAliasUpserts = cleanStats
+    .filter((s) => s.player_id && s.pubg_player_name)
+    .map((s) => ({ player_id: s.player_id as string, alias: s.pubg_player_name as string }))
+  if (playerAliasUpserts.length > 0) {
+    await db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'alias', ignoreDuplicates: true })
+  }
+
   const unmatchedTeamNames = teamResultInserts
     .filter((t) => !t.team_id)
     .map((t) => t.pubg_team_name ?? '')
