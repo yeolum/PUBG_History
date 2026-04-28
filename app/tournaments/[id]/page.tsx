@@ -132,14 +132,32 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   }
 
   const aliasToTeamId = new Map<string, string>()
+  // aliasTagToName: tag part (lowercase) → name part  e.g. "gen" → "Gen.G"
+  const aliasTagToName = new Map<string, string>()
   for (const a of allAliasData ?? []) {
     const row = a as AnyRow
     aliasToTeamId.set(row.alias.toLowerCase(), row.team_id)
-    // Also index tag part from "TAG - Name" format
-    const dashIdx = row.alias.indexOf(' - ')
+    const dashIdx = (row.alias as string).indexOf(' - ')
     if (dashIdx !== -1) {
       const tagPart = row.alias.slice(0, dashIdx).trim().toLowerCase()
+      const namePart = row.alias.slice(dashIdx + 3).trim()
       if (tagPart && !aliasToTeamId.has(tagPart)) aliasToTeamId.set(tagPart, row.team_id)
+      if (tagPart && namePart && !aliasTagToName.has(tagPart)) aliasTagToName.set(tagPart, namePart)
+      // Also index by full alias (lowercase) → name part
+      if (namePart) aliasTagToName.set(row.alias.toLowerCase(), namePart)
+    }
+  }
+
+  // Helper: resolve display name — alias name part takes priority over teams.name
+  function resolveTeamName(pubgName: string | null, teamsName: string | null, displayName: string | null): string {
+    const key = (pubgName ?? '').toLowerCase()
+    return aliasTagToName.get(key) ?? teamsName ?? stripTagPrefix(displayName ?? pubgName ?? '?')
+  }
+
+  // Pre-stamp _resolvedName on every result row so client components can use it directly
+  for (const rows of Object.values(resultsByMatch)) {
+    for (const r of rows as AnyRow[]) {
+      r._resolvedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
     }
   }
 
@@ -149,7 +167,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       if (!effectiveId || !r.pubg_team_name) continue
       const aliasLogo = aliasLogoLookup[`${effectiveId}:${r.pubg_team_name}`]
       if (!aliasLogo) continue
-      const displayedName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '')
+      const displayedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
       const displayKey = `${effectiveId}:${displayedName}`
       if (!(displayKey in aliasLogoLookup)) aliasLogoLookup[displayKey] = aliasLogo
     }
@@ -161,7 +179,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     for (const r of rows as AnyRow[]) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
       if (!teamStatsMap.has(key)) {
-        const teamName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?')
+        const teamName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
         teamStatsMap.set(key, {
           teamId: r.team_id ?? null,
           teamName,
@@ -189,7 +207,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     for (const r of rows as AnyRow[]) {
       const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
       if (!effectiveId || teamRosterMap.has(effectiveId)) continue
-      const displayName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?')
+      const displayName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
       const resolvedLogo = aliasLogoLookup[`${effectiveId}:${displayName}`] ?? aliasLogoLookup[`${effectiveId}:`] ?? null
       teamRosterMap.set(effectiveId, { name: displayName, logo_url: resolvedLogo, players: new Map() })
     }
@@ -224,7 +242,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         const row = r as AnyRow
         const key = row.team_id ?? `pubg:${row.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
-          ptsMap.set(key, { teamId: row.team_id ?? null, teamName: row.display_name ?? row.teams?.name ?? row.pubg_team_name ?? '?', totalPts: 0, placePts: 0 })
+          ptsMap.set(key, { teamId: row.team_id ?? null, teamName: resolveTeamName(row.pubg_team_name, row.teams?.name ?? null, row.display_name), totalPts: 0, placePts: 0 })
         }
         const e = ptsMap.get(key)!
         const pp = calcPlacementPts(row.placement ?? 99)

@@ -87,7 +87,7 @@ export default function TournamentStagesView({
       for (const r of results as AnyObj[]) {
         const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
-          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'), totalPts: 0, placePts: 0, matches: 0, wwcd: 0 })
+          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'), totalPts: 0, placePts: 0, matches: 0, wwcd: 0 })
         }
         const e = ptsMap.get(key)!
         const pp = calcPlacementPts(r.placement ?? 99)
@@ -384,7 +384,7 @@ export default function TournamentStagesView({
                       </thead>
                       <tbody>
                         {seriesMatchResults.map((r: AnyObj, i: number) => {
-                          const teamName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '-')
+                          const teamName = r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '-')
                           const logo = resolveLogoUrl(r.team_id, teamName, aliasLogoLookup)
                           return (
                             <tr key={r.id ?? i} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
