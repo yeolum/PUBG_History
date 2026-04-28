@@ -118,6 +118,24 @@ export default function AdminTeamsPage() {
       alert(`Save failed: ${error.message}\n\nIf this mentions "league", run the migration SQL in Supabase dashboard:\nALTER TABLE teams ADD COLUMN IF NOT EXISTS league TEXT;`)
       return
     }
+
+    // Auto-upsert canonical "TAG - Name" alias so PUBG API names match correctly
+    const tag = row.short_name.trim()
+    const name = row.name.trim()
+    if (tag && name) {
+      const canonical = `${tag} - ${name}`
+      const hasAlready = row.aliases.some(a => a.alias === canonical)
+      if (!hasAlready) {
+        await supabase.from('team_aliases')
+          .upsert([{ team_id: row.id, alias: canonical }], { onConflict: 'alias', ignoreDuplicates: true })
+        setRows((rs) => rs.map((r) => r.id === row.id ? {
+          ...r, _dirty: false,
+          aliases: [...r.aliases, { alias: canonical, logo_url: null }],
+        } : r))
+        return
+      }
+    }
+
     setRows((rs) => rs.map((r) => r.id === row.id ? { ...r, _dirty: false } : r))
   }
 

@@ -16,6 +16,13 @@ export const MAP_BOUNDS: Record<string, { width: number; height: number }> = {
   HeavenDawn_Main: { width: 408000, height: 408000 }, // Sanhok 2.0
 }
 
+// Strip "TAG - " prefix from team names like "GEN - Gen.G" → "Gen.G"
+export function stripTagPrefix(name: string): string {
+  const idx = name.indexOf(' - ')
+  if (idx !== -1) return name.slice(idx + 3).trim()
+  return name
+}
+
 export function normalizeCoords(mapName: string, x: number, y: number): { xNorm: number; yNorm: number } {
   const bounds = MAP_BOUNDS[mapName] ?? { width: 816000, height: 816000 }
   return {

@@ -7,7 +7,7 @@ import { notFound } from 'next/navigation'
 import type { Tournament, Stage, Match, TournamentPrizeConfig, Series } from '@/lib/types'
 import type { Metadata } from 'next'
 import { calcPlacementPts } from '@/lib/scoring'
-import { getMapDisplayName } from '@/lib/pubg-api'
+import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import TournamentRoster from './TournamentRoster'
 import TournamentDetailTabs from './TournamentDetailTabs'
 import type { PlayerStatRow } from './PlayerStatsTable'
@@ -149,7 +149,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       if (!effectiveId || !r.pubg_team_name) continue
       const aliasLogo = aliasLogoLookup[`${effectiveId}:${r.pubg_team_name}`]
       if (!aliasLogo) continue
-      const displayedName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? ''
+      const displayedName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '')
       const displayKey = `${effectiveId}:${displayedName}`
       if (!(displayKey in aliasLogoLookup)) aliasLogoLookup[displayKey] = aliasLogo
     }
@@ -161,7 +161,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     for (const r of rows as AnyRow[]) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
       if (!teamStatsMap.has(key)) {
-        const teamName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
+        const teamName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?')
         teamStatsMap.set(key, {
           teamId: r.team_id ?? null,
           teamName,
@@ -189,7 +189,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     for (const r of rows as AnyRow[]) {
       const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
       if (!effectiveId || teamRosterMap.has(effectiveId)) continue
-      const displayName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
+      const displayName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?')
       const resolvedLogo = aliasLogoLookup[`${effectiveId}:${displayName}`] ?? aliasLogoLookup[`${effectiveId}:`] ?? null
       teamRosterMap.set(effectiveId, { name: displayName, logo_url: resolvedLogo, players: new Map() })
     }

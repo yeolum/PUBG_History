@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { calcPlacementPts } from '@/lib/scoring'
+import { stripTagPrefix } from '@/lib/pubg-api'
 import type { Stage, Match } from '@/lib/types'
 
 interface PlayerDamage {
@@ -71,7 +72,7 @@ function computeStandings(
         statMap.set(key, {
           key,
           teamId: r.team_id,
-          teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?',
+          teamName: r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'),
           matchesPlayed: 0,
           wwcd: 0,
           totalPts: 0,
@@ -213,7 +214,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
               </thead>
               <tbody>
                 {perMatchSorted.map((r, i) => {
-                  const teamName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '-'
+                  const teamName = r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '-')
                   const logo = resolveLogoUrl(r.team_id, teamName, aliasLogoLookup)
                   return (
                   <tr key={r.id} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
