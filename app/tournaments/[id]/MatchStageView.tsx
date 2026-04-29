@@ -1,5 +1,6 @@
 'use client'
 
+import { Fragment } from 'react'
 import Link from 'next/link'
 import { calcPlacementPts } from '@/lib/scoring'
 import { stripTagPrefix } from '@/lib/pubg-api'
@@ -169,8 +170,31 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
               <tbody>
                 {standings.map((s, i) => {
                   const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                  const advCount = stage.advance_count ?? 0
+                  const elimCount = stage.eliminate_count ?? 0
+                  const showAdvLine = advCount > 0 && i === advCount
+                  const showElimLine = elimCount > 0 && i === standings.length - elimCount
                   return (
-                  <tr key={s.key} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                  <Fragment key={s.key}>
+                    {showAdvLine && (
+                      <tr>
+                        <td colSpan={7} className="p-0">
+                          <div className="border-t-2 border-green-400 flex items-center">
+                            <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">▲ ADVANCE</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                    {showElimLine && (
+                      <tr>
+                        <td colSpan={7} className="p-0">
+                          <div className="border-t-2 border-red-400 flex items-center">
+                            <span className="text-[10px] font-bold text-red-500 px-3 py-0.5 tracking-wide">▼ ELIMINATED</span>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  <tr className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
                     <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i)}`}>{i + 1}</td>
                     <td className="px-4 py-2 font-medium text-gray-800 text-xs">
                       <div className="flex items-center gap-1.5">
@@ -191,6 +215,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.totalPlacementPts}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
                   </tr>
+                  </Fragment>
                   )
                 })}
               </tbody>

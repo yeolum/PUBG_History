@@ -260,11 +260,12 @@ export default function TournamentStagesView({
         </div>
       ) : null}
 
-      {/* Two-column layout */}
-      <div className="flex flex-col lg:flex-row gap-4 items-start">
+      {/* Two-column layout — always side-by-side with horizontal scroll on narrow screens */}
+      <div className="overflow-x-auto">
+      <div className="flex flex-row gap-4 items-start min-w-max">
         {/* Left: Final Standings */}
         {rankBoard.length > 0 && (
-          <div className="lg:w-[21rem] w-full shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <div className="w-[21rem] shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
             <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
               <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
             </div>
@@ -428,6 +429,7 @@ export default function TournamentStagesView({
             />
           ) : null}
         </div>
+      </div>
       </div>
     </div>
   )

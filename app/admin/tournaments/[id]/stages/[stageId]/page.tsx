@@ -87,6 +87,9 @@ export default function StageMatchesPage() {
 
   const [importRows, setImportRows] = useState<ImportRow[]>([{ rowId: 'r0', matchId: '', status: 'pending' }])
   const [anyImporting, setAnyImporting] = useState(false)
+  const [advanceCount, setAdvanceCount] = useState(0)
+  const [eliminateCount, setEliminateCount] = useState(0)
+  const [savingRules, setSavingRules] = useState(false)
 
   const [linkModal, setLinkModal] = useState<
     | { phase: 1; type: 'team' | 'player'; pubgName: string; matchId: string; rowId: string }
@@ -99,13 +102,45 @@ export default function StageMatchesPage() {
       supabase.from('stages').select('*').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
     ])
-    setStage(s as Stage)
+    const stageData = s as Stage
+    setStage(stageData)
+    setAdvanceCount(stageData.advance_count ?? 0)
+    setEliminateCount(stageData.eliminate_count ?? 0)
     setMatches((m ?? []) as MatchWithResults[])
   }, [stageId, supabase])
 
   useEffect(() => { load() }, [load])
 
   const computedStandings = useMemo(() => computeStandings(matches), [matches])
+
+  function handleMatchIdPaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: string) {
+    const text = e.clipboardData.getData('text')
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length <= 1) return
+    e.preventDefault()
+    const extraRows: ImportRow[] = lines.slice(1).map(line => {
+      rowCounter++
+      return { rowId: `r${rowCounter}`, matchId: line, status: 'pending' }
+    })
+    setImportRows(rows => {
+      const idx = rows.findIndex(r => r.rowId === rowId)
+      if (idx === -1) return rows
+      const next = [...rows]
+      next[idx] = { ...next[idx], matchId: lines[0], status: 'pending', errorMsg: undefined }
+      next.splice(idx + 1, 0, ...extraRows)
+      return next
+    })
+  }
+
+  async function saveAdvancementRules() {
+    setSavingRules(true)
+    await supabase.from('stages').update({
+      advance_count: advanceCount > 0 ? advanceCount : null,
+      eliminate_count: eliminateCount > 0 ? eliminateCount : null,
+    }).eq('id', stageId)
+    setSavingRules(false)
+    load()
+  }
 
   function addRow() {
     rowCounter++
@@ -229,9 +264,33 @@ export default function StageMatchesPage() {
       </div>
 
       <h1 className="text-xl font-bold text-gray-900 mb-2">{stage.name}</h1>
-      <p className="text-sm text-gray-400 mb-8">
+      <p className="text-sm text-gray-400 mb-4">
         {stage.type === 'group' ? 'Group Stage' : stage.type === 'playoff' ? 'Playoff' : 'Grand Final'}
       </p>
+
+      {/* Advancement Rules */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-8 flex items-center gap-6 flex-wrap">
+        <span className="text-sm font-semibold text-gray-700 mr-2">Advancement Rules</span>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-green-600 font-medium">▲ Advance</span>
+          <input type="number" min="0" value={advanceCount}
+            onChange={e => setAdvanceCount(Math.max(0, Number(e.target.value)))}
+            className="w-16 border border-gray-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-1 focus:ring-yellow-400" />
+          <span className="text-gray-400 text-xs">teams</span>
+        </label>
+        <label className="flex items-center gap-2 text-sm">
+          <span className="text-red-500 font-medium">▼ Eliminate</span>
+          <input type="number" min="0" value={eliminateCount}
+            onChange={e => setEliminateCount(Math.max(0, Number(e.target.value)))}
+            className="w-16 border border-gray-300 rounded px-2 py-1 text-sm text-center focus:outline-none focus:ring-1 focus:ring-yellow-400" />
+          <span className="text-gray-400 text-xs">teams</span>
+        </label>
+        <button onClick={saveAdvancementRules} disabled={savingRules}
+          className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-semibold px-3 py-1.5 rounded-lg">
+          {savingRules ? 'Saving...' : 'Save'}
+        </button>
+        <span className="text-xs text-gray-400 ml-auto">0 = no rule</span>
+      </div>
 
       {/* Cumulative Standings */}
       {computedStandings.length > 0 && (
@@ -290,6 +349,7 @@ export default function StageMatchesPage() {
               <input
                 value={row.matchId}
                 onChange={e => updateRowMatchId(row.rowId, e.target.value)}
+                onPaste={e => handleMatchIdPaste(e, row.rowId)}
                 placeholder="PUBG Match ID (e.g. 12345678-abcd-...)"
                 disabled={row.status === 'importing' || row.status === 'success'}
                 className={`flex-1 ${INPUT_CLS} disabled:opacity-60`}

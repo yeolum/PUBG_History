@@ -99,6 +99,8 @@ export interface Stage {
   name: string
   order_num: number
   type: StageType
+  advance_count: number | null
+  eliminate_count: number | null
   created_at: string
 }
 

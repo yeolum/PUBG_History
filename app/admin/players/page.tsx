@@ -79,6 +79,32 @@ export default function AdminPlayersPage() {
   function addBulkRow() { setNewRows((rs) => [...rs, mkRow()]) }
   function removeBulkRow(id: string) { setNewRows((rs) => rs.filter((r) => r.rowId !== id)) }
   function updateNewRow(id: string, key: string, val: string) { setNewRows((rs) => rs.map((r) => r.rowId === id ? { ...r, [key]: val } : r)) }
+  function handlePlayerPaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: string) {
+    const text = e.clipboardData.getData('text')
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length === 0) return
+    const parseLine = (line: string): Pick<NewRow, 'nickname' | 'real_name' | 'nationality' | 'nationality_code'> => {
+      const cols = line.split('\t')
+      return {
+        nickname: cols[0]?.trim() ?? '',
+        real_name: cols[1]?.trim() ?? '',
+        nationality: cols[2]?.trim() ?? '',
+        nationality_code: cols[3]?.trim().toUpperCase().slice(0, 2) ?? '',
+      }
+    }
+    if (lines.length === 1 && !lines[0].includes('\t')) return
+    e.preventDefault()
+    const first = parseLine(lines[0])
+    const extra: NewRow[] = lines.slice(1).map(line => ({ ...mkRow(), ...parseLine(line) }))
+    setNewRows(rows => {
+      const idx = rows.findIndex(r => r.rowId === rowId)
+      if (idx === -1) return rows
+      const next = [...rows]
+      next[idx] = { ...next[idx], ...first }
+      next.splice(idx + 1, 0, ...extra)
+      return next
+    })
+  }
 
   const [teamModal, setTeamModal] = useState<string | null>(null)
   const [csvModal, setCsvModal] = useState(false)
@@ -320,6 +346,7 @@ export default function AdminPlayersPage() {
                     <td className="px-2 py-1 text-gray-400 text-center">{i + 1}</td>
                     <td className="px-1 py-1">
                       <input value={nr.nickname} onChange={(e) => updateNewRow(nr.rowId, 'nickname', e.target.value)}
+                        onPaste={(e) => handlePlayerPaste(e, nr.rowId)}
                         disabled={nr.status !== 'idle'}
                         className="border border-gray-300 rounded px-1.5 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 w-full min-w-[100px] disabled:opacity-50"
                         placeholder="Nickname" autoFocus={i === 0} />
