@@ -79,6 +79,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
         .from(table)
         .select(select)
         .in('match_id', matchIds)
+        .order('id')
         .range(page * PAGE, (page + 1) * PAGE - 1)
       if (!batch || batch.length === 0) break
       rows.push(...(batch as AnyRow[]))
@@ -124,6 +125,9 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   // Build damageByMatch + playerStatsMap + playerStatsByMatch from player stats
   const playerStatsByMatch: Record<string, PlayerMatchStat[]> = {}
+  // Track seen player keys per match to prevent duplicates from non-deterministic pagination
+  const seenPerMatch: Record<string, Set<string>> = {}
+
   for (const d of psData ?? []) {
     const row = d as AnyRow
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
@@ -137,10 +141,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       null
 
     const nickname = row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?'
+    const pubgPlayerName: string = row.pubg_player_name ?? ''
     const teamName = row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?'
     const logoUrl = row.teams?.logo_url ?? null
 
-    const key = resolvedPlayerId ?? `pubg:${row.pubg_player_name ?? ''}`
+    const key = resolvedPlayerId ?? `pubg:${pubgPlayerName}`
     if (!playerStatsMap.has(key)) {
       playerStatsMap.set(key, {
         playerId: resolvedPlayerId,
@@ -160,9 +165,15 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     e.damage += Number(row.damage_dealt ?? 0)
     e.survivalTime += row.survival_time ?? 0
 
+    // Deduplicate per match: skip if this player was already pushed for this match
+    if (!seenPerMatch[row.match_id]) seenPerMatch[row.match_id] = new Set()
+    if (seenPerMatch[row.match_id].has(key)) continue
+    seenPerMatch[row.match_id].add(key)
+
     if (!playerStatsByMatch[row.match_id]) playerStatsByMatch[row.match_id] = []
     playerStatsByMatch[row.match_id].push({
       playerId: resolvedPlayerId,
+      pubgPlayerName,
       nickname,
       teamId: row.team_id ?? null,
       teamName,

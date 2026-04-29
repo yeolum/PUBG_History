@@ -21,6 +21,7 @@ export interface PlayerStatRow {
 
 export interface PlayerMatchStat {
   playerId: string | null
+  pubgPlayerName: string
   nickname: string
   teamId: string | null
   teamName: string
@@ -106,7 +107,7 @@ export default function PlayerStatsTable({
     for (const [matchId, matchStats] of Object.entries(playerStatsByMatch)) {
       if (!activeMatchIds.has(matchId)) continue
       for (const s of matchStats) {
-        const key = s.playerId ?? `pubg:${s.nickname}`
+        const key = s.playerId ?? `pubg:${s.pubgPlayerName}`
         if (!map.has(key)) {
           map.set(key, { playerId: s.playerId, nickname: s.nickname, teamId: s.teamId, teamName: s.teamName, logoUrl: s.logoUrl, games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0 })
         }
