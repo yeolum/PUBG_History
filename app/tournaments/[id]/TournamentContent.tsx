@@ -52,7 +52,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
   // Round 2: fetch all match data in parallel
   const PS_SELECT = 'match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
   const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
-  const PAGE = 5000
+  const PAGE = 1000
 
   async function fetchAllPages(table: string, select: string, matchIds: string[]): Promise<AnyRow[]> {
     const rows: AnyRow[] = []
