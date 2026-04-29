@@ -213,10 +213,12 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     }
   }
 
-  // Helper: resolve display name — alias name part takes priority over teams.name
+  // Helper: resolve display name
+  // Priority: display_name (admin explicit choice) > alias tag lookup > teams.name > pubg name fallback
   function resolveTeamName(pubgName: string | null, teamsName: string | null, displayName: string | null): string {
+    if (displayName) return displayName
     const key = (pubgName ?? '').toLowerCase()
-    return aliasTagToName.get(key) ?? teamsName ?? stripTagPrefix(displayName ?? pubgName ?? '?')
+    return aliasTagToName.get(key) ?? teamsName ?? stripTagPrefix(pubgName ?? '?')
   }
 
   // Pre-stamp _resolvedName on every result row so client components can use it directly
