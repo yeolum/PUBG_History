@@ -10,7 +10,7 @@ import { calcPlacementPts } from '@/lib/scoring'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import TournamentRoster from './TournamentRoster'
 import TournamentDetailTabs from './TournamentDetailTabs'
-import type { PlayerStatRow } from './PlayerStatsTable'
+import type { PlayerStatRow, PlayerMatchStat } from './PlayerStatsTable'
 import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
@@ -119,7 +119,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     }
   }
 
-  // Build damageByMatch + playerStatsMap from player stats
+  // Build damageByMatch + playerStatsMap + playerStatsByMatch from player stats
+  const playerStatsByMatch: Record<string, PlayerMatchStat[]> = {}
   for (const d of psData ?? []) {
     const row = d as AnyRow
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
@@ -132,14 +133,18 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       pubgNameToPlayerId.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
       null
 
+    const nickname = row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?'
+    const teamName = row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?'
+    const logoUrl = row.teams?.logo_url ?? null
+
     const key = resolvedPlayerId ?? `pubg:${row.pubg_player_name ?? ''}`
     if (!playerStatsMap.has(key)) {
       playerStatsMap.set(key, {
         playerId: resolvedPlayerId,
-        nickname: row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?',
+        nickname,
         teamId: row.team_id ?? null,
-        teamName: row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?',
-        logoUrl: row.teams?.logo_url ?? null,
+        teamName,
+        logoUrl,
         games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
       })
     }
@@ -151,6 +156,22 @@ export default async function TournamentDetailPage({ params }: { params: Promise
     e.headshotKills += row.headshot_kills ?? 0
     e.damage += Number(row.damage_dealt ?? 0)
     e.survivalTime += row.survival_time ?? 0
+
+    if (!playerStatsByMatch[row.match_id]) playerStatsByMatch[row.match_id] = []
+    playerStatsByMatch[row.match_id].push({
+      playerId: resolvedPlayerId,
+      nickname,
+      teamId: row.team_id ?? null,
+      teamName,
+      logoUrl,
+      kills: row.kills ?? 0,
+      assists: row.assists ?? 0,
+      knocks: row.knocks ?? 0,
+      headshotKills: row.headshot_kills ?? 0,
+      damage: Number(row.damage_dealt ?? 0),
+      survivalTime: row.survival_time ?? 0,
+      placement: row.placement ?? null,
+    })
   }
 
   // Build alias logo lookup
@@ -377,6 +398,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             hasPgcPoints={t.has_pgc_points}
             aliasLogoLookup={aliasLogoLookup}
             playerStats={playerStats}
+            playerStatsByMatch={playerStatsByMatch}
             teamStats={teamStats}
             dropLocations={dropLocations}
             mapKeys={mapKeys}

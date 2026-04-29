@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
+import type { Stage, Match } from '@/lib/types'
 
 export interface PlayerStatRow {
   playerId: string | null
@@ -18,7 +19,24 @@ export interface PlayerStatRow {
   survivalTime: number
 }
 
+export interface PlayerMatchStat {
+  playerId: string | null
+  nickname: string
+  teamId: string | null
+  teamName: string
+  logoUrl: string | null
+  kills: number
+  assists: number
+  knocks: number
+  headshotKills: number
+  damage: number
+  survivalTime: number
+  placement: number | null
+}
+
 type SortKey = 'nickname' | 'teamName' | 'games' | 'kills' | 'kpg' | 'assists' | 'knocks' | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'avgSurvival'
+type StageWithMatches = Stage & { matches: Pick<Match, 'id' | 'status' | 'order_num'>[] }
+interface SeriesItem { id: string; name: string; order_num: number }
 
 function formatSurvival(totalSec: number, games: number): string {
   if (games === 0) return '—'
@@ -28,23 +46,90 @@ function formatSurvival(totalSec: number, games: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`
 }
 
-export default function PlayerStatsTable({ playerStats }: { playerStats: PlayerStatRow[] }) {
+export default function PlayerStatsTable({
+  playerStats,
+  stages = [],
+  series = [],
+  playerStatsByMatch = {},
+}: {
+  playerStats: PlayerStatRow[]
+  stages?: StageWithMatches[]
+  series?: SeriesItem[]
+  playerStatsByMatch?: Record<string, PlayerMatchStat[]>
+}) {
   const [sortKey, setSortKey] = useState<SortKey>('kills')
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [search, setSearch] = useState('')
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null)
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
+  const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
     else { setSortKey(key); setSortDir('desc') }
   }
 
-  const enriched = useMemo(() => playerStats.map((p) => ({
+  function selectTotal() {
+    setSelectedSeriesId(null); setSelectedStageId(null); setSelectedMatchId(null)
+  }
+  function selectSeries(id: string) {
+    setSelectedSeriesId(prev => prev === id ? null : id)
+    setSelectedStageId(null); setSelectedMatchId(null)
+  }
+  function selectStage(stageId: string, seriesId: string | null = null) {
+    setSelectedSeriesId(seriesId)
+    setSelectedStageId(prev => prev === stageId ? null : stageId)
+    setSelectedMatchId(null)
+  }
+  function toggleMatch(id: string) {
+    setSelectedMatchId(prev => prev === id ? null : id)
+  }
+
+  const activeMatchIds = useMemo(() => {
+    if (selectedMatchId) return new Set([selectedMatchId])
+    if (selectedStageId) {
+      const stage = stages.find(s => s.id === selectedStageId)
+      return new Set(stage?.matches.filter(m => m.status === 'imported').map(m => m.id) ?? [])
+    }
+    if (selectedSeriesId) {
+      const ids = stages
+        .filter(s => s.series_id === selectedSeriesId)
+        .flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id))
+      return new Set(ids)
+    }
+    return null // null = all (Total)
+  }, [selectedMatchId, selectedStageId, selectedSeriesId, stages])
+
+  const displayStats = useMemo((): PlayerStatRow[] => {
+    if (!activeMatchIds) return playerStats
+    const map = new Map<string, PlayerStatRow>()
+    for (const [matchId, matchStats] of Object.entries(playerStatsByMatch)) {
+      if (!activeMatchIds.has(matchId)) continue
+      for (const s of matchStats) {
+        const key = s.playerId ?? `pubg:${s.nickname}`
+        if (!map.has(key)) {
+          map.set(key, { playerId: s.playerId, nickname: s.nickname, teamId: s.teamId, teamName: s.teamName, logoUrl: s.logoUrl, games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0 })
+        }
+        const e = map.get(key)!
+        e.games++
+        e.kills += s.kills
+        e.assists += s.assists
+        e.knocks += s.knocks
+        e.headshotKills += s.headshotKills
+        e.damage += s.damage
+        e.survivalTime += s.survivalTime
+      }
+    }
+    return [...map.values()]
+  }, [activeMatchIds, playerStats, playerStatsByMatch])
+
+  const enriched = useMemo(() => displayStats.map((p) => ({
     ...p,
     kpg: p.games > 0 ? p.kills / p.games : 0,
     hsPercent: p.kills > 0 ? (p.headshotKills / p.kills) * 100 : 0,
     adr: p.games > 0 ? p.damage / p.games : 0,
     avgSurvival: p.games > 0 ? p.survivalTime / p.games : 0,
-  })), [playerStats])
+  })), [displayStats])
 
   const sorted = useMemo(() => {
     const q = search.toLowerCase()
@@ -66,12 +151,61 @@ export default function PlayerStatsTable({ playerStats }: { playerStats: PlayerS
     `px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 transition-colors ${sortKey === key ? 'text-yellow-600' : 'text-gray-400'}`
   const arr = (key: SortKey) => sortKey === key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''
 
+  const scopeBtn = (active: boolean) =>
+    `px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
+  const matchBtn = (active: boolean) =>
+    `min-w-[28px] px-2 py-1 text-xs font-mono rounded border transition-colors ${active ? 'bg-gray-800 border-gray-800 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`
+
+  const directStages = stages.filter(s => !s.series_id)
+  const currentStage = selectedStageId ? stages.find(s => s.id === selectedStageId) : null
+  const currentStageMatches = currentStage
+    ? [...currentStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
+    : []
+
   if (playerStats.length === 0) {
     return <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm">No player data available</div>
   }
 
   return (
     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+      {/* Scope navigator */}
+      {stages.length > 0 && (
+        <div className="px-4 py-3 bg-gray-50/80 border-b border-gray-200 space-y-2">
+          <div className="flex flex-wrap gap-1.5 items-center">
+            <button onClick={selectTotal} className={scopeBtn(!selectedSeriesId && !selectedStageId && !selectedMatchId)}>Total</button>
+            {series.map(s => (
+              <button key={s.id} onClick={() => selectSeries(s.id)} className={scopeBtn(selectedSeriesId === s.id && !selectedStageId)}>
+                {s.name}
+              </button>
+            ))}
+            {directStages.map(s => (
+              <button key={s.id} onClick={() => selectStage(s.id, null)} className={scopeBtn(selectedStageId === s.id)}>
+                {s.name}
+              </button>
+            ))}
+          </div>
+          {selectedSeriesId && (
+            <div className="flex flex-wrap gap-1.5 pl-3 border-l-2 border-yellow-300">
+              {stages.filter(s => s.series_id === selectedSeriesId).map(s => (
+                <button key={s.id} onClick={() => selectStage(s.id, selectedSeriesId)} className={scopeBtn(selectedStageId === s.id)}>
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          {currentStageMatches.length > 0 && (
+            <div className="flex flex-wrap gap-1 pl-3 border-l-2 border-gray-200">
+              {currentStageMatches.map((m, i) => (
+                <button key={m.id} onClick={() => toggleMatch(m.id)} className={matchBtn(selectedMatchId === m.id)}>
+                  M{i + 1}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Header */}
       <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 flex items-center gap-3">
         <h2 className="text-sm font-semibold text-gray-800">Player Stats</h2>
         <input
@@ -115,7 +249,7 @@ export default function PlayerStatsTable({ playerStats }: { playerStats: PlayerS
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={p.logoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
                     ) : (
-                      <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                      <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />
                     )}
                     {p.teamId ? (
                       <Link href={`/teams/${p.teamId}`} className="hover:text-yellow-600">{p.teamName}</Link>

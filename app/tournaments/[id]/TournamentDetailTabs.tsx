@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import TournamentStagesView from './TournamentStagesView'
-import PlayerStatsTable, { type PlayerStatRow } from './PlayerStatsTable'
+import PlayerStatsTable, { type PlayerStatRow, type PlayerMatchStat } from './PlayerStatsTable'
 import TeamStatsTable, { type TeamStatRow, type DropLocationRow } from './TeamStatsTable'
 import type { Stage, Match } from '@/lib/types'
 
@@ -24,6 +24,7 @@ interface Props {
   hasPgcPoints: boolean
   aliasLogoLookup: Record<string, string | null>
   playerStats: PlayerStatRow[]
+  playerStatsByMatch: Record<string, PlayerMatchStat[]>
   teamStats: TeamStatRow[]
   dropLocations: DropLocationRow[]
   mapKeys: string[]
@@ -45,7 +46,6 @@ export default function TournamentDetailTabs(props: Props) {
 
   return (
     <div>
-      {/* Tab bar */}
       <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-xl overflow-hidden">
         {tabBtn('scoreboard', 'Scoreboard')}
         {tabBtn('players', 'Player Data')}
@@ -68,7 +68,12 @@ export default function TournamentDetailTabs(props: Props) {
       )}
 
       {tab === 'players' && (
-        <PlayerStatsTable playerStats={props.playerStats} />
+        <PlayerStatsTable
+          playerStats={props.playerStats}
+          stages={props.stages}
+          series={props.series}
+          playerStatsByMatch={props.playerStatsByMatch}
+        />
       )}
 
       {tab === 'teams' && (
@@ -76,6 +81,9 @@ export default function TournamentDetailTabs(props: Props) {
           teamStats={props.teamStats}
           dropLocations={props.dropLocations}
           mapKeys={props.mapKeys}
+          stages={props.stages}
+          series={props.series}
+          resultsByMatch={props.resultsByMatch}
         />
       )}
     </div>
