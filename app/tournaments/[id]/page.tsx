@@ -186,7 +186,14 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   }
   for (const a of allAliasData ?? []) {
     const row = a as AnyRow
-    if (row.logo_url) aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
+    if (!row.logo_url) continue
+    aliasLogoLookup[`${row.team_id}:${row.alias}`] = row.logo_url
+    // "TAG - Name" 형식이면 TAG 단독으로도 인덱싱 (PUBG 매치의 pubg_team_name이 TAG만 오는 경우 대비)
+    const dashIdx = (row.alias as string).indexOf(' - ')
+    if (dashIdx !== -1) {
+      const tagPart = (row.alias as string).slice(0, dashIdx).trim()
+      if (tagPart) aliasLogoLookup[`${row.team_id}:${tagPart}`] = row.logo_url
+    }
   }
 
   const aliasToTeamId = new Map<string, string>()
