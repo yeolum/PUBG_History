@@ -194,8 +194,11 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                     {showAdvLine && (
                       <tr>
                         <td colSpan={7} className="p-0">
-                          <div className="border-t-2 border-green-400 flex items-center">
-                            <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">▲ ADVANCE</span>
+                          <div className="flex flex-col items-start">
+                            <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">
+                              ▲ ADVANCE
+                            </span>
+                            <div className="border-b-2 border-green-400 w-full"></div>
                           </div>
                         </td>
                       </tr>
