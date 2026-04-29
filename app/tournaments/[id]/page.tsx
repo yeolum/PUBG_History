@@ -1,6 +1,4 @@
 import { createPublicClient } from '@/lib/supabase/server'
-
-export const revalidate = 30
 import Header from '@/components/Header'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
@@ -12,6 +10,8 @@ import TournamentRoster from './TournamentRoster'
 import TournamentDetailTabs from './TournamentDetailTabs'
 import type { PlayerStatRow, PlayerMatchStat } from './PlayerStatsTable'
 import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
+
+export const revalidate = 30
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
