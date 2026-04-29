@@ -198,7 +198,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                             <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">
                               ▲ ADVANCE
                             </span>
-                            <div className="border-b-2 border-green-400 w-full"></div>
+                            <div className="border-b-2 border-green-400 w-full mb-1"></div>
                           </div>
                         </td>
                       </tr>
@@ -206,7 +206,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                     {showElimLine && (
                       <tr>
                         <td colSpan={7} className="p-0">
-                          <div className="border-t-2 border-red-400 flex items-center">
+                          <div className="border-t-2 border-red-400 flex items-center mt-1">
                             <span className="text-[10px] font-bold text-red-500 px-3 py-0.5 tracking-wide">▼ ELIMINATED</span>
                           </div>
                         </td>
