@@ -27,12 +27,20 @@ export async function createClient() {
   )
 }
 
-// 공개 페이지에서 사용 (쿠키 없음 → Next.js ISR 캐싱 가능)
+// 공개 페이지에서 사용 (쿠키 없음 → Next.js Data Cache 활성화)
+// fetch에 next.revalidate를 주입하면 각 Supabase 쿼리 결과가 30초간
+// Next.js Data Cache에 저장되어 동일 쿼리는 DB를 거치지 않고 즉시 응답.
 export function createPublicClient() {
   return createSupabaseClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { auth: { persistSession: false } }
+    {
+      auth: { persistSession: false },
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, next: { revalidate: 30 } } as RequestInit),
+      },
+    }
   )
 }
 
