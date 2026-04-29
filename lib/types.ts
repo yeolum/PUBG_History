@@ -92,6 +92,16 @@ export interface Series {
   created_at: string
 }
 
+export interface ScoringRule {
+  id: string
+  name: string
+  type: 'super' | 'chicken'
+  placement_pts: number[]
+  kill_pts: number
+  description: string | null
+  created_at: string
+}
+
 export interface Stage {
   id: string
   tournament_id: string
@@ -101,6 +111,8 @@ export interface Stage {
   type: StageType
   advance_count: number | null
   eliminate_count: number | null
+  scoring_rule_id: string | null
+  scoring_rules?: ScoringRule | null
   created_at: string
 }
 

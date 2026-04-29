@@ -9,7 +9,8 @@ import ImageUpload from '@/components/admin/ImageUpload'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
+import type { ScoringRule } from '@/lib/types'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
@@ -94,7 +95,8 @@ export default function AdminTournamentDetailPage() {
   const [newStageType, setNewStageType] = useState('group')
   const [newSeriesId, setNewSeriesId] = useState('')
   const [editingStageId, setEditingStageId] = useState<string | null>(null)
-  const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group', seriesId: '' })
+  const [editStageForm, setEditStageForm] = useState({ name: '', type: 'group', seriesId: '', scoringRuleId: '' })
+  const [scoringRules, setScoringRules] = useState<ScoringRule[]>([])
   const [dragStageId, setDragStageId] = useState<string | null>(null)
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null)
   const [dragSeriesId, setDragSeriesId] = useState<string | null>(null)
@@ -118,17 +120,19 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
-        .select('*, matches(*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname)))')
+        .select('*, scoring_rules(*), matches(*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname)))')
         .eq('tournament_id', id)
         .order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
+      supabase.from('scoring_rules').select('*').order('created_at'),
     ])
     setSeriesList((ser ?? []) as Series[])
+    setScoringRules((sr ?? []) as ScoringRule[])
     if (!t) { router.push('/admin/tournaments'); return }
     setTournament(t as Tournament)
     setForm(t as Tournament)
@@ -230,6 +234,7 @@ export default function AdminTournamentDetailPage() {
       name: editStageForm.name.trim(),
       type: editStageForm.type,
       series_id: editStageForm.seriesId || null,
+      scoring_rule_id: editStageForm.scoringRuleId || null,
     }).eq('id', stageId)
     if (error) { setErr('Failed to update stage: ' + error.message); return }
     setEditingStageId(null)
@@ -670,14 +675,14 @@ export default function AdminTournamentDetailPage() {
               const selectedMatchId = selectedMatchByStage[stage.id] ?? null
               const selectedMatch = sortedMatches.find((m) => m.id === selectedMatchId) ?? null
 
+              const stageRule = ruleFromStage(stage.scoring_rules)
               const perMatchStandings = selectedMatch
                 ? [...selectedMatch.match_team_results]
-                    .map((r) => ({
-                      ...r,
-                      placementPts: calcPlacementPts(r.placement ?? 99),
-                      killPts: r.total_kills ?? 0,
-                      matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0),
-                    }))
+                    .map((r) => {
+                      const placementPts = calcPlacementPtsWithRule(r.placement ?? 99, stageRule)
+                      const killPts = Math.round((r.total_kills ?? 0) * stageRule.kill_pts)
+                      return { ...r, placementPts, killPts, matchPts: placementPts + killPts }
+                    })
                     .sort((a, b) =>
                       b.matchPts !== a.matchPts
                         ? b.matchPts - a.matchPts
@@ -736,6 +741,16 @@ export default function AdminTournamentDetailPage() {
                           ))}
                         </select>
                       )}
+                      <select
+                        value={editStageForm.scoringRuleId}
+                        onChange={(e) => setEditStageForm((f) => ({ ...f, scoringRuleId: e.target.value }))}
+                        className="text-xs border border-gray-300 rounded px-2 py-1"
+                      >
+                        <option value="">SUPER (기본)</option>
+                        {scoringRules.map((r) => (
+                          <option key={r.id} value={r.id}>{r.name} ({r.type === 'chicken' ? 'Chicken' : 'SUPER'})</option>
+                        ))}
+                      </select>
                       <button onClick={() => saveStage(stage.id)}
                         className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-2 py-1 rounded">
                         Save
@@ -760,11 +775,18 @@ export default function AdminTournamentDetailPage() {
                             {seriesList.find((s) => s.id === stage.series_id)?.name ?? 'Series'}
                           </span>
                         )}
+                        {stage.scoring_rules ? (
+                          <span className={`text-xs font-semibold px-1.5 py-0.5 rounded ${stage.scoring_rules.type === 'chicken' ? 'bg-blue-50 text-blue-600' : 'bg-yellow-50 text-yellow-600'}`}>
+                            {stage.scoring_rules.name}
+                          </span>
+                        ) : (
+                          <span className="text-xs text-gray-300 bg-gray-50 px-1.5 py-0.5 rounded">SUPER</span>
+                        )}
                         <span className="text-xs text-gray-400">{stage.matches.length} matches</span>
                       </div>
                       <div className="flex gap-3 items-center">
                         <button
-                          onClick={(e) => { e.stopPropagation(); setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type, seriesId: stage.series_id ?? '' }) }}
+                          onClick={(e) => { e.stopPropagation(); setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type, seriesId: stage.series_id ?? '', scoringRuleId: stage.scoring_rule_id ?? '' }) }}
                           className="text-xs text-blue-500 hover:text-blue-700"
                         >
                           Edit

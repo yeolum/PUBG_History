@@ -5,7 +5,7 @@ import Link from 'next/link'
 import MatchStageView from './MatchStageView'
 import { stripTagPrefix } from '@/lib/pubg-api'
 import type { Stage, Match } from '@/lib/types'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
@@ -76,6 +76,16 @@ export default function TournamentStagesView({
     [selectedStageId, stages]
   )
 
+  // matchId → ScoringRuleConfig lookup
+  const matchToRule = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof ruleFromStage>>()
+    for (const stage of stages) {
+      const rule = ruleFromStage(stage.scoring_rules)
+      for (const m of stage.matches) map.set(m.id, rule)
+    }
+    return map
+  }, [stages])
+
   // Series combined standings (when series selected, no stage drilled)
   const seriesStandings = useMemo(() => {
     if (!selectedSeriesId || selectedStageId) return []
@@ -84,34 +94,36 @@ export default function TournamentStagesView({
     const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; matches: number; wwcd: number }>()
     for (const [matchId, results] of Object.entries(resultsByMatch)) {
       if (!seriesMatchIds.has(matchId)) continue
+      const rule = matchToRule.get(matchId)!
       for (const r of results as AnyObj[]) {
         const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
           ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'), totalPts: 0, placePts: 0, matches: 0, wwcd: 0 })
         }
         const e = ptsMap.get(key)!
-        const pp = calcPlacementPts(r.placement ?? 99)
-        e.totalPts += pp + (r.total_kills ?? 0)
+        const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+        const kills = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+        e.totalPts += pp + kills
         e.placePts += pp
         e.matches++
         if ((r.placement ?? 99) === 1) e.wwcd++
       }
     }
     return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
-  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch])
+  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule])
 
   // Per-match results for series view
   const seriesMatchResults = useMemo(() => {
     if (!selectedMatchId || selectedStageId) return []
+    const rule = matchToRule.get(selectedMatchId) ?? ruleFromStage(null)
     return (resultsByMatch[selectedMatchId] ?? [] as AnyObj[])
-      .map((r: AnyObj) => ({
-        ...r,
-        placementPts: calcPlacementPts(r.placement ?? 99),
-        killPts: r.total_kills ?? 0,
-        matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0),
-      }))
+      .map((r: AnyObj) => {
+        const placementPts = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+        const killPts = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+        return { ...r, placementPts, killPts, matchPts: placementPts + killPts }
+      })
       .sort((a: AnyObj, b: AnyObj) => b.matchPts !== a.matchPts ? b.matchPts - a.matchPts : (a.placement ?? 99) - (b.placement ?? 99))
-  }, [selectedMatchId, selectedStageId, resultsByMatch])
+  }, [selectedMatchId, selectedStageId, resultsByMatch, matchToRule])
 
   // Stage match buttons (when stage selected)
   const stageLevelMatches = useMemo(

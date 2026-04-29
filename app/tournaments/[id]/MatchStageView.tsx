@@ -2,7 +2,7 @@
 
 import { Fragment } from 'react'
 import Link from 'next/link'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage, type ScoringRuleConfig } from '@/lib/scoring'
 import { stripTagPrefix } from '@/lib/pubg-api'
 import type { Stage, Match } from '@/lib/types'
 
@@ -47,10 +47,11 @@ function computeStandings(
   matches: Match[],
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resultsByMatch: Record<string, any[]>,
-  damageByMatch: Record<string, PlayerDamage[]>
+  damageByMatch: Record<string, PlayerDamage[]>,
+  rule: ScoringRuleConfig
 ): ComputedStanding[] {
   const sorted = [...matches].filter((m) => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
-  const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number }>()
+  const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }>()
 
   for (const match of sorted) {
     const results = resultsByMatch[match.id] ?? []
@@ -64,8 +65,8 @@ function computeStandings(
     for (const r of results) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
       const placement = r.placement ?? 99
-      const placementPts = calcPlacementPts(placement)
-      const killPts = r.total_kills ?? 0
+      const placementPts = calcPlacementPtsWithRule(placement, rule)
+      const killPts = Math.round((r.total_kills ?? 0) * rule.kill_pts)
       const matchPts = placementPts + killPts
       const matchDamage = damageByPlacement.get(placement) ?? 0
 
@@ -82,12 +83,16 @@ function computeStandings(
           lastMatchPts: 0,
           lastMatchPlacement: 99,
           lastMatchDamage: 0,
+          firstChickenOrder: Infinity,
         })
       }
 
       const stat = statMap.get(key)!
       stat.matchesPlayed++
-      if (placement === 1) stat.wwcd++
+      if (placement === 1) {
+        stat.wwcd++
+        if (match.order_num < stat.firstChickenOrder) stat.firstChickenOrder = match.order_num
+      }
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
 
@@ -100,7 +105,17 @@ function computeStandings(
     }
   }
 
-  return [...statMap.values()].sort((a, b) => {
+  const results = [...statMap.values()]
+  if (rule.type === 'chicken') {
+    return results.sort((a, b) => {
+      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+      if (a.wwcd > 0 && b.wwcd > 0 && a.firstChickenOrder !== b.firstChickenOrder) return a.firstChickenOrder - b.firstChickenOrder
+      if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+      if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+      return b.lastMatchDamage - a.lastMatchDamage
+    })
+  }
+  return results.sort((a, b) => {
     if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
     if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
     if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
@@ -115,19 +130,19 @@ const rankStyle = (i: number) =>
   i === 2 ? 'text-amber-600 font-semibold' : 'text-gray-300'
 
 export default function MatchStageView({ stage, matches, selectedMatchId, resultsByMatch, damageByMatch, aliasLogoLookup }: Props) {
-  const standings = computeStandings(matches, resultsByMatch, damageByMatch)
+  const rule = ruleFromStage(stage.scoring_rules)
+  const standings = computeStandings(matches, resultsByMatch, damageByMatch, rule)
 
   const selectedMatch = selectedMatchId ? matches.find((m) => m.id === selectedMatchId) : null
   const selectedResults = selectedMatch ? (resultsByMatch[selectedMatch.id] ?? []) : []
 
   const perMatchSorted = selectedResults
     .slice()
-    .map((r) => ({
-      ...r,
-      placementPts: calcPlacementPts(r.placement ?? 99),
-      killPts: r.total_kills ?? 0,
-      matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0),
-    }))
+    .map((r) => {
+      const placementPts = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+      const killPts = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+      return { ...r, placementPts, killPts, matchPts: placementPts + killPts }
+    })
     .sort((a, b) => {
       if (b.matchPts !== a.matchPts) return b.matchPts - a.matchPts
       return (a.placement ?? 99) - (b.placement ?? 99)

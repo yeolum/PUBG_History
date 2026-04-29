@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Tournament, Stage, Match, TournamentPrizeConfig, Series } from '@/lib/types'
 import type { Metadata } from 'next'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import TournamentRoster from './TournamentRoster'
 import TournamentDetailTabs from './TournamentDetailTabs'
@@ -36,7 +36,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
     supabase.from('tournaments').select('*').eq('id', id).single(),
-    supabase.from('stages').select('*, matches(*)').eq('tournament_id', id).order('order_num'),
+    supabase.from('stages').select('*, scoring_rules(*), matches(*)').eq('tournament_id', id).order('order_num'),
     supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
     supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
   ])
@@ -54,8 +54,11 @@ export default async function TournamentDetailPage({ params }: { params: Promise
   const mapsSet = new Set<string>()
 
   const allImportedMatchIds: string[] = []
+  const matchToRule = new Map<string, ReturnType<typeof ruleFromStage>>()
   for (const stage of stagesList) {
+    const rule = ruleFromStage(stage.scoring_rules)
     for (const m of stage.matches) {
+      matchToRule.set(m.id, rule)
       if (m.status === 'imported') {
         allImportedMatchIds.push(m.id)
         if (m.map) mapsSet.add(m.map)
@@ -242,7 +245,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
   // Build team stats
   const teamStatsMap = new Map<string, TeamStatRow>()
-  for (const rows of Object.values(resultsByMatch)) {
+  for (const [matchId, rows] of Object.entries(resultsByMatch)) {
+    const rule = matchToRule.get(matchId) ?? ruleFromStage(null)
     for (const r of rows as AnyRow[]) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
       if (!teamStatsMap.has(key)) {
@@ -259,7 +263,8 @@ export default async function TournamentDetailPage({ params }: { params: Promise
       if (r.placement === 1) e.wwcd++
       e.totalKills += r.total_kills ?? 0
       e.totalDamage += Number(r.total_damage ?? 0)
-      e.totalPoints += calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0)
+      const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+      e.totalPoints += pp + Math.round((r.total_kills ?? 0) * rule.kill_pts)
       if (r.placement) { e.placementsSum += r.placement; e.gamesWithPlacement++ }
     }
   }
@@ -312,8 +317,9 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           ptsMap.set(key, { teamId: row.team_id ?? null, teamName: resolveTeamName(row.pubg_team_name, row.teams?.name ?? null, row.display_name), totalPts: 0, placePts: 0 })
         }
         const e = ptsMap.get(key)!
-        const pp = calcPlacementPts(row.placement ?? 99)
-        e.totalPts += pp + (row.total_kills ?? 0)
+        const matchRule = matchToRule.get(m.id) ?? ruleFromStage(null)
+        const pp = calcPlacementPtsWithRule(row.placement ?? 99, matchRule)
+        e.totalPts += pp + Math.round((row.total_kills ?? 0) * matchRule.kill_pts)
         e.placePts += pp
       }
     }

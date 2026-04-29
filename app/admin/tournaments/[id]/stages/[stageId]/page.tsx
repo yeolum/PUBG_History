@@ -6,7 +6,7 @@ import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import type { Stage, Match, MatchTeamResult, MatchPlayerStat } from '@/lib/types'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage, DEFAULT_RULE, type ScoringRuleConfig } from '@/lib/scoring'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
 
@@ -37,23 +37,27 @@ interface ImportRow {
   errorMsg?: string
 }
 
-function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
+function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig = DEFAULT_RULE): ComputedStanding[] {
   const imported = matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
-  const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number }>()
+  const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }>()
   for (const match of imported) {
     for (const r of match.match_team_results) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
-      const placementPts = calcPlacementPts(r.placement ?? 99)
-      const matchPts = placementPts + (r.total_kills ?? 0)
+      const placementPts = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+      const killPts = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+      const matchPts = placementPts + killPts
       const matchDamage = match.match_player_stats
         .filter(ps => (ps.placement ?? -1) === (r.placement ?? -2))
         .reduce((s, ps) => s + Number(ps.damage_dealt ?? 0), 0)
       if (!statMap.has(key)) {
-        statMap.set(key, { key, teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0 })
+        statMap.set(key, { key, teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0, firstChickenOrder: Infinity })
       }
       const stat = statMap.get(key)!
       stat.matchesPlayed++
-      if ((r.placement ?? 99) === 1) stat.wwcd++
+      if ((r.placement ?? 99) === 1) {
+        stat.wwcd++
+        if (match.order_num < stat.firstChickenOrder) stat.firstChickenOrder = match.order_num
+      }
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
       if (match.order_num > stat.lastMatchOrder) {
@@ -64,7 +68,17 @@ function computeStandings(matches: MatchWithResults[]): ComputedStanding[] {
       }
     }
   }
-  return [...statMap.values()].sort((a, b) => {
+  const results = [...statMap.values()]
+  if (rule.type === 'chicken') {
+    return results.sort((a, b) => {
+      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+      if (a.wwcd > 0 && b.wwcd > 0 && a.firstChickenOrder !== b.firstChickenOrder) return a.firstChickenOrder - b.firstChickenOrder
+      if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+      if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+      return b.lastMatchDamage - a.lastMatchDamage
+    })
+  }
+  return results.sort((a, b) => {
     if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
     if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
     if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
@@ -99,7 +113,7 @@ export default function StageMatchesPage() {
 
   const load = useCallback(async () => {
     const [{ data: s }, { data: m }] = await Promise.all([
-      supabase.from('stages').select('*').eq('id', stageId).single(),
+      supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
     ])
     const stageData = s as Stage
@@ -111,7 +125,8 @@ export default function StageMatchesPage() {
 
   useEffect(() => { load() }, [load])
 
-  const computedStandings = useMemo(() => computeStandings(matches), [matches])
+  const stageRule = useMemo(() => ruleFromStage(stage?.scoring_rules), [stage])
+  const computedStandings = useMemo(() => computeStandings(matches, stageRule), [matches, stageRule])
 
   function handleMatchIdPaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: string) {
     const text = e.clipboardData.getData('text')
@@ -246,7 +261,11 @@ export default function StageMatchesPage() {
 
   const perMatchStandings = selectedMatchData
     ? selectedMatchData.match_team_results.slice()
-        .map(r => ({ ...r, placementPts: calcPlacementPts(r.placement ?? 99), killPts: r.total_kills ?? 0, matchPts: calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0) }))
+        .map(r => {
+          const pp = calcPlacementPtsWithRule(r.placement ?? 99, stageRule)
+          const kp = Math.round((r.total_kills ?? 0) * stageRule.kill_pts)
+          return { ...r, placementPts: pp, killPts: kp, matchPts: pp + kp }
+        })
         .sort((a, b) => b.matchPts !== a.matchPts ? b.matchPts - a.matchPts : (a.placement ?? 99) - (b.placement ?? 99))
     : []
 
@@ -295,9 +314,18 @@ export default function StageMatchesPage() {
       {/* Cumulative Standings */}
       {computedStandings.length > 0 && (
         <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
-          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200">
-            <h2 className="font-semibold text-gray-800">Standings (Cumulative)</h2>
-            <p className="text-xs text-gray-400 mt-0.5">Placement Pts + Kill Pts = Total | 1–8: 10,6,5,4,3,2,1,1</p>
+          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+            <div>
+              <h2 className="font-semibold text-gray-800">Standings (Cumulative)</h2>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {stageRule.placement_pts.map((p, i) => `${i + 1}위:${p}`).join(' · ')} | Kill×{stageRule.kill_pts}
+              </p>
+            </div>
+            {stage.scoring_rules && (
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stageRule.type === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                {stage.scoring_rules.name}
+              </span>
+            )}
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
