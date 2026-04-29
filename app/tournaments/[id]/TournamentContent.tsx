@@ -19,7 +19,15 @@ export default async function TournamentContent({ id, tournament }: { id: string
   const supabase = createPublicClient()
   const t = tournament
 
-  // Round 1: stages, prize config, series (parallel)
+  // Fire alias/lookup queries immediately — they don't depend on match IDs,
+  // so they run in parallel with Round 1 instead of waiting for Round 2.
+  const aliasQueriesPromise = Promise.all([
+    supabase.from('team_aliases').select('team_id, alias, logo_url'),
+    supabase.from('team_drop_locations').select('id, team_id, map_name, x, y, teams(name, logo_url)').eq('tournament_id', id),
+    supabase.from('player_aliases').select('alias, player_id'),
+  ])
+
+  // Round 1: stages, prize config, series (parallel with alias queries above)
   const [{ data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
     supabase.from('stages').select('*, scoring_rules(*), matches(*)').eq('tournament_id', id).order('order_num'),
     supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
@@ -72,14 +80,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
     return rows
   }
 
+  // Round 2: match data + alias queries (likely already done from above)
   const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }]] = await Promise.all([
     allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages('match_team_results', TR_SELECT, allImportedMatchIds),
     allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages('match_player_stats', PS_SELECT, allImportedMatchIds),
-    Promise.all([
-      supabase.from('team_aliases').select('team_id, alias, logo_url'),
-      supabase.from('team_drop_locations').select('id, team_id, map_name, x, y, teams(name, logo_url)').eq('tournament_id', id),
-      supabase.from('player_aliases').select('alias, player_id'),
-    ]),
+    aliasQueriesPromise,
   ])
 
   // Build pubg name → player_id lookup from aliases

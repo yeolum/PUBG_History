@@ -4,16 +4,23 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import TournamentContent from './TournamentContent'
 
 export const revalidate = 30
 
+// cache() deduplicates the DB call within a single request — generateMetadata
+// and TournamentDetailPage both call this but it only hits the DB once.
+const fetchTournament = cache(async (id: string): Promise<Tournament | null> => {
+  const supabase = createPublicClient()
+  const { data } = await supabase.from('tournaments').select('*').eq('id', id).single()
+  return (data as Tournament) ?? null
+})
+
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
-  const supabase = createPublicClient()
-  const { data } = await supabase.from('tournaments').select('name').eq('id', id).single()
-  return { title: data?.name ?? 'Tournament' }
+  const t = await fetchTournament(id)
+  return { title: t?.name ?? 'Tournament' }
 }
 
 const STATUS_LABEL: Record<string, string> = { upcoming: 'Upcoming', ongoing: 'Ongoing', completed: 'Completed' }
@@ -28,11 +35,9 @@ function ContentSpinner() {
 
 export default async function TournamentDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
-  const supabase = createPublicClient()
 
-  const { data: tournament } = await supabase.from('tournaments').select('*').eq('id', id).single()
-  if (!tournament) notFound()
-  const t = tournament as Tournament
+  const t = await fetchTournament(id)
+  if (!t) notFound()
 
   return (
     <>
@@ -63,7 +68,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
 
         {/* Roster + tabs — streamed after heavy data loads */}
         <Suspense fallback={<ContentSpinner />}>
-          <TournamentContent id={id} tournament={t} />
+          <TournamentContent id={id} tournament={t!} />
         </Suspense>
       </main>
     </>
