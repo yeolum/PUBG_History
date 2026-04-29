@@ -286,6 +286,21 @@ export default function AdminPlayersPage() {
         <div className="bg-yellow-50 border border-yellow-200 rounded-xl p-4 mb-4">
           <div className="flex items-center justify-between mb-3">
             <p className="text-xs font-semibold text-gray-700">Bulk Add Players</p>
+            <div className="flex items-center gap-2">
+              <button onClick={addBulkRow}
+                className="text-xs border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded">
+                + Add Row
+              </button>
+              <button onClick={saveAllBulk}
+                disabled={!newRows.some((r) => r.status === 'idle' && r.nickname.trim())}
+                className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-gray-900 font-semibold px-4 py-1.5 rounded">
+                Save All
+              </button>
+              <button onClick={() => { setBulkOpen(false); setNewRows([]) }}
+                className="text-xs text-gray-400 hover:text-gray-600">
+                Cancel
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs border-collapse">
@@ -340,21 +355,6 @@ export default function AdminPlayersPage() {
                 ))}
               </tbody>
             </table>
-          </div>
-          <div className="flex gap-2 mt-3">
-            <button onClick={addBulkRow}
-              className="text-xs border border-gray-300 hover:bg-gray-50 text-gray-700 px-3 py-1.5 rounded">
-              + Add Row
-            </button>
-            <button onClick={saveAllBulk}
-              disabled={!newRows.some((r) => r.status === 'idle' && r.nickname.trim())}
-              className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-40 text-gray-900 font-semibold px-4 py-1.5 rounded">
-              Save All
-            </button>
-            <button onClick={() => { setBulkOpen(false); setNewRows([]) }}
-              className="text-xs text-gray-400 hover:text-gray-600 ml-auto">
-              Cancel
-            </button>
           </div>
         </div>
       )}
