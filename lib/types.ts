@@ -95,7 +95,7 @@ export interface Series {
 export interface ScoringRule {
   id: string
   name: string
-  type: 'super' | 'chicken'
+  type: 'super' | 'super_v1' | 'chicken'
   placement_pts: number[]
   kill_pts: number
   description: string | null
