@@ -348,21 +348,28 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   type RankEntry = { teamId: string | null; teamName: string; rank: number }
   const rankBoard: RankEntry[] = []
-  const hasStageMapping = prizeConfig.some((p) => p.stage_id != null && p.stage_rank != null)
-  if (hasStageMapping) {
-    for (const pc of prizeConfig) {
-      if (!pc.stage_id || !pc.stage_rank) continue
-      const standings = stageStandingsMap.get(pc.stage_id) ?? []
-      const entry = standings[pc.stage_rank - 1]
-      if (entry) rankBoard.push({ rank: pc.rank, teamId: entry.teamId, teamName: entry.teamName })
+  const rankMethod = (t.ranking_method ?? 'stage') as 'stage' | 'prize' | 'pgs' | 'pgc'
+
+  if (rankMethod === 'stage') {
+    const hasStageMapping = prizeConfig.some((p) => p.stage_id != null && p.stage_rank != null)
+    if (hasStageMapping) {
+      for (const pc of prizeConfig) {
+        if (!pc.stage_id || !pc.stage_rank) continue
+        const standings = stageStandingsMap.get(pc.stage_id) ?? []
+        const entry = standings[pc.stage_rank - 1]
+        if (entry) rankBoard.push({ rank: pc.rank, teamId: entry.teamId, teamName: entry.teamName })
+      }
+      rankBoard.sort((a, b) => a.rank - b.rank)
+    } else {
+      const grandFinalStage = stagesList.find((s) => s.type === 'grand_final')
+      if (grandFinalStage) {
+        const standings = stageStandingsMap.get(grandFinalStage.id) ?? []
+        standings.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
+      }
     }
-    rankBoard.sort((a, b) => a.rank - b.rank)
   } else {
-    const grandFinalStage = stagesList.find((s) => s.type === 'grand_final')
-    if (grandFinalStage) {
-      const standings = stageStandingsMap.get(grandFinalStage.id) ?? []
-      standings.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
-    }
+    // Rank by accumulated stage prizes / WWCD bonuses — computed after wwcdBonusByTeamId is built
+    // Placeholder: populated after wwcdBonusByTeamId is computed below
   }
 
   const prizeForStandings = prizeConfig.map((p) => ({
@@ -442,6 +449,26 @@ export default async function TournamentContent({ id, tournament }: { id: string
       wwcdBonusByTeamId[entry.teamId].pgs += pgsAmt
       wwcdBonusByTeamId[entry.teamId].pgc += pgcAmt
     }
+  }
+
+  // Prize/PGS/PGC ranking — build rankBoard now that wwcdBonusByTeamId is complete
+  if (rankMethod !== 'stage') {
+    const seen = new Set<string>()
+    const teamList: { teamId: string | null; teamName: string; total: number }[] = []
+    for (const ts of teamStatsMap.values()) {
+      const key = ts.teamId ?? `name:${ts.teamName}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const bonus = ts.teamId ? (wwcdBonusByTeamId[ts.teamId] ?? null) : null
+      const total = bonus
+        ? rankMethod === 'prize' ? bonus.prize
+          : rankMethod === 'pgs' ? bonus.pgs
+          : bonus.pgc
+        : 0
+      teamList.push({ teamId: ts.teamId, teamName: ts.teamName, total })
+    }
+    teamList.sort((a, b) => b.total - a.total)
+    teamList.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
   }
 
   // Special awards

@@ -362,6 +362,7 @@ export default function AdminTournamentDetailPage() {
       has_prize: form.has_prize ?? false,
       has_pgs_points: form.has_pgs_points ?? false,
       has_pgc_points: form.has_pgc_points ?? false,
+      ranking_method: form.ranking_method ?? 'stage',
     }).eq('id', id)
     if (flagErr) { setErr('Save failed: ' + flagErr.message); setSavingPrize(false); return }
 
@@ -412,7 +413,8 @@ export default function AdminTournamentDetailPage() {
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
       }))
-    await supabase.from('stage_prize_config').delete().eq('stage_id', selectedStagePrizeId)
+    const { error: delErr1 } = await supabase.from('stage_prize_config').delete().eq('stage_id', selectedStagePrizeId)
+    if (delErr1) { setErr('Save failed: ' + delErr1.message); setSavingStagePrize(false); return }
     if (rows.length > 0) {
       const { error } = await supabase.from('stage_prize_config').insert(rows)
       if (error) { setErr('Save failed: ' + error.message); setSavingStagePrize(false); return }
@@ -435,7 +437,8 @@ export default function AdminTournamentDetailPage() {
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
         order_num: i,
       }))
-    await supabase.from('tournament_wwcd_rewards').delete().eq('tournament_id', id)
+    const { error: delErr2 } = await supabase.from('tournament_wwcd_rewards').delete().eq('tournament_id', id)
+    if (delErr2) { setErr('Save failed: ' + delErr2.message); setSavingWwcd(false); return }
     if (rows.length > 0) {
       const { error } = await supabase.from('tournament_wwcd_rewards').insert(rows)
       if (error) { setErr('Save failed: ' + error.message); setSavingWwcd(false); return }
@@ -462,7 +465,8 @@ export default function AdminTournamentDetailPage() {
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
         order_num: i,
       }))
-    await supabase.from('tournament_special_awards').delete().eq('tournament_id', id)
+    const { error: delErr3 } = await supabase.from('tournament_special_awards').delete().eq('tournament_id', id)
+    if (delErr3) { setErr('Save failed: ' + delErr3.message); setSavingSpecial(false); return }
     if (rows.length > 0) {
       const { error } = await supabase.from('tournament_special_awards').insert(rows)
       if (error) { setErr('Save failed: ' + error.message); setSavingSpecial(false); return }
@@ -1144,7 +1148,7 @@ export default function AdminTournamentDetailPage() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          {/* Column toggles */}
+          {/* Column toggles + ranking method */}
           <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6 flex-wrap">
             {([
               { key: 'has_prize' as const, label: 'Prize Money' },
@@ -1161,6 +1165,19 @@ export default function AdminTournamentDetailPage() {
                 {label}
               </label>
             ))}
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-gray-500">Final Standings by</label>
+              <select
+                value={form.ranking_method ?? 'stage'}
+                onChange={(e) => setForm((f) => ({ ...f, ranking_method: e.target.value as Tournament['ranking_method'] }))}
+                className="text-xs border border-gray-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400"
+              >
+                <option value="stage">Stage Rankings</option>
+                <option value="prize">Total Prize</option>
+                <option value="pgs">Total PGS</option>
+                <option value="pgc">Total PGC</option>
+              </select>
+            </div>
             {form.has_prize && (
               <div className="ml-auto flex items-center gap-2">
                 <label className="text-xs text-gray-500">Currency</label>
@@ -1220,8 +1237,8 @@ export default function AdminTournamentDetailPage() {
                     />
                   </th>
                   <th className="text-left px-4 py-2 w-10">#</th>
-                  <th className="text-left px-4 py-2">Stage</th>
-                  <th className="text-left px-4 py-2 w-24">Stage Rank</th>
+                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2">Stage</th>}
+                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2 w-24">Stage Rank</th>}
                   {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
                   {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
                   {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
@@ -1245,31 +1262,35 @@ export default function AdminTournamentDetailPage() {
                       />
                     </td>
                     <td className="px-4 py-2 text-gray-400 font-mono text-xs">{row.rank}</td>
-                    <td className="px-4 py-2">
-                      <select
-                        value={row.stageId}
-                        onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
-                        data-prize-row={i} data-prize-col={colStart}
-                        onKeyDown={(e) => navPrize(e, i, colStart)}
-                        className="w-40 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                      >
-                        <option value="">— none —</option>
-                        {stageList.map((stage) => (
-                          <option key={stage.id} value={stage.id}>{stage.name}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-2">
-                      <input
-                        type="number"
-                        min={1}
-                        value={row.stageRank}
-                        onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageRank: parseInt(e.target.value) || 1 } : r))}
-                        data-prize-row={i} data-prize-col={colStart + 1}
-                        onKeyDown={(e) => navPrize(e, i, colStart + 1)}
-                        className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                      />
-                    </td>
+                    {(form.ranking_method ?? 'stage') === 'stage' && (
+                      <td className="px-4 py-2">
+                        <select
+                          value={row.stageId}
+                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
+                          data-prize-row={i} data-prize-col={colStart}
+                          onKeyDown={(e) => navPrize(e, i, colStart)}
+                          className="w-40 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        >
+                          <option value="">— none —</option>
+                          {stageList.map((stage) => (
+                            <option key={stage.id} value={stage.id}>{stage.name}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
+                    {(form.ranking_method ?? 'stage') === 'stage' && (
+                      <td className="px-4 py-2">
+                        <input
+                          type="number"
+                          min={1}
+                          value={row.stageRank}
+                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageRank: parseInt(e.target.value) || 1 } : r))}
+                          data-prize-row={i} data-prize-col={colStart + 1}
+                          onKeyDown={(e) => navPrize(e, i, colStart + 1)}
+                          className="w-20 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        />
+                      </td>
+                    )}
                     {form.has_prize && (
                       <td className="px-4 py-2 text-right">
                         <div className="flex items-center justify-end gap-1">

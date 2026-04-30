@@ -56,6 +56,8 @@ export interface PlayerWithDetails extends Player {
   teams: { id: string; name: string; short_name: string | null } | null
 }
 
+export type RankingMethod = 'stage' | 'prize' | 'pgs' | 'pgc'
+
 export interface Tournament {
   id: string
   name: string
@@ -71,6 +73,7 @@ export interface Tournament {
   has_prize: boolean
   has_pgs_points: boolean
   has_pgc_points: boolean
+  ranking_method: RankingMethod
   created_at: string
   updated_at: string
 }
