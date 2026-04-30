@@ -257,7 +257,7 @@ export async function POST(req: NextRequest) {
     .filter((s) => s.player_id && s.pubg_player_name)
     .map((s) => ({ player_id: s.player_id as string, alias: s.pubg_player_name as string }))
   if (playerAliasUpserts.length > 0) {
-    await db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'alias', ignoreDuplicates: true })
+    await db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'player_id,alias', ignoreDuplicates: true })
   }
 
   const unmatchedTeamNames = teamResultInserts

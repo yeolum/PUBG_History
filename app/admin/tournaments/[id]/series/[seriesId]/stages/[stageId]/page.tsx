@@ -150,7 +150,7 @@ export default function StageMatchesPage() {
     if (pubgPlayerName) {
       await supabase.from('player_aliases').upsert(
         [{ player_id: playerId, alias: pubgPlayerName }],
-        { onConflict: 'alias', ignoreDuplicates: true }
+        { onConflict: 'player_id,alias', ignoreDuplicates: true }
       )
     }
     setLinkModal(null)

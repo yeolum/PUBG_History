@@ -237,7 +237,7 @@ export default function AdminPlayersPage() {
     if (fromId === targetId) { setMergeModal(null); return }
     await supabase.from('player_aliases').upsert(
       [{ player_id: targetId, alias: mergeModal.fromName }],
-      { onConflict: 'alias', ignoreDuplicates: true }
+      { onConflict: 'player_id,alias', ignoreDuplicates: true }
     )
     await supabase.from('match_player_stats').update({ player_id: targetId }).eq('player_id', fromId)
     await supabase.from('players').delete().eq('id', fromId)

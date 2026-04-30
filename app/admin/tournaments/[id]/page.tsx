@@ -413,7 +413,7 @@ export default function AdminTournamentDetailPage() {
     for (const alias of aliasesToUpsert) {
       await supabase.from('player_aliases').upsert(
         [{ player_id: playerId, alias }],
-        { onConflict: 'alias', ignoreDuplicates: true }
+        { onConflict: 'player_id,alias', ignoreDuplicates: true }
       )
     }
     setLinkModal(null)
