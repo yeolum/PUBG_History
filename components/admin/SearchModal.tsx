@@ -28,30 +28,40 @@ export default function SearchModal({ type, targetName, subtext, onConfirm, onCl
       if (query.trim().length < 1) { setResults([]); return }
       setLoading(true)
       try {
+        let raw: SearchResult[] = []
         if (type === 'team') {
           const { data } = await supabase
             .from('teams')
             .select('id, name, short_name')
             .ilike('name', `%${query}%`)
-            .limit(10)
-          setResults((data ?? []).map((t) => ({
-            id: t.id,
-            label: t.name,
-            sublabel: t.short_name ?? undefined,
-          })))
+            .limit(30)
+          raw = (data ?? []).map((t) => ({ id: t.id, label: t.name, sublabel: t.short_name ?? undefined }))
         } else {
           const { data } = await supabase
             .from('players')
             .select('id, nickname, teams(name)')
             .ilike('nickname', `%${query}%`)
-            .limit(10)
-          setResults((data ?? []).map((p) => ({
+            .limit(30)
+          raw = (data ?? []).map((p) => ({
             id: p.id,
             label: p.nickname,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             sublabel: (p.teams as any)?.name ?? undefined,
-          })))
+          }))
         }
+
+        const q = query.trim().toLowerCase()
+        const rank = (label: string) => {
+          const l = label.toLowerCase()
+          if (l === q) return 0          // 1. 정확히 일치
+          if (l.startsWith(q)) return 1  // 2. 앞에서 시작
+          return 2                        // 3. 포함
+        }
+        raw.sort((a, b) => {
+          const diff = rank(a.label) - rank(b.label)
+          return diff !== 0 ? diff : a.label.localeCompare(b.label)
+        })
+        setResults(raw.slice(0, 10))
       } finally {
         setLoading(false)
       }
