@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type RuleType = 'super' | 'chicken'
+type RuleType = 'super' | 'super_v1' | 'chicken'
 
 interface ScoringRule {
   id: string
@@ -18,12 +18,14 @@ interface ScoringRule {
 const DEFAULT_PLACEMENT = [10, 6, 5, 4, 3, 2, 1, 1]
 
 const RULE_TYPE_LABELS: Record<RuleType, string> = {
-  super: 'SUPER',
+  super: 'SUPER v2',
+  super_v1: 'SUPER v1',
   chicken: 'Chicken',
 }
 
 const RULE_TYPE_DESCS: Record<RuleType, string> = {
-  super: '순위점수 + 킬점수 합산으로 팀 순위 결정',
+  super: '순위점수 + 킬점수 합산, 동점 시 순위점수 우선',
+  super_v1: '킬점수 + 순위점수 합산, 동점 시 킬점수 우선',
   chicken: '치킨 먹은 횟수 우선, 동수이면 아래 순위점수 기준으로 정렬',
 }
 
@@ -124,7 +126,7 @@ export default function ScoringPage() {
         {(Object.keys(RULE_TYPE_LABELS) as RuleType[]).map((t) => (
           <div key={t} className="bg-white border border-gray-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t === 'super' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                 {RULE_TYPE_LABELS[t]}
               </span>
             </div>
@@ -154,7 +156,8 @@ export default function ScoringPage() {
                 onChange={(e) => setFormType(e.target.value as RuleType)}
                 className={inputCls + ' w-full'}
               >
-                <option value="super">SUPER (순위점수 + 킬점수)</option>
+                <option value="super">SUPER v2 (동점 시 순위점수 우선)</option>
+                <option value="super_v1">SUPER v1 (동점 시 킬점수 우선)</option>
                 <option value="chicken">Chicken (치킨 우선)</option>
               </select>
             </div>
@@ -253,7 +256,7 @@ export default function ScoringPage() {
           <pre className="mt-2 bg-red-100 rounded p-2 text-[10px] overflow-x-auto">{`CREATE TABLE scoring_rules (
   id uuid DEFAULT gen_random_uuid() PRIMARY KEY,
   name text NOT NULL,
-  type text NOT NULL CHECK (type IN ('super', 'chicken')),
+  type text NOT NULL CHECK (type IN ('super', 'super_v1', 'chicken')),
   placement_pts integer[] NOT NULL DEFAULT '{10,6,5,4,3,2,1,1}',
   kill_pts numeric NOT NULL DEFAULT 1,
   description text,
@@ -272,7 +275,7 @@ export default function ScoringPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="font-semibold text-gray-900 text-sm">{rule.name}</span>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${rule.type === 'super' ? 'bg-yellow-100 text-yellow-700' : 'bg-blue-100 text-blue-700'}`}>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${rule.type === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                       {RULE_TYPE_LABELS[rule.type]}
                     </span>
                   </div>

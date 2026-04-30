@@ -32,6 +32,7 @@ interface Props {
   resultsByMatch: Record<string, any[]>
   damageByMatch: Record<string, PlayerDamage[]>
   aliasLogoLookup: Record<string, string | null>
+  additionalPts?: Record<string, number>
 }
 
 function resolveLogoUrl(
@@ -48,7 +49,8 @@ function computeStandings(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   resultsByMatch: Record<string, any[]>,
   damageByMatch: Record<string, PlayerDamage[]>,
-  rule: ScoringRuleConfig
+  rule: ScoringRuleConfig,
+  extraPts: Record<string, number> = {}
 ): ComputedStanding[] {
   const sorted = [...matches].filter((m) => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
   const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }>()
@@ -105,6 +107,10 @@ function computeStandings(
     }
   }
 
+  for (const stat of statMap.values()) {
+    stat.totalPts += extraPts[stat.teamName.toLowerCase()] ?? 0
+  }
+
   const results = [...statMap.values()]
   if (rule.type === 'chicken') {
     return results.sort((a, b) => {
@@ -129,9 +135,9 @@ const rankStyle = (i: number) =>
   i === 1 ? 'text-gray-400 font-semibold' :
   i === 2 ? 'text-amber-600 font-semibold' : 'text-gray-300'
 
-export default function MatchStageView({ stage, matches, selectedMatchId, resultsByMatch, damageByMatch, aliasLogoLookup }: Props) {
+export default function MatchStageView({ stage, matches, selectedMatchId, resultsByMatch, damageByMatch, aliasLogoLookup, additionalPts = {} }: Props) {
   const rule = ruleFromStage(stage.scoring_rules)
-  const standings = computeStandings(matches, resultsByMatch, damageByMatch, rule)
+  const standings = computeStandings(matches, resultsByMatch, damageByMatch, rule, additionalPts)
 
   const selectedMatch = selectedMatchId ? matches.find((m) => m.id === selectedMatchId) : null
   const selectedResults = selectedMatch ? (resultsByMatch[selectedMatch.id] ?? []) : []

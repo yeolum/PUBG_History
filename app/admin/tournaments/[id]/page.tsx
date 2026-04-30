@@ -746,9 +746,9 @@ export default function AdminTournamentDetailPage() {
                         onChange={(e) => setEditStageForm((f) => ({ ...f, scoringRuleId: e.target.value }))}
                         className="text-xs border border-gray-300 rounded px-2 py-1"
                       >
-                        <option value="">SUPER (기본)</option>
+                        <option value="">SUPER v2 (기본)</option>
                         {scoringRules.map((r) => (
-                          <option key={r.id} value={r.id}>{r.name} ({r.type === 'chicken' ? 'Chicken' : 'SUPER'})</option>
+                          <option key={r.id} value={r.id}>{r.name} ({r.type === 'chicken' ? 'Chicken' : r.type === 'super_v1' ? 'SUPER v1' : 'SUPER v2'})</option>
                         ))}
                       </select>
                       <button onClick={() => saveStage(stage.id)}
@@ -780,7 +780,7 @@ export default function AdminTournamentDetailPage() {
                             {stage.scoring_rules.name}
                           </span>
                         ) : (
-                          <span className="text-xs text-gray-300 bg-gray-50 px-1.5 py-0.5 rounded">SUPER</span>
+                          <span className="text-xs text-gray-300 bg-gray-50 px-1.5 py-0.5 rounded">SUPER v2</span>
                         )}
                         <span className="text-xs text-gray-400">{stage.matches.length} matches</span>
                       </div>

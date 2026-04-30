@@ -25,6 +25,7 @@ interface Props {
   hasPgsPoints: boolean
   hasPgcPoints: boolean
   aliasLogoLookup: Record<string, string | null>
+  stageAdditionalPts?: Record<string, Record<string, number>>
 }
 
 const rankStyle = (rank: number) =>
@@ -44,7 +45,7 @@ function formatDateLabel(dateStr: string) {
 
 export default function TournamentStagesView({
   stages, series, resultsByMatch, damageByMatch, rankBoard, prizeConfig,
-  hasPrize, hasPgsPoints, hasPgcPoints, aliasLogoLookup,
+  hasPrize, hasPgsPoints, hasPgcPoints, aliasLogoLookup, stageAdditionalPts = {},
 }: Props) {
   // All hooks must be before early return
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
@@ -109,8 +110,15 @@ export default function TournamentStagesView({
         if ((r.placement ?? 99) === 1) e.wwcd++
       }
     }
+    // Apply additional points from all stages in this series
+    const seriesStageIds = seriesStages.map(s => s.id)
+    for (const e of ptsMap.values()) {
+      for (const stageId of seriesStageIds) {
+        e.totalPts += stageAdditionalPts[stageId]?.[e.teamName.toLowerCase()] ?? 0
+      }
+    }
     return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
-  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule])
+  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule, stageAdditionalPts])
 
   // Per-match results for series view
   const seriesMatchResults = useMemo(() => {
@@ -438,6 +446,7 @@ export default function TournamentStagesView({
               resultsByMatch={resultsByMatch}
               damageByMatch={damageByMatch}
               aliasLogoLookup={aliasLogoLookup}
+              additionalPts={stageAdditionalPts[selectedStage.id]}
             />
           ) : null}
         </div>

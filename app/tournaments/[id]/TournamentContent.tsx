@@ -59,13 +59,16 @@ const loadTournamentData = unstable_cache(
       }
     }
 
-    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }]] = await Promise.all([
+    const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
+
+    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       aliasQueriesPromise,
+      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_name, points').in('stage_id', stageIds),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData }
   },
   ['tournament-data'],
   { revalidate: 30 }
@@ -79,7 +82,14 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData } = await loadTournamentData(id)
+
+  // stageId → { teamNameLower → extraPts }
+  const stageAdditionalPts: Record<string, Record<string, number>> = {}
+  for (const ap of (additionalPtsData ?? []) as AnyRow[]) {
+    if (!stageAdditionalPts[ap.stage_id]) stageAdditionalPts[ap.stage_id] = {}
+    stageAdditionalPts[ap.stage_id][(ap.team_name as string).toLowerCase()] = Number(ap.points)
+  }
 
   const stagesList = (stagesData ?? []) as (Stage & { matches: Match[] })[]
   const prizeConfig = (prizeConfigData ?? []) as TournamentPrizeConfig[]
@@ -326,6 +336,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
         e.placePts += pp
       }
     }
+    const extraForStage = stageAdditionalPts[stage.id] ?? {}
+    for (const e of ptsMap.values()) {
+      e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+    }
     stageStandingsMap.set(stage.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
   }
 
@@ -386,6 +400,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         hasPgsPoints={t.has_pgs_points}
         hasPgcPoints={t.has_pgc_points}
         aliasLogoLookup={aliasLogoLookup}
+        stageAdditionalPts={stageAdditionalPts}
         playerStats={playerStats}
         playerStatsByMatch={playerStatsByMatch}
         teamStats={teamStats}

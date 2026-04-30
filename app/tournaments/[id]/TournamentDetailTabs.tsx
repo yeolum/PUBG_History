@@ -23,6 +23,7 @@ interface Props {
   hasPgsPoints: boolean
   hasPgcPoints: boolean
   aliasLogoLookup: Record<string, string | null>
+  stageAdditionalPts: Record<string, Record<string, number>>
   playerStats: PlayerStatRow[]
   playerStatsByMatch: Record<string, PlayerMatchStat[]>
   teamStats: TeamStatRow[]
@@ -64,6 +65,7 @@ export default function TournamentDetailTabs(props: Props) {
           hasPgsPoints={props.hasPgsPoints}
           hasPgcPoints={props.hasPgcPoints}
           aliasLogoLookup={props.aliasLogoLookup}
+          stageAdditionalPts={props.stageAdditionalPts}
         />
       )}
 

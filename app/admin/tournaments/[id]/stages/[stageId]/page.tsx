@@ -37,7 +37,13 @@ interface ImportRow {
   errorMsg?: string
 }
 
-function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig = DEFAULT_RULE): ComputedStanding[] {
+interface AdditionalPoint {
+  stage_id: string
+  team_name: string
+  points: number
+}
+
+function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig = DEFAULT_RULE, extraPts: Record<string, number> = {}): ComputedStanding[] {
   const imported = matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
   const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }>()
   for (const match of imported) {
@@ -68,6 +74,10 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
       }
     }
   }
+  for (const stat of statMap.values()) {
+    stat.totalPts += extraPts[stat.teamName.toLowerCase()] ?? 0
+  }
+
   const results = [...statMap.values()]
   if (rule.type === 'chicken') {
     return results.sort((a, b) => {
@@ -111,22 +121,34 @@ export default function StageMatchesPage() {
     | null
   >(null)
 
+  const [additionalPoints, setAdditionalPoints] = useState<AdditionalPoint[]>([])
+  const [addPtsOpen, setAddPtsOpen] = useState(false)
+  const [addPtsRows, setAddPtsRows] = useState<{ teamName: string; points: string }[]>([])
+  const [savingAddPts, setSavingAddPts] = useState(false)
+
   const load = useCallback(async () => {
-    const [{ data: s }, { data: m }] = await Promise.all([
+    const [{ data: s }, { data: m }, { data: ap }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
+      supabase.from('stage_additional_points').select('stage_id, team_name, points').eq('stage_id', stageId),
     ])
     const stageData = s as Stage
     setStage(stageData)
     setAdvanceCount(stageData.advance_count ?? 0)
     setEliminateCount(stageData.eliminate_count ?? 0)
     setMatches((m ?? []) as MatchWithResults[])
+    setAdditionalPoints((ap ?? []) as AdditionalPoint[])
   }, [stageId, supabase])
 
   useEffect(() => { load() }, [load])
 
   const stageRule = useMemo(() => ruleFromStage(stage?.scoring_rules), [stage])
-  const computedStandings = useMemo(() => computeStandings(matches, stageRule), [matches, stageRule])
+  const extraPtsMap = useMemo(() => {
+    const m: Record<string, number> = {}
+    for (const ap of additionalPoints) m[ap.team_name.toLowerCase()] = ap.points
+    return m
+  }, [additionalPoints])
+  const computedStandings = useMemo(() => computeStandings(matches, stageRule, extraPtsMap), [matches, stageRule, extraPtsMap])
 
   function handleMatchIdPaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: string) {
     const text = e.clipboardData.getData('text')
@@ -145,6 +167,36 @@ export default function StageMatchesPage() {
       next.splice(idx + 1, 0, ...extraRows)
       return next
     })
+  }
+
+  function openAddPtsPanel() {
+    const existing = new Map(additionalPoints.map(ap => [ap.team_name.toLowerCase(), ap.points]))
+    const rows = computedStandings.map(s => ({
+      teamName: s.teamName,
+      points: String(existing.get(s.teamName.toLowerCase()) ?? 0),
+    }))
+    // Append saved teams not currently in standings
+    for (const ap of additionalPoints) {
+      if (!rows.find(r => r.teamName.toLowerCase() === ap.team_name.toLowerCase())) {
+        rows.push({ teamName: ap.team_name, points: String(ap.points) })
+      }
+    }
+    setAddPtsRows(rows)
+    setAddPtsOpen(true)
+  }
+
+  async function saveAdditionalPoints() {
+    setSavingAddPts(true)
+    await supabase.from('stage_additional_points').delete().eq('stage_id', stageId)
+    const toInsert = addPtsRows
+      .filter(r => r.teamName.trim() && Number(r.points) !== 0)
+      .map(r => ({ stage_id: stageId, team_name: r.teamName.trim(), points: Number(r.points) }))
+    if (toInsert.length > 0) {
+      await supabase.from('stage_additional_points').insert(toInsert)
+    }
+    setSavingAddPts(false)
+    setAddPtsOpen(false)
+    load()
   }
 
   async function saveAdvancementRules() {
@@ -321,11 +373,19 @@ export default function StageMatchesPage() {
                 {stageRule.placement_pts.map((p, i) => `${i + 1}위:${p}`).join(' · ')} | Kill×{stageRule.kill_pts}
               </p>
             </div>
-            {stage.scoring_rules && (
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stageRule.type === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
-                {stage.scoring_rules.name}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {stage.scoring_rules && (
+                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stageRule.type === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                  {stage.scoring_rules.name}
+                </span>
+              )}
+              <button
+                onClick={openAddPtsPanel}
+                className={`text-xs border rounded-lg px-2.5 py-1 transition-colors ${additionalPoints.length > 0 ? 'border-yellow-400 text-yellow-700 bg-yellow-50' : 'border-gray-200 text-gray-500 hover:border-yellow-300 hover:text-gray-700'}`}
+              >
+                {additionalPoints.length > 0 ? `+ Additional Pts (${additionalPoints.length})` : '+ Additional Pts'}
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -357,6 +417,59 @@ export default function StageMatchesPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* Additional Points Panel */}
+      {addPtsOpen && (
+        <div className="bg-white rounded-xl border border-yellow-200 p-5 mb-8">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h2 className="font-semibold text-gray-800">Additional Points</h2>
+              <p className="text-xs text-gray-400 mt-0.5">매치 점수 외 추가 부여 점수 — Total Points에만 반영됩니다</p>
+            </div>
+            <button onClick={() => setAddPtsOpen(false)} className="text-gray-300 hover:text-gray-500 text-xl leading-none">×</button>
+          </div>
+
+          <div className="space-y-2 mb-4 max-h-96 overflow-y-auto pr-1">
+            {addPtsRows.map((row, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  value={row.teamName}
+                  onChange={e => setAddPtsRows(rows => rows.map((r, j) => j === i ? { ...r, teamName: e.target.value } : r))}
+                  placeholder="Team name / tag"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                />
+                <input
+                  type="number"
+                  value={row.points}
+                  onChange={e => setAddPtsRows(rows => rows.map((r, j) => j === i ? { ...r, points: e.target.value } : r))}
+                  className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                />
+                <button
+                  onClick={() => setAddPtsRows(rows => rows.filter((_, j) => j !== i))}
+                  className="text-gray-300 hover:text-red-500 text-lg leading-none px-1 shrink-0"
+                >×</button>
+              </div>
+            ))}
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setAddPtsRows(rows => [...rows, { teamName: '', points: '0' }])}
+              className="text-xs border border-dashed border-gray-300 text-gray-400 hover:border-yellow-400 hover:text-yellow-600 px-2.5 py-1.5 rounded-lg"
+            >
+              + Add Team
+            </button>
+            <button
+              onClick={saveAdditionalPoints}
+              disabled={savingAddPts}
+              className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-semibold px-4 py-1.5 rounded-lg"
+            >
+              {savingAddPts ? 'Saving...' : 'Save'}
+            </button>
+            <button onClick={() => setAddPtsOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
           </div>
         </div>
       )}
