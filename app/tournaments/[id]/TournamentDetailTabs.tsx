@@ -11,6 +11,7 @@ type AnyObj = Record<string, any>
 interface SeriesItem { id: string; name: string; order_num: number }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }
+interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: string | null; pgsPoints: number | null; pgcPoints: number | null }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
@@ -24,6 +25,8 @@ interface Props {
   hasPgcPoints: boolean
   aliasLogoLookup: Record<string, string | null>
   stageAdditionalPts: Record<string, Record<string, number>>
+  wwcdBonusByTeamId: Record<string, { prize: number; pgs: number; pgc: number; sym: string }>
+  specialAwards: SpecialAwardItem[]
   playerStats: PlayerStatRow[]
   playerStatsByMatch: Record<string, PlayerMatchStat[]>
   teamStats: TeamStatRow[]
@@ -66,6 +69,8 @@ export default function TournamentDetailTabs(props: Props) {
           hasPgcPoints={props.hasPgcPoints}
           aliasLogoLookup={props.aliasLogoLookup}
           stageAdditionalPts={props.stageAdditionalPts}
+          wwcdBonusByTeamId={props.wwcdBonusByTeamId}
+          specialAwards={props.specialAwards}
         />
       )}
 

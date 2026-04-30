@@ -110,6 +110,14 @@ export default function AdminTournamentDetailPage() {
   const [prizeCurrency, setPrizeCurrency] = useState('USD')
   const [prizePoolInput, setPrizePoolInput] = useState('')
 
+  type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
+  const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
+  const [savingWwcd, setSavingWwcd] = useState(false)
+  type SpecialAwardRow = { id: string; awardName: string; playerId: string | null; playerDisplayName: string; teamId: string | null; teamDisplayName: string; prize: string; pgs: string; pgc: string }
+  const [specialRows, setSpecialRows] = useState<SpecialAwardRow[]>([])
+  const [savingSpecial, setSavingSpecial] = useState(false)
+  const [awardPlayerLinkIdx, setAwardPlayerLinkIdx] = useState<number | null>(null)
+
   // selected match per stage for inline linking UI
   const [selectedMatchByStage, setSelectedMatchByStage] = useState<Record<string, string | null>>({})
 
@@ -120,7 +128,7 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
@@ -130,6 +138,8 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('scoring_rules').select('*').order('created_at'),
+      supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
+      supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
     ])
     setSeriesList((ser ?? []) as Series[])
     setScoringRules((sr ?? []) as ScoringRule[])
@@ -174,6 +184,26 @@ export default function AdminTournamentDetailPage() {
       })
     }
     setPrizeRows(rows)
+
+    setWwcdRows((wwcd ?? []).map((r) => ({
+      id: r.id as string,
+      stageId: (r.stage_id as string) ?? '',
+      prize: parsePrizeNum(r.prize as string | null),
+      pgs: r.pgs_points?.toString() ?? '',
+      pgc: r.pgc_points?.toString() ?? '',
+    })))
+
+    setSpecialRows((special ?? []).map((r) => ({
+      id: r.id as string,
+      awardName: r.award_name as string,
+      playerId: (r.player_id as string | null) ?? null,
+      playerDisplayName: (r.player_display_name as string) ?? '',
+      teamId: (r.team_id as string | null) ?? null,
+      teamDisplayName: (r.team_display_name as string) ?? '',
+      prize: parsePrizeNum(r.prize as string | null),
+      pgs: r.pgs_points?.toString() ?? '',
+      pgc: r.pgc_points?.toString() ?? '',
+    })))
   }, [id, supabase, router])
 
   useEffect(() => { load() }, [load])
@@ -339,6 +369,56 @@ export default function AdminTournamentDetailPage() {
     }
 
     setSavingPrize(false)
+    load()
+  }
+
+  async function saveWwcdRewards() {
+    setSavingWwcd(true)
+    setErr('')
+    const sym = currencySymbol(prizeCurrency)
+    const rows = wwcdRows
+      .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
+      .map((r, i) => ({
+        tournament_id: id,
+        stage_id: r.stageId || null,
+        prize: r.prize ? `${sym}${r.prize}` : null,
+        pgs_points: r.pgs ? parseFloat(r.pgs) : null,
+        pgc_points: r.pgc ? parseFloat(r.pgc) : null,
+        order_num: i,
+      }))
+    await supabase.from('tournament_wwcd_rewards').delete().eq('tournament_id', id)
+    if (rows.length > 0) {
+      const { error } = await supabase.from('tournament_wwcd_rewards').insert(rows)
+      if (error) { setErr('Save failed: ' + error.message); setSavingWwcd(false); return }
+    }
+    setSavingWwcd(false)
+    load()
+  }
+
+  async function saveSpecialAwards() {
+    setSavingSpecial(true)
+    setErr('')
+    const sym = currencySymbol(prizeCurrency)
+    const rows = specialRows
+      .filter((r) => r.awardName.trim())
+      .map((r, i) => ({
+        tournament_id: id,
+        award_name: r.awardName.trim(),
+        player_id: r.playerId || null,
+        player_display_name: r.playerDisplayName || null,
+        team_id: r.teamId || null,
+        team_display_name: r.teamDisplayName || null,
+        prize: r.prize ? `${sym}${r.prize}` : null,
+        pgs_points: r.pgs ? parseFloat(r.pgs) : null,
+        pgc_points: r.pgc ? parseFloat(r.pgc) : null,
+        order_num: i,
+      }))
+    await supabase.from('tournament_special_awards').delete().eq('tournament_id', id)
+    if (rows.length > 0) {
+      const { error } = await supabase.from('tournament_special_awards').insert(rows)
+      if (error) { setErr('Save failed: ' + error.message); setSavingSpecial(false); return }
+    }
+    setSavingSpecial(false)
     load()
   }
 
@@ -1190,6 +1270,240 @@ export default function AdminTournamentDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* WWCD Rewards */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">WWCD Rewards</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Per-WWCD prize/points, applied per stage or across all stages</p>
+          </div>
+          <button
+            onClick={saveWwcdRewards}
+            disabled={savingWwcd}
+            className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+          >
+            {savingWwcd ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {wwcdRows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 border-b border-gray-100">
+                    <th className="text-left px-4 py-2">Stage</th>
+                    {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)}) / WWCD</th>}
+                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS / WWCD</th>}
+                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC / WWCD</th>}
+                    <th className="w-10" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {wwcdRows.map((row, i) => (
+                    <tr key={i} className="border-b border-gray-50 last:border-0">
+                      <td className="px-4 py-2">
+                        <select
+                          value={row.stageId}
+                          onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
+                          className="w-44 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        >
+                          <option value="">— all stages —</option>
+                          {stageList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                        </select>
+                      </td>
+                      {form.has_prize && (
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
+                            <input
+                              value={row.prize}
+                              onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
+                              placeholder="0"
+                              className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                            />
+                          </div>
+                        </td>
+                      )}
+                      {form.has_pgs_points && (
+                        <td className="px-4 py-2 text-right">
+                          <input
+                            type="number"
+                            value={row.pgs}
+                            onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
+                            placeholder="0"
+                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </td>
+                      )}
+                      {form.has_pgc_points && (
+                        <td className="px-4 py-2 text-right">
+                          <input
+                            type="number"
+                            value={row.pgc}
+                            onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
+                            placeholder="0"
+                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </td>
+                      )}
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => setWwcdRows((rows) => rows.filter((_, j) => j !== i))}
+                          className="text-gray-300 hover:text-red-400 text-sm"
+                        >✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="px-4 py-2.5 border-t border-gray-100">
+            <button
+              onClick={() => setWwcdRows((rows) => [...rows, { id: '', stageId: '', prize: '', pgs: '', pgc: '' }])}
+              className="text-sm text-yellow-600 hover:text-yellow-700 font-medium"
+            >
+              + Add Row
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Special Awards */}
+      <div className="mt-8 mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Special Awards</h2>
+            <p className="text-xs text-gray-500 mt-0.5">MVP, Best Fragger, and other individual prizes shown below Final Standings</p>
+          </div>
+          <button
+            onClick={saveSpecialAwards}
+            disabled={savingSpecial}
+            className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+          >
+            {savingSpecial ? 'Saving...' : 'Save'}
+          </button>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {specialRows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 border-b border-gray-100">
+                    <th className="text-left px-4 py-2">Award Name</th>
+                    <th className="text-left px-4 py-2">Player</th>
+                    {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
+                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
+                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
+                    <th className="w-10" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {specialRows.map((row, i) => (
+                    <tr key={i} className="border-b border-gray-50 last:border-0">
+                      <td className="px-4 py-2">
+                        <input
+                          value={row.awardName}
+                          onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, awardName: e.target.value } : r))}
+                          placeholder="e.g. MVP"
+                          className="w-36 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        />
+                      </td>
+                      <td className="px-4 py-2">
+                        {row.playerId ? (
+                          <div className="flex items-center gap-2">
+                            <span className="text-xs text-gray-700 font-medium">{row.playerDisplayName || '?'}</span>
+                            <button
+                              onClick={() => setAwardPlayerLinkIdx(i)}
+                              className="text-xs text-blue-500 hover:text-blue-700"
+                            >Change</button>
+                            <button
+                              onClick={() => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, playerId: null, playerDisplayName: '' } : r))}
+                              className="text-xs text-gray-300 hover:text-red-400"
+                            >✕</button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setAwardPlayerLinkIdx(i)}
+                            className="text-xs border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-50"
+                          >
+                            Link Player
+                          </button>
+                        )}
+                      </td>
+                      {form.has_prize && (
+                        <td className="px-4 py-2 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
+                            <input
+                              value={row.prize}
+                              onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
+                              placeholder="0"
+                              className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                            />
+                          </div>
+                        </td>
+                      )}
+                      {form.has_pgs_points && (
+                        <td className="px-4 py-2 text-right">
+                          <input
+                            type="number"
+                            value={row.pgs}
+                            onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
+                            placeholder="0"
+                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </td>
+                      )}
+                      {form.has_pgc_points && (
+                        <td className="px-4 py-2 text-right">
+                          <input
+                            type="number"
+                            value={row.pgc}
+                            onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
+                            placeholder="0"
+                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </td>
+                      )}
+                      <td className="px-3 py-2 text-center">
+                        <button
+                          onClick={() => setSpecialRows((rows) => rows.filter((_, j) => j !== i))}
+                          className="text-gray-300 hover:text-red-400 text-sm"
+                        >✕</button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+          <div className="px-4 py-2.5 border-t border-gray-100">
+            <button
+              onClick={() => setSpecialRows((rows) => [...rows, { id: '', awardName: '', playerId: null, playerDisplayName: '', teamId: null, teamDisplayName: '', prize: '', pgs: '', pgc: '' }])}
+              className="text-sm text-yellow-600 hover:text-yellow-700 font-medium"
+            >
+              + Add Award
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {awardPlayerLinkIdx !== null && (
+        <SearchModal
+          type="player"
+          targetName={specialRows[awardPlayerLinkIdx]?.awardName || 'Award'}
+          onConfirm={(playerId, playerName) => {
+            setSpecialRows((rows) => rows.map((r, j) => j === awardPlayerLinkIdx
+              ? { ...r, playerId, playerDisplayName: playerName }
+              : r
+            ))
+            setAwardPlayerLinkIdx(null)
+          }}
+          onClose={() => setAwardPlayerLinkIdx(null)}
+        />
+      )}
 
       {linkModal?.phase === 1 && (
         <SearchModal

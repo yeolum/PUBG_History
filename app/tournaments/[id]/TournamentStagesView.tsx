@@ -13,6 +13,7 @@ type AnyObj = Record<string, any>
 interface SeriesItem { id: string; name: string; order_num: number }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }
+interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: string | null; pgsPoints: number | null; pgcPoints: number | null }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
@@ -26,6 +27,8 @@ interface Props {
   hasPgcPoints: boolean
   aliasLogoLookup: Record<string, string | null>
   stageAdditionalPts?: Record<string, Record<string, number>>
+  wwcdBonusByTeamId?: Record<string, { prize: number; pgs: number; pgc: number; sym: string }>
+  specialAwards?: SpecialAwardItem[]
 }
 
 const rankStyle = (rank: number) =>
@@ -46,6 +49,7 @@ function formatDateLabel(dateStr: string) {
 export default function TournamentStagesView({
   stages, series, resultsByMatch, damageByMatch, rankBoard, prizeConfig,
   hasPrize, hasPgsPoints, hasPgcPoints, aliasLogoLookup, stageAdditionalPts = {},
+  wwcdBonusByTeamId = {}, specialAwards = [],
 }: Props) {
   // All hooks must be before early return
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
@@ -166,6 +170,27 @@ export default function TournamentStagesView({
 
   const prizeByRank = new Map(prizeConfig.map(p => [p.rank, p]))
 
+  function parsePrizeStr(s: string | null): { sym: string; val: number } | null {
+    if (!s) return null
+    const sym = s.match(/^[^\d]+/)?.[0] ?? '$'
+    const val = parseInt(s.replace(/[^\d]/g, '') || '0', 10)
+    return { sym, val }
+  }
+
+  function displayPrize(teamId: string | null, placementPrize: string | null): string {
+    const bonus = teamId ? (wwcdBonusByTeamId[teamId]?.prize ?? 0) : 0
+    if (bonus === 0) return placementPrize ?? '-'
+    const p = parsePrizeStr(placementPrize)
+    const sym = p?.sym ?? wwcdBonusByTeamId[teamId!]?.sym ?? '$'
+    return `${sym}${((p?.val ?? 0) + bonus).toLocaleString('en-US')}`
+  }
+
+  function displayPts(teamId: string | null, base: number | null, field: 'pgs' | 'pgc'): string | number {
+    const bonus = teamId ? (field === 'pgs' ? (wwcdBonusByTeamId[teamId]?.pgs ?? 0) : (wwcdBonusByTeamId[teamId]?.pgc ?? 0)) : 0
+    if (bonus === 0) return base ?? '-'
+    return (base ?? 0) + bonus
+  }
+
   const btnBase = 'flex items-center justify-center font-medium border transition-colors rounded-lg text-xs'
   const btnActive = 'bg-yellow-400 border-yellow-400 text-gray-900'
   const btnIdle = 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
@@ -283,52 +308,87 @@ export default function TournamentStagesView({
       {/* Two-column layout — always side-by-side with horizontal scroll on narrow screens */}
       <div className="overflow-x-auto">
       <div className="flex flex-row gap-4 items-start min-w-max">
-        {/* Left: Final Standings */}
-        {rankBoard.length > 0 && (
-          <div className="w-[21rem] shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
-            <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-              <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
-            </div>
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="text-xs text-gray-400 border-b border-gray-100">
-                  <th className="text-left px-3 py-2 w-8">#</th>
-                  <th className="text-left px-3 py-2">Team</th>
-                  {hasPrize && <th className="text-right px-3 py-2">Prize</th>}
-                  {hasPgsPoints && <th className="text-right px-3 py-2">PGS</th>}
-                  {hasPgcPoints && <th className="text-right px-3 py-2">PGC</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {rankBoard.map(row => {
-                  const pc = prizeByRank.get(row.rank)
-                  const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
-                  return (
-                    <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
-                      <td className={`px-3 py-2 font-mono text-xs ${rankStyle(row.rank)}`}>{row.rank}</td>
-                      <td className="px-3 py-2">
-                        <div className="flex items-center gap-1.5">
-                          {logo ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
-                          ) : (
-                            <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
-                          )}
-                          <span className="font-medium text-gray-800 text-xs leading-snug">
-                            {row.teamId ? (
-                              <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">{row.teamName}</Link>
-                            ) : row.teamName}
-                          </span>
-                        </div>
-                      </td>
-                      {hasPrize && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.prize ?? '-'}</td>}
-                      {hasPgsPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgs_points ?? '-'}</td>}
-                      {hasPgcPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{pc?.pgc_points ?? '-'}</td>}
+        {/* Left: Final Standings + Special Awards */}
+        {(rankBoard.length > 0 || specialAwards.length > 0) && (
+          <div className="w-[21rem] shrink-0 flex flex-col gap-4">
+            {rankBoard.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
+                </div>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-xs text-gray-400 border-b border-gray-100">
+                      <th className="text-left px-3 py-2 w-8">#</th>
+                      <th className="text-left px-3 py-2">Team</th>
+                      {hasPrize && <th className="text-right px-3 py-2">Prize</th>}
+                      {hasPgsPoints && <th className="text-right px-3 py-2">PGS</th>}
+                      {hasPgcPoints && <th className="text-right px-3 py-2">PGC</th>}
                     </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+                  </thead>
+                  <tbody>
+                    {rankBoard.map(row => {
+                      const pc = prizeByRank.get(row.rank)
+                      const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
+                      return (
+                        <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
+                          <td className={`px-3 py-2 font-mono text-xs ${rankStyle(row.rank)}`}>{row.rank}</td>
+                          <td className="px-3 py-2">
+                            <div className="flex items-center gap-1.5">
+                              {logo ? (
+                                // eslint-disable-next-line @next/next/no-img-element
+                                <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                              ) : (
+                                <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                              )}
+                              <span className="font-medium text-gray-800 text-xs leading-snug">
+                                {row.teamId ? (
+                                  <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">{row.teamName}</Link>
+                                ) : row.teamName}
+                              </span>
+                            </div>
+                          </td>
+                          {hasPrize && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPrize(row.teamId, pc?.prize ?? null)}</td>}
+                          {hasPgsPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgs_points ?? null, 'pgs')}</td>}
+                          {hasPgcPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgc_points ?? null, 'pgc')}</td>}
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+            {specialAwards.length > 0 && (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-800">Special Awards</h2>
+                </div>
+                <table className="w-full text-sm">
+                  <tbody>
+                    {specialAwards.map((award) => (
+                      <tr key={award.id} className="border-b border-gray-50 last:border-0">
+                        <td className="px-3 py-2.5">
+                          <div className="text-xs font-semibold text-yellow-700">{award.awardName}</div>
+                          {award.playerName && (
+                            <div className="text-xs text-gray-600 mt-0.5">
+                              {award.playerId ? (
+                                <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
+                              ) : award.playerName}
+                            </div>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-right">
+                          {award.prize && <div className="text-xs font-medium text-gray-800">{award.prize}</div>}
+                          {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
+                          {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         )}
 
