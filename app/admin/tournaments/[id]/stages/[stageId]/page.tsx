@@ -293,14 +293,18 @@ export default function StageMatchesPage() {
     } else {
       await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName }).eq('id', statId)
     }
-    // Always store the raw pubg_player_name as alias so Q2 can find it later
-    const aliasSet = new Set<string>([
+    // Save pubg name and registered name (don't overwrite other players' aliases)
+    const baseAliases = new Set<string>([
       ...(pubgPlayerName ? [pubgPlayerName] : []),
       entityName,
-      ...(displayName && displayName !== entityName ? [displayName] : []),
     ].filter(Boolean))
-    for (const alias of aliasSet) {
+    for (const alias of baseAliases) {
       await supabase.from('player_aliases').upsert([{ player_id: playerId, alias }], { onConflict: 'alias', ignoreDuplicates: true })
+    }
+    // Save custom display name — admin explicitly chose this name, so always save it
+    // (ignoreDuplicates: false reassigns the alias if it's currently under another player)
+    if (displayName && displayName !== entityName && !baseAliases.has(displayName)) {
+      await supabase.from('player_aliases').upsert([{ player_id: playerId, alias: displayName }], { onConflict: 'alias', ignoreDuplicates: false })
     }
     setLinkModal(null)
     load()
