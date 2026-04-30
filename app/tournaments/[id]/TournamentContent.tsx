@@ -320,7 +320,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     .sort((a, b) => a.name.localeCompare(b.name))
 
   // Per-stage standings → rank board
-  type StandingsEntry = { teamId: string | null; teamName: string }
+  type StandingsEntry = { teamId: string | null; teamName: string; placePts: number }
   const stageStandingsMap = new Map<string, StandingsEntry[]>()
   for (const stage of stagesList) {
     const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number }>()
@@ -453,8 +453,17 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   // Prize/PGS/PGC ranking — build rankBoard now that wwcdBonusByTeamId is complete
   if (rankMethod !== 'stage') {
+    // Tiebreaker (SUPER v2): sum of placement pts across all stages
+    const placePtsByTeamId: Record<string, number> = {}
+    for (const standings of stageStandingsMap.values()) {
+      for (const e of standings) {
+        if (!e.teamId) continue
+        placePtsByTeamId[e.teamId] = (placePtsByTeamId[e.teamId] ?? 0) + e.placePts
+      }
+    }
+
     const seen = new Set<string>()
-    const teamList: { teamId: string | null; teamName: string; total: number }[] = []
+    const teamList: { teamId: string | null; teamName: string; total: number; placePts: number }[] = []
     for (const ts of teamStatsMap.values()) {
       const key = ts.teamId ?? `name:${ts.teamName}`
       if (seen.has(key)) continue
@@ -465,9 +474,13 @@ export default async function TournamentContent({ id, tournament }: { id: string
           : rankMethod === 'pgs' ? bonus.pgs
           : bonus.pgc
         : 0
-      teamList.push({ teamId: ts.teamId, teamName: ts.teamName, total })
+      const placePts = ts.teamId ? (placePtsByTeamId[ts.teamId] ?? 0) : 0
+      teamList.push({ teamId: ts.teamId, teamName: ts.teamName, total, placePts })
     }
-    teamList.sort((a, b) => b.total - a.total)
+    teamList.sort((a, b) => {
+      if (b.total !== a.total) return b.total - a.total
+      return b.placePts - a.placePts  // SUPER v2: placement pts tiebreaker
+    })
     teamList.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
   }
 
