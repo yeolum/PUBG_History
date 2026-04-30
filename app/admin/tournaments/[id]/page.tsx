@@ -110,6 +110,11 @@ export default function AdminTournamentDetailPage() {
   const [prizeCurrency, setPrizeCurrency] = useState('USD')
   const [prizePoolInput, setPrizePoolInput] = useState('')
 
+  type StagePrizeRow = { placement: number; prize: string; pgs: string; pgc: string }
+  const [stagePrizeMap, setStagePrizeMap] = useState<Record<string, StagePrizeRow[]>>({})
+  const [selectedStagePrizeId, setSelectedStagePrizeId] = useState('')
+  const [savingStagePrize, setSavingStagePrize] = useState(false)
+
   type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
   const [savingWwcd, setSavingWwcd] = useState(false)
@@ -184,6 +189,27 @@ export default function AdminTournamentDetailPage() {
       })
     }
     setPrizeRows(rows)
+
+    // Stage prize config (sequential query after we have stage IDs)
+    const stageIds = ((s ?? []) as StageFull[]).map((stage) => stage.id)
+    const { data: sp } = stageIds.length > 0
+      ? await supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds).order('placement')
+      : { data: [] as { stage_id: string; placement: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }[] }
+
+    const spMap: Record<string, StagePrizeRow[]> = {}
+    for (const stage of (s ?? []) as StageFull[]) {
+      spMap[stage.id] = Array.from({ length: 16 }, (_, i) => ({ placement: i + 1, prize: '', pgs: '', pgc: '' }))
+    }
+    for (const r of (sp ?? [])) {
+      const row = spMap[r.stage_id]?.find((row) => row.placement === r.placement)
+      if (row) {
+        row.prize = parsePrizeNum(r.prize)
+        row.pgs = r.pgs_points?.toString() ?? ''
+        row.pgc = r.pgc_points?.toString() ?? ''
+      }
+    }
+    setStagePrizeMap(spMap)
+    if (stageIds.length > 0 && !selectedStagePrizeId) setSelectedStagePrizeId(stageIds[0])
 
     setWwcdRows((wwcd ?? []).map((r) => ({
       id: r.id as string,
@@ -369,6 +395,29 @@ export default function AdminTournamentDetailPage() {
     }
 
     setSavingPrize(false)
+    load()
+  }
+
+  async function saveStagePrizes() {
+    if (!selectedStagePrizeId) return
+    setSavingStagePrize(true)
+    setErr('')
+    const sym = currencySymbol(prizeCurrency)
+    const rows = (stagePrizeMap[selectedStagePrizeId] ?? [])
+      .filter((r) => r.prize || r.pgs || r.pgc)
+      .map((r) => ({
+        stage_id: selectedStagePrizeId,
+        placement: r.placement,
+        prize: r.prize ? `${sym}${r.prize}` : null,
+        pgs_points: r.pgs ? parseFloat(r.pgs) : null,
+        pgc_points: r.pgc ? parseFloat(r.pgc) : null,
+      }))
+    await supabase.from('stage_prize_config').delete().eq('stage_id', selectedStagePrizeId)
+    if (rows.length > 0) {
+      const { error } = await supabase.from('stage_prize_config').insert(rows)
+      if (error) { setErr('Save failed: ' + error.message); setSavingStagePrize(false); return }
+    }
+    setSavingStagePrize(false)
     load()
   }
 
@@ -1269,6 +1318,99 @@ export default function AdminTournamentDetailPage() {
             </table>
           </div>
         </div>
+      </div>
+
+      {/* Stage Prizes */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-800">Stage Prizes</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Per-stage placement prizes and points</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <select
+              value={selectedStagePrizeId}
+              onChange={(e) => setSelectedStagePrizeId(e.target.value)}
+              className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            >
+              {stageList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <button
+              onClick={saveStagePrizes}
+              disabled={savingStagePrize || !selectedStagePrizeId}
+              className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+            >
+              {savingStagePrize ? 'Saving...' : 'Save'}
+            </button>
+          </div>
+        </div>
+        {selectedStagePrizeId && (
+          <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-xs text-gray-400 border-b border-gray-100">
+                    <th className="text-left px-4 py-2 w-10">#</th>
+                    {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
+                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
+                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {(stagePrizeMap[selectedStagePrizeId] ?? []).map((row, i) => (
+                    <tr key={row.placement} className="border-b border-gray-50 last:border-0">
+                      <td className="px-4 py-1.5 text-gray-400 font-mono text-xs">{row.placement}</td>
+                      {form.has_prize && (
+                        <td className="px-4 py-1.5 text-right">
+                          <div className="flex items-center justify-end gap-1">
+                            <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
+                            <input
+                              value={row.prize}
+                              onChange={(e) => setStagePrizeMap((m) => ({
+                                ...m,
+                                [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r),
+                              }))}
+                              placeholder="0"
+                              className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                            />
+                          </div>
+                        </td>
+                      )}
+                      {form.has_pgs_points && (
+                        <td className="px-4 py-1.5 text-right">
+                          <input
+                            type="number"
+                            value={row.pgs}
+                            onChange={(e) => setStagePrizeMap((m) => ({
+                              ...m,
+                              [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, pgs: e.target.value } : r),
+                            }))}
+                            placeholder="0"
+                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </td>
+                      )}
+                      {form.has_pgc_points && (
+                        <td className="px-4 py-1.5 text-right">
+                          <input
+                            type="number"
+                            value={row.pgc}
+                            onChange={(e) => setStagePrizeMap((m) => ({
+                              ...m,
+                              [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, pgc: e.target.value } : r),
+                            }))}
+                            placeholder="0"
+                            className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          />
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* WWCD Rewards */}

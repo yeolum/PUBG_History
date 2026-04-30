@@ -61,16 +61,17 @@ const loadTournamentData = unstable_cache(
 
     const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
 
-    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }] = await Promise.all([
+    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       aliasQueriesPromise,
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_name, points').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, players(id, nickname)').eq('tournament_id', id).order('order_num'),
+      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData }
   },
   ['tournament-data'],
   { revalidate: 30 }
@@ -84,7 +85,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData } = await loadTournamentData(id)
 
   // stageId → { teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -410,6 +411,36 @@ export default async function TournamentContent({ id, tournament }: { id: string
           }
         }
       }
+    }
+  }
+
+  // Stage placement prizes → fold into bonus map
+  const stagePrizeByStage: Record<string, { placement: number; prize: string | null; pgs: number | null; pgc: number | null }[]> = {}
+  for (const row of (stagePrizeConfigData ?? []) as AnyRow[]) {
+    if (!stagePrizeByStage[row.stage_id]) stagePrizeByStage[row.stage_id] = []
+    stagePrizeByStage[row.stage_id].push({
+      placement: row.placement as number,
+      prize: row.prize as string | null,
+      pgs: row.pgs_points != null ? Number(row.pgs_points) : null,
+      pgc: row.pgc_points != null ? Number(row.pgc_points) : null,
+    })
+  }
+  for (const stage of stagesList) {
+    const stagePrizes = stagePrizeByStage[stage.id]
+    if (!stagePrizes || stagePrizes.length === 0) continue
+    const standings = stageStandingsMap.get(stage.id) ?? []
+    for (let i = 0; i < standings.length; i++) {
+      const entry = standings[i]
+      if (!entry.teamId) continue
+      const pc = stagePrizes.find((p) => p.placement === i + 1)
+      if (!pc) continue
+      const prizeAmt = parsePrizeAmt(pc.prize)
+      const pgsAmt = pc.pgs ?? 0
+      const pgcAmt = pc.pgc ?? 0
+      if (!wwcdBonusByTeamId[entry.teamId]) wwcdBonusByTeamId[entry.teamId] = { prize: 0, pgs: 0, pgc: 0, sym: prizeAmt?.sym ?? '$' }
+      if (prizeAmt) wwcdBonusByTeamId[entry.teamId].prize += prizeAmt.val
+      wwcdBonusByTeamId[entry.teamId].pgs += pgsAmt
+      wwcdBonusByTeamId[entry.teamId].pgc += pgcAmt
     }
   }
 
