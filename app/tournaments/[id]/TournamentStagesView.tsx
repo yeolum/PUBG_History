@@ -52,12 +52,8 @@ export default function TournamentStagesView({
   wwcdBonusByTeamId = {}, specialAwards = [],
 }: Props) {
   // All hooks must be before early return
-  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(
-    () => stages[0]?.series_id ?? null
-  )
-  const [selectedStageId, setSelectedStageId] = useState<string | null>(
-    () => stages[0]?.series_id ? null : (stages[0]?.id ?? null)
-  )
+  const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null)
+  const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
 
   const stagesBySeries = useMemo(() => {
@@ -160,6 +156,27 @@ export default function TournamentStagesView({
     [selectedSeriesId, selectedStageId, stages]
   )
 
+  // Tournament-wide team stats for the initial Final Standings view
+  const overallStandingsMap = useMemo(() => {
+    const map = new Map<string, { matches: number; wwcd: number; placePts: number; kills: number; totalPts: number }>()
+    for (const [matchId, results] of Object.entries(resultsByMatch)) {
+      const rule = matchToRule.get(matchId)
+      if (!rule) continue
+      for (const r of results as AnyObj[]) {
+        const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+        if (!map.has(key)) map.set(key, { matches: 0, wwcd: 0, placePts: 0, kills: 0, totalPts: 0 })
+        const e = map.get(key)!
+        const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+        e.placePts += pp
+        e.kills += r.total_kills ?? 0
+        e.totalPts += pp + Math.round((r.total_kills ?? 0) * rule.kill_pts)
+        e.matches++
+        if ((r.placement ?? 99) === 1) e.wwcd++
+      }
+    }
+    return map
+  }, [resultsByMatch, matchToRule])
+
   if (stages.length === 0) {
     return (
       <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400">
@@ -221,11 +238,12 @@ export default function TournamentStagesView({
 
   const selectedSeriesName = series.find(s => s.id === selectedSeriesId)?.name ?? ''
 
+  const isNothingSelected = !selectedSeriesId && !selectedStageId
+
   return (
     <div>
       {/* Navigation */}
       <div className="mb-3">
-        {/* Top row: series + direct stage buttons */}
         <div className="flex flex-wrap gap-2 mb-1.5">
           {series.map(s => (
             <button
@@ -247,7 +265,6 @@ export default function TournamentStagesView({
           ))}
         </div>
 
-        {/* Sub-row: stages within expanded series (smaller buttons, item 3) */}
         {selectedSeriesId && stagesBySeries.has(selectedSeriesId) && (
           <div className="flex flex-wrap gap-1.5 pl-4 border-l-2 border-yellow-400">
             {(stagesBySeries.get(selectedSeriesId) ?? []).map(stage => (
@@ -263,7 +280,7 @@ export default function TournamentStagesView({
         )}
       </div>
 
-      {/* Match buttons */}
+      {/* Match buttons (only shown when a stage/series is selected) */}
       {selectedSeriesId && !selectedStageId && seriesLevelStages.length > 0 ? (
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 mb-3">
           {seriesLevelStages.map(stage => {
@@ -305,22 +322,25 @@ export default function TournamentStagesView({
         </div>
       ) : null}
 
-      {/* Two-column layout — always side-by-side with horizontal scroll on narrow screens */}
-      <div className="overflow-x-auto">
-      <div className="flex flex-row gap-4 items-start min-w-max">
-        {/* Left: Final Standings + Special Awards */}
-        {(rankBoard.length > 0 || specialAwards.length > 0) && (
-          <div className="w-[21rem] shrink-0 flex flex-col gap-4">
-            {rankBoard.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                  <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
-                </div>
+      {isNothingSelected ? (
+        /* Initial state: full-width Final Standings with match stats */
+        <div className="flex flex-col gap-4">
+          {rankBoard.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                <h2 className="text-sm font-semibold text-gray-800">Final Standings</h2>
+              </div>
+              <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-xs text-gray-400 border-b border-gray-100">
                       <th className="text-left px-3 py-2 w-8">#</th>
                       <th className="text-left px-3 py-2">Team</th>
+                      <th className="text-right px-3 py-2">M</th>
+                      <th className="text-right px-3 py-2">WWCD</th>
+                      <th className="text-right px-3 py-2">Plc Pts</th>
+                      <th className="text-right px-3 py-2">Kills</th>
+                      <th className="text-right px-3 py-2 font-semibold text-gray-500">Total</th>
                       {hasPrize && <th className="text-right px-3 py-2">Prize</th>}
                       {hasPgsPoints && <th className="text-right px-3 py-2">PGS</th>}
                       {hasPgcPoints && <th className="text-right px-3 py-2">PGC</th>}
@@ -330,6 +350,7 @@ export default function TournamentStagesView({
                     {rankBoard.map(row => {
                       const pc = prizeByRank.get(row.rank)
                       const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
+                      const stats = row.teamId ? overallStandingsMap.get(row.teamId) : null
                       return (
                         <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
                           <td className={`px-3 py-2 font-mono text-xs ${rankStyle(row.rank)}`}>{row.rank}</td>
@@ -348,6 +369,11 @@ export default function TournamentStagesView({
                               </span>
                             </div>
                           </td>
+                          <td className="px-3 py-2 text-right text-gray-400 text-xs">{stats?.matches ?? '-'}</td>
+                          <td className="px-3 py-2 text-right text-gray-400 text-xs">{stats?.wwcd ?? '-'}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{stats?.placePts ?? '-'}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{stats?.kills ?? '-'}</td>
+                          <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{stats?.totalPts ?? '-'}</td>
                           {hasPrize && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPrize(row.teamId, pc?.prize ?? null)}</td>}
                           {hasPgsPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgs_points ?? null, 'pgs')}</td>}
                           {hasPgcPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgc_points ?? null, 'pgc')}</td>}
@@ -357,161 +383,161 @@ export default function TournamentStagesView({
                   </tbody>
                 </table>
               </div>
-            )}
+            </div>
+          )}
 
-            {specialAwards.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                  <h2 className="text-sm font-semibold text-gray-800">Special Awards</h2>
-                </div>
-                <table className="w-full text-sm">
-                  <tbody>
-                    {specialAwards.map((award) => (
-                      <tr key={award.id} className="border-b border-gray-50 last:border-0">
-                        <td className="px-3 py-2.5">
-                          <div className="text-xs font-semibold text-yellow-700">{award.awardName}</div>
-                          {award.playerName && (
-                            <div className="text-xs text-gray-600 mt-0.5">
-                              {award.playerId ? (
-                                <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
-                              ) : award.playerName}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-right">
-                          {award.prize && <div className="text-xs font-medium text-gray-800">{award.prize}</div>}
-                          {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
-                          {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Right: Content */}
-        <div className="flex-1 min-w-0">
-          {selectedSeriesId && !selectedStageId ? (
-            /* Series combined view (item 5) */
+          {specialAwards.length > 0 && (
             <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
               <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                <span className="font-semibold text-sm text-gray-800">{selectedSeriesName} — 합산</span>
+                <h2 className="text-sm font-semibold text-gray-800">Special Awards</h2>
               </div>
-              {!selectedMatchId ? (
-                seriesStandings.length > 0 ? (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-xs text-gray-400 border-b border-gray-100">
-                          <th className="text-left px-4 py-2 w-8">#</th>
-                          <th className="text-left px-4 py-2">Team</th>
-                          <th className="text-right px-4 py-2">M</th>
-                          <th className="text-right px-4 py-2">WWCD</th>
-                          <th className="text-right px-4 py-2">Plc Pts</th>
-                          <th className="text-right px-4 py-2">Kills</th>
-                          <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {seriesStandings.map((s, i) => {
-                          const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
-                          return (
-                            <tr key={`${s.teamId ?? s.teamName}-${i}`} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
-                              <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
-                              <td className="px-4 py-2 text-xs">
-                                <div className="flex items-center gap-1.5">
-                                  {logo ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
-                                  ) : (
-                                    <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
-                                  )}
-                                  {s.teamId ? (
-                                    <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
-                                  ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
-                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.placePts}</td>
-                              <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <div className="p-10 text-center text-gray-400 text-sm">No imported matches yet</div>
-                )
-              ) : (
-                seriesMatchResults.length > 0 && (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="text-xs text-gray-400 border-b border-gray-100">
-                          <th className="text-left px-4 py-2 w-8">#</th>
-                          <th className="text-left px-4 py-2">Team</th>
-                          <th className="text-right px-4 py-2">Plc</th>
-                          <th className="text-right px-4 py-2">WWCD</th>
-                          <th className="text-right px-4 py-2">Plc Pts</th>
-                          <th className="text-right px-4 py-2">Kills</th>
-                          <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {seriesMatchResults.map((r: AnyObj, i: number) => {
-                          const teamName = r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '-')
-                          const logo = resolveLogoUrl(r.team_id, teamName, aliasLogoLookup)
-                          return (
-                            <tr key={r.id ?? i} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
-                              <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
-                              <td className="px-4 py-2 text-xs">
-                                <div className="flex items-center gap-1.5">
-                                  {logo ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
-                                  ) : (
-                                    <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
-                                  )}
-                                  {r.team_id ? (
-                                    <Link href={`/teams/${r.team_id}`} className="font-medium text-gray-800 hover:text-yellow-600">{teamName}</Link>
-                                  ) : <span className="font-medium text-gray-800">{teamName}</span>}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
-                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{r.placement === 1 ? 1 : 0}</td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
-                              <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                )
-              )}
+              <table className="w-full text-sm">
+                <tbody>
+                  {specialAwards.map((award) => (
+                    <tr key={award.id} className="border-b border-gray-50 last:border-0">
+                      <td className="px-3 py-2.5">
+                        <div className="text-xs font-semibold text-yellow-700">{award.awardName}</div>
+                        {award.playerName && (
+                          <div className="text-xs text-gray-600 mt-0.5">
+                            {award.playerId ? (
+                              <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
+                            ) : award.playerName}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-3 py-2.5 text-right">
+                        {award.prize && <div className="text-xs font-medium text-gray-800">{award.prize}</div>}
+                        {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
+                        {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-          ) : selectedStage ? (
-            <MatchStageView
-              key={selectedStage.id}
-              stage={selectedStage}
-              matches={selectedStage.matches}
-              selectedMatchId={selectedMatchId}
-              resultsByMatch={resultsByMatch}
-              damageByMatch={damageByMatch}
-              aliasLogoLookup={aliasLogoLookup}
-              additionalPts={stageAdditionalPts[selectedStage.id]}
-            />
-          ) : null}
+          )}
         </div>
-      </div>
-      </div>
+      ) : (
+        /* Stage/Series selected: full-width scoreboard, no Final Standings */
+        <div className="overflow-x-auto">
+          <div className="min-w-max">
+            {selectedSeriesId && !selectedStageId ? (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                  <span className="font-semibold text-sm text-gray-800">{selectedSeriesName} — Standings</span>
+                </div>
+                {!selectedMatchId ? (
+                  seriesStandings.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-xs text-gray-400 border-b border-gray-100">
+                            <th className="text-left px-4 py-2 w-8">#</th>
+                            <th className="text-left px-4 py-2">Team</th>
+                            <th className="text-right px-4 py-2">M</th>
+                            <th className="text-right px-4 py-2">WWCD</th>
+                            <th className="text-right px-4 py-2">Plc Pts</th>
+                            <th className="text-right px-4 py-2">Kills</th>
+                            <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {seriesStandings.map((s, i) => {
+                            const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                            return (
+                              <tr key={`${s.teamId ?? s.teamName}-${i}`} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                                <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                                <td className="px-4 py-2 text-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    {logo ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                                    ) : (
+                                      <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                    )}
+                                    {s.teamId ? (
+                                      <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
+                                    ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
+                                <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
+                                <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
+                                <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.placePts}</td>
+                                <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="p-10 text-center text-gray-400 text-sm">No imported matches yet</div>
+                  )
+                ) : (
+                  seriesMatchResults.length > 0 && (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-xs text-gray-400 border-b border-gray-100">
+                            <th className="text-left px-4 py-2 w-8">#</th>
+                            <th className="text-left px-4 py-2">Team</th>
+                            <th className="text-right px-4 py-2">Plc</th>
+                            <th className="text-right px-4 py-2">WWCD</th>
+                            <th className="text-right px-4 py-2">Plc Pts</th>
+                            <th className="text-right px-4 py-2">Kills</th>
+                            <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {seriesMatchResults.map((r: AnyObj, i: number) => {
+                            const teamName = r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '-')
+                            const logo = resolveLogoUrl(r.team_id, teamName, aliasLogoLookup)
+                            return (
+                              <tr key={r.id ?? i} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                                <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                                <td className="px-4 py-2 text-xs">
+                                  <div className="flex items-center gap-1.5">
+                                    {logo ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                                    ) : (
+                                      <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                    )}
+                                    {r.team_id ? (
+                                      <Link href={`/teams/${r.team_id}`} className="font-medium text-gray-800 hover:text-yellow-600">{teamName}</Link>
+                                    ) : <span className="font-medium text-gray-800">{teamName}</span>}
+                                  </div>
+                                </td>
+                                <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placement}</td>
+                                <td className="px-4 py-2 text-right text-gray-400 text-xs">{r.placement === 1 ? 1 : 0}</td>
+                                <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.placementPts}</td>
+                                <td className="px-4 py-2 text-right text-gray-500 text-xs">{r.killPts}</td>
+                                <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{r.matchPts}</td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )
+                )}
+              </div>
+            ) : selectedStage ? (
+              <MatchStageView
+                key={selectedStage.id}
+                stage={selectedStage}
+                matches={selectedStage.matches}
+                selectedMatchId={selectedMatchId}
+                resultsByMatch={resultsByMatch}
+                damageByMatch={damageByMatch}
+                aliasLogoLookup={aliasLogoLookup}
+                additionalPts={stageAdditionalPts[selectedStage.id]}
+              />
+            ) : null}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

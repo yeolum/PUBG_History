@@ -138,69 +138,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
   }
 
-  // Build damageByMatch + playerStatsMap + playerStatsByMatch
-  const playerStatsByMatch: Record<string, PlayerMatchStat[]> = {}
-  const seenPerMatch: Record<string, Set<string>> = {}
-
-  for (const d of psData ?? []) {
-    const row = d as AnyRow
-    if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
-    damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
-
-    const resolvedPlayerId: string | null =
-      row.player_id ??
-      nameToPlayerIdLocal.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
-      pubgNameToPlayerId.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
-      null
-
-    const nickname = row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?'
-    const pubgPlayerName: string = row.pubg_player_name ?? ''
-    const teamName = row.teams?.name ?? row.pubg_player_name?.split('_')[0] ?? '?'
-    const logoUrl = row.teams?.logo_url ?? null
-
-    const key = resolvedPlayerId ?? `pubg:${pubgPlayerName}`
-    if (!playerStatsMap.has(key)) {
-      playerStatsMap.set(key, {
-        playerId: resolvedPlayerId,
-        nickname,
-        teamId: row.team_id ?? null,
-        teamName,
-        logoUrl,
-        games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
-      })
-    }
-    const e = playerStatsMap.get(key)!
-    e.games++
-    e.kills += row.kills ?? 0
-    e.assists += row.assists ?? 0
-    e.knocks += row.knocks ?? 0
-    e.headshotKills += row.headshot_kills ?? 0
-    e.damage += Number(row.damage_dealt ?? 0)
-    e.survivalTime += row.survival_time ?? 0
-
-    if (!seenPerMatch[row.match_id]) seenPerMatch[row.match_id] = new Set()
-    if (seenPerMatch[row.match_id].has(key)) continue
-    seenPerMatch[row.match_id].add(key)
-
-    if (!playerStatsByMatch[row.match_id]) playerStatsByMatch[row.match_id] = []
-    playerStatsByMatch[row.match_id].push({
-      playerId: resolvedPlayerId,
-      pubgPlayerName,
-      nickname,
-      teamId: row.team_id ?? null,
-      teamName,
-      logoUrl,
-      kills: row.kills ?? 0,
-      assists: row.assists ?? 0,
-      knocks: row.knocks ?? 0,
-      headshotKills: row.headshot_kills ?? 0,
-      damage: Number(row.damage_dealt ?? 0),
-      survivalTime: row.survival_time ?? 0,
-      placement: row.placement ?? null,
-    })
-  }
-
-  // Build alias logo lookup
+  // Build alias logo lookup (must be before player stats for logo resolution)
   const aliasLogoLookup: Record<string, string | null> = {}
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
@@ -242,6 +180,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     return aliasTagToName.get(key) ?? teamsName ?? stripTagPrefix(pubgName ?? '?')
   }
 
+  // Assign _resolvedName on team results (must be before player stats building)
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
       r._resolvedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
@@ -258,6 +197,73 @@ export default async function TournamentContent({ id, tournament }: { id: string
       const displayKey = `${effectiveId}:${displayedName}`
       if (!(displayKey in aliasLogoLookup)) aliasLogoLookup[displayKey] = aliasLogo
     }
+  }
+
+  // Build damageByMatch + playerStatsMap + playerStatsByMatch
+  // Team name uses _resolvedName from match_team_results (tournament-specific alias, not current DB name)
+  const playerStatsByMatch: Record<string, PlayerMatchStat[]> = {}
+  const seenPerMatch: Record<string, Set<string>> = {}
+
+  for (const d of psData ?? []) {
+    const row = d as AnyRow
+    if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
+    damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
+
+    const resolvedPlayerId: string | null =
+      row.player_id ??
+      nameToPlayerIdLocal.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
+      pubgNameToPlayerId.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
+      null
+
+    const nickname = row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?'
+    const pubgPlayerName: string = row.pubg_player_name ?? ''
+    // Resolve team name from match_team_results (same as participant display) instead of current DB name
+    const matchTeamResult = row.team_id
+      ? (resultsByMatch[row.match_id] ?? []).find((r: AnyRow) => r.team_id === row.team_id)
+      : null
+    const teamName = matchTeamResult?._resolvedName ?? row.teams?.name ?? stripTagPrefix(row.pubg_player_name?.split('_')[0] ?? '?')
+    const logoUrl = row.team_id ? resolveLogoUrl(row.team_id, teamName, aliasLogoLookup) : null
+
+    const key = resolvedPlayerId ?? `pubg:${pubgPlayerName}`
+    if (!playerStatsMap.has(key)) {
+      playerStatsMap.set(key, {
+        playerId: resolvedPlayerId,
+        nickname,
+        teamId: row.team_id ?? null,
+        teamName,
+        logoUrl,
+        games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+      })
+    }
+    const e = playerStatsMap.get(key)!
+    e.games++
+    e.kills += row.kills ?? 0
+    e.assists += row.assists ?? 0
+    e.knocks += row.knocks ?? 0
+    e.headshotKills += row.headshot_kills ?? 0
+    e.damage += Number(row.damage_dealt ?? 0)
+    e.survivalTime += row.survival_time ?? 0
+
+    if (!seenPerMatch[row.match_id]) seenPerMatch[row.match_id] = new Set()
+    if (seenPerMatch[row.match_id].has(key)) continue
+    seenPerMatch[row.match_id].add(key)
+
+    if (!playerStatsByMatch[row.match_id]) playerStatsByMatch[row.match_id] = []
+    playerStatsByMatch[row.match_id].push({
+      playerId: resolvedPlayerId,
+      pubgPlayerName,
+      nickname,
+      teamId: row.team_id ?? null,
+      teamName,
+      logoUrl,
+      kills: row.kills ?? 0,
+      assists: row.assists ?? 0,
+      knocks: row.knocks ?? 0,
+      headshotKills: row.headshot_kills ?? 0,
+      damage: Number(row.damage_dealt ?? 0),
+      survivalTime: row.survival_time ?? 0,
+      placement: row.placement ?? null,
+    })
   }
 
   // Build team stats
