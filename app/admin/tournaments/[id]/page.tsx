@@ -91,7 +91,7 @@ export default function AdminTournamentDetailPage() {
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
   type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null }
-  type RosterPlayer = { player_id: string; nickname: string; team_name: string | null }
+  type RosterPlayer = { player_id: string; nickname: string; team_name: string | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
   const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | 'player' | null>(null)
@@ -115,7 +115,7 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, { data: allPlayers }, { data: allPlayerAliases }] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
@@ -129,6 +129,10 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, players(id, nickname, teams(name))').eq('tournament_id', id),
+      // Global collision map: a registered player whose nickname (or alias) is
+      // shared with another player gets flagged so admin can re-pick if needed.
+      supabase.from('players').select('id, nickname').limit(20000),
+      supabase.from('player_aliases').select('player_id, alias').limit(50000),
     ])
     setSeriesList((ser ?? []) as Series[])
     setScoringRules((sr ?? []) as ScoringRule[])
@@ -253,13 +257,34 @@ export default function AdminTournamentDetailPage() {
         logo_url: (r.teams?.logo_url as string | null) ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)))
+
+    // Build name → distinct player_ids map across all players + aliases
+    const nameToPlayerIds = new Map<string, Set<string>>()
+    const addName = (name: string | null | undefined, playerId: string) => {
+      if (!name) return
+      const k = name.trim().toLowerCase()
+      if (!k) return
+      if (!nameToPlayerIds.has(k)) nameToPlayerIds.set(k, new Set())
+      nameToPlayerIds.get(k)!.add(playerId)
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const p of (allPlayers ?? []) as any[]) addName(p.nickname as string, p.id as string)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const a of (allPlayerAliases ?? []) as any[]) addName(a.alias as string, a.player_id as string)
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setRosterPlayers(((tpData ?? []) as any[])
-      .map((r) => ({
-        player_id: r.player_id as string,
-        nickname: r.players?.nickname ?? '?',
-        team_name: r.players?.teams?.name ?? null,
-      }))
+      .map((r) => {
+        const nickname = r.players?.nickname ?? '?'
+        const candidates = nameToPlayerIds.get(nickname.toLowerCase()) ?? new Set<string>()
+        return {
+          player_id: r.player_id as string,
+          nickname,
+          team_name: r.players?.teams?.name ?? null,
+          ambiguous: candidates.size > 1,
+          collisionCount: candidates.size,
+        }
+      })
       .sort((a, b) => a.nickname.localeCompare(b.nickname)))
   }, [id, supabase, router])
 
@@ -916,7 +941,12 @@ export default function AdminTournamentDetailPage() {
           ) : (
             <div className="flex flex-wrap gap-1.5">
               {rosterPlayers.map((rp) => (
-                <div key={rp.player_id} className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-0.5">
+                <div
+                  key={rp.player_id}
+                  className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}
+                  title={rp.ambiguous ? `Nickname "${rp.nickname}" matches ${rp.collisionCount} players in the database — verify this is the right one` : undefined}
+                >
+                  {rp.ambiguous && <span className="text-[10px] text-amber-700 font-bold">⚠</span>}
                   <span className="text-xs text-gray-700">{rp.nickname}</span>
                   {rp.team_name && <span className="text-[10px] text-gray-400">{rp.team_name}</span>}
                   <button
