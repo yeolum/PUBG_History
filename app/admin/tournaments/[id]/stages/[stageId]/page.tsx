@@ -36,6 +36,7 @@ interface ImportRow {
   matchId: string
   status: 'pending' | 'importing' | 'success' | 'error'
   errorMsg?: string
+  warningMsg?: string
 }
 
 interface AdditionalPoint {
@@ -247,7 +248,12 @@ export default function StageMatchesPage() {
         if (!res.ok) {
           setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'error', errorMsg: result.error ?? 'Import failed' } : r))
         } else {
-          setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'success' } : r))
+          const droppedT = (result.droppedTeams as string[] | undefined)?.length ?? 0
+          const droppedP = (result.droppedPlayers as string[] | undefined)?.length ?? 0
+          const warningMsg = (droppedT + droppedP > 0)
+            ? `${droppedT} team${droppedT === 1 ? '' : 's'}, ${droppedP} player${droppedP === 1 ? '' : 's'} not in Participants — dropped`
+            : undefined
+          setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'success', warningMsg } : r))
         }
       } catch {
         setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'error', errorMsg: 'Server error' } : r))
@@ -506,9 +512,16 @@ export default function StageMatchesPage() {
                 className={`flex-1 ${INPUT_CLS} disabled:opacity-60`}
                 onKeyDown={e => { if (e.key === 'Enter') importAll() }}
               />
-              <div className="w-20 shrink-0 flex items-center gap-1">
+              <div className="shrink-0 flex items-center gap-1.5 max-w-[55%]">
                 {row.status === 'importing' && <span className="text-xs text-blue-500">...</span>}
-                {row.status === 'success' && <span className="text-xs text-green-600">✓ Done</span>}
+                {row.status === 'success' && (
+                  <>
+                    <span className="text-xs text-green-600 shrink-0">✓ Done</span>
+                    {row.warningMsg && (
+                      <span className="text-xs text-amber-600 truncate" title={row.warningMsg}>⚠ {row.warningMsg}</span>
+                    )}
+                  </>
+                )}
                 {row.status === 'error' && (
                   <span className="text-xs text-red-500 truncate" title={row.errorMsg}>{row.errorMsg}</span>
                 )}

@@ -221,7 +221,7 @@ export interface PubgMatchData {
 export interface ImportMatchResult {
   success: boolean
   matchData?: PubgMatchData
-  unmatchedTeams: string[]
-  unmatchedPlayers: string[]
+  droppedTeams: string[]
+  droppedPlayers: string[]
   error?: string
 }

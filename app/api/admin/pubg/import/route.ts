@@ -278,10 +278,35 @@ export async function POST(req: NextRequest) {
     stat.team_id = rosterResult?.team_id ?? null
   }
 
-  const cleanStats = playerStatInserts.map(({ _rosterId: _, ...rest }) => rest)
+  // Strict filter: when a tournament has a participant roster, only entries
+  // that resolved to a registered team / player make it into the DB. Empty
+  // sets keep the previous global behavior so older tournaments still import
+  // everything.
+  const keptTeamResults = allowedTeamIds
+    ? teamResultInserts.filter((t) => t.team_id && allowedTeamIds.has(t.team_id))
+    : teamResultInserts
+  const keptRosterIds = new Set(keptTeamResults.map((t) => t.pubg_roster_id))
 
-  if (teamResultInserts.length > 0) {
-    await db.from('match_team_results').insert(teamResultInserts)
+  const keptStatInserts = playerStatInserts.filter((s) => {
+    if (allowedTeamIds && !keptRosterIds.has(s._rosterId)) return false
+    if (allowedPlayerIds && (!s.player_id || !allowedPlayerIds.has(s.player_id))) return false
+    return true
+  })
+
+  const droppedTeamNames = teamResultInserts
+    .filter((t) => !keptTeamResults.includes(t))
+    .map((t) => t.pubg_team_name ?? '')
+  const droppedPlayerNames = [...new Set(
+    playerStatInserts
+      .filter((s) => !keptStatInserts.includes(s))
+      .map((s) => s.pubg_player_name ?? '')
+      .filter(Boolean)
+  )]
+
+  const cleanStats = keptStatInserts.map(({ _rosterId: _, ...rest }) => rest)
+
+  if (keptTeamResults.length > 0) {
+    await db.from('match_team_results').insert(keptTeamResults)
   }
   if (cleanStats.length > 0) {
     await db.from('match_player_stats').insert(cleanStats)
@@ -306,14 +331,6 @@ export async function POST(req: NextRequest) {
     await db.rpc('sync_player_current_teams', { player_ids: linkedPlayerIds })
   }
 
-  const unmatchedTeamNames = teamResultInserts
-    .filter((t) => !t.team_id)
-    .map((t) => t.pubg_team_name ?? '')
-
-  const unmatchedPlayerNames = [...new Set(
-    cleanStats.filter((p) => !p.player_id).map((p) => p.pubg_player_name ?? '')
-  )]
-
   // Public-page invalidation: a fresh match changes scoreboards, prize totals,
   // team / player profiles, etc. — refresh now instead of waiting 30s.
   revalidateTag('tournament-data', 'default')
@@ -326,9 +343,9 @@ export async function POST(req: NextRequest) {
     matchId: matchRecord.id,
     map: matchData.map,
     duration: matchData.duration,
-    teamsImported: teamResultInserts.length,
+    teamsImported: keptTeamResults.length,
     playersImported: cleanStats.length,
-    unmatchedTeams: unmatchedTeamNames,
-    unmatchedPlayers: unmatchedPlayerNames,
+    droppedTeams: droppedTeamNames,
+    droppedPlayers: droppedPlayerNames,
   })
 }

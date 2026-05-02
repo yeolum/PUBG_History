@@ -84,6 +84,11 @@ export default function StageMatchesPage() {
       if (!res.ok) {
         setImportError(result.error ?? '임포트 실패')
       } else {
+        const droppedT = (result.droppedTeams as string[] | undefined)?.length ?? 0
+        const droppedP = (result.droppedPlayers as string[] | undefined)?.length ?? 0
+        if (droppedT + droppedP > 0) {
+          setImportError(`Imported. ${droppedT} team(s) / ${droppedP} player(s) not in Participants — dropped.`)
+        }
         setNewMatchId('')
         load()
       }
