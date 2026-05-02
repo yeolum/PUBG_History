@@ -8,6 +8,7 @@ import type { Tournament, Stage, Match, MatchTeamResult, MatchPlayerStat, Tourna
 import ImageUpload from '@/components/admin/ImageUpload'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
+import BulkRosterModal from '@/components/admin/BulkRosterModal'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 import type { ScoringRule } from '@/lib/types'
@@ -93,6 +94,7 @@ export default function AdminTournamentDetailPage() {
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
   const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | 'player' | null>(null)
+  const [bulkRosterOpen, setBulkRosterOpen] = useState<'team' | 'player' | null>(null)
 
   type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
@@ -832,12 +834,20 @@ export default function AdminTournamentDetailPage() {
           <div className="flex items-center gap-3 mb-3">
             <span className="text-sm font-semibold text-gray-700">Teams</span>
             <span className="text-xs text-gray-400">{rosterTeams.length}</span>
-            <button
-              onClick={() => setRosterPickerOpen('team')}
-              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
-            >
-              + Add Team
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setBulkRosterOpen('team')}
+                className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg px-2.5 py-1"
+              >
+                ⊞ Bulk Add
+              </button>
+              <button
+                onClick={() => setRosterPickerOpen('team')}
+                className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1"
+              >
+                + Add Team
+              </button>
+            </div>
           </div>
           {rosterTeams.length === 0 ? (
             <p className="text-sm text-gray-400">No teams registered — global pool will be used during import.</p>
@@ -871,12 +881,20 @@ export default function AdminTournamentDetailPage() {
             <span className="text-sm font-semibold text-gray-700">Players</span>
             <span className="text-xs text-gray-400">{rosterPlayers.length}</span>
             <span className="text-[11px] text-gray-400 italic">Adding a team auto-includes its current active roster.</span>
-            <button
-              onClick={() => setRosterPickerOpen('player')}
-              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
-            >
-              + Add Player
-            </button>
+            <div className="ml-auto flex items-center gap-2">
+              <button
+                onClick={() => setBulkRosterOpen('player')}
+                className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg px-2.5 py-1"
+              >
+                ⊞ Bulk Add
+              </button>
+              <button
+                onClick={() => setRosterPickerOpen('player')}
+                className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1"
+              >
+                + Add Player
+              </button>
+            </div>
           </div>
           {rosterPlayers.length === 0 ? (
             <p className="text-sm text-gray-400">No players registered — global pool will be used during import.</p>
@@ -1882,6 +1900,20 @@ export default function AdminTournamentDetailPage() {
             }
           }}
           onClose={() => setRosterPickerOpen(null)}
+        />
+      )}
+
+      {bulkRosterOpen && (
+        <BulkRosterModal
+          kind={bulkRosterOpen}
+          tournamentId={id}
+          existingIds={new Set(
+            bulkRosterOpen === 'team'
+              ? rosterTeams.map((rt) => rt.team_id)
+              : rosterPlayers.map((rp) => rp.player_id)
+          )}
+          onClose={() => setBulkRosterOpen(null)}
+          onSaved={() => load()}
         />
       )}
 
