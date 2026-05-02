@@ -7,6 +7,7 @@ interface SearchResult {
   id: string
   label: string
   sublabel?: string
+  nationalityCode?: string | null
 }
 
 interface SearchModalProps {
@@ -39,7 +40,7 @@ export default function SearchModal({ type, targetName, subtext, onConfirm, onCl
         } else {
           const { data } = await supabase
             .from('players')
-            .select('id, nickname, teams(name)')
+            .select('id, nickname, nationality_code, teams(name)')
             .ilike('nickname', `%${query}%`)
             .limit(30)
           raw = (data ?? []).map((p) => ({
@@ -47,6 +48,7 @@ export default function SearchModal({ type, targetName, subtext, onConfirm, onCl
             label: p.nickname,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             sublabel: (p.teams as any)?.name ?? undefined,
+            nationalityCode: (p.nationality_code as string | null) ?? null,
           }))
         }
 
@@ -105,9 +107,19 @@ export default function SearchModal({ type, targetName, subtext, onConfirm, onCl
               onClick={() => onConfirm(r.id, r.label)}
               className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-yellow-50 flex items-center justify-between group"
             >
-              <span className="text-sm font-medium text-gray-800">{r.label}</span>
+              <span className="flex items-center gap-2 min-w-0">
+                {type === 'player' && r.nationalityCode && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={`https://flagcdn.com/w20/${r.nationalityCode.toLowerCase()}.png`}
+                    alt={r.nationalityCode}
+                    className="w-4 h-3 object-cover rounded-sm border border-gray-100 shrink-0"
+                  />
+                )}
+                <span className="text-sm font-medium text-gray-800 truncate">{r.label}</span>
+              </span>
               {r.sublabel && (
-                <span className="text-xs text-gray-400 group-hover:text-gray-600">{r.sublabel}</span>
+                <span className="text-xs text-gray-400 group-hover:text-gray-600 shrink-0 ml-2">{r.sublabel}</span>
               )}
             </button>
           ))}

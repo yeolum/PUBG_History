@@ -12,6 +12,7 @@ interface Candidate {
   label: string
   sublabel: string | null
   logo_url?: string | null
+  nationalityCode?: string | null
 }
 
 interface ReviewRow {
@@ -116,15 +117,20 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const [{ data: players }, { data: aliases }] = await Promise.all([
-          supabase.from('players').select('id, nickname, teams(name)').limit(20000),
+          supabase.from('players').select('id, nickname, nationality_code, teams(name)').limit(20000),
           supabase.from('player_aliases').select('player_id, alias').limit(50000),
         ])
 
-        const playerById = new Map<string, { id: string; nickname: string; teamName: string | null }>()
+        const playerById = new Map<string, { id: string; nickname: string; teamName: string | null; nationalityCode: string | null }>()
         for (const p of players ?? []) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const teamName = ((p as any).teams?.name as string | null) ?? null
-          playerById.set(p.id as string, { id: p.id as string, nickname: p.nickname as string, teamName })
+          playerById.set(p.id as string, {
+            id: p.id as string,
+            nickname: p.nickname as string,
+            teamName,
+            nationalityCode: (p.nationality_code as string | null) ?? null,
+          })
         }
 
         const byKey = new Map<string, Set<string>>()
@@ -153,8 +159,8 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
         const toCandidates = (ids: string[]): Candidate[] =>
           ids
             .map((id) => playerById.get(id))
-            .filter((p): p is { id: string; nickname: string; teamName: string | null } => !!p)
-            .map((p) => ({ id: p.id, label: p.nickname, sublabel: p.teamName }))
+            .filter((p): p is { id: string; nickname: string; teamName: string | null; nationalityCode: string | null } => !!p)
+            .map((p) => ({ id: p.id, label: p.nickname, sublabel: p.teamName, nationalityCode: p.nationalityCode }))
 
         const reviewed: ReviewRow[] = inputs.map((input) => {
           const exact = [...(byKey.get(input.toLowerCase()) ?? [])]
@@ -261,6 +267,13 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
                                 {kind === 'team' && r.candidate.logo_url ? (
                                   // eslint-disable-next-line @next/next/no-img-element
                                   <img src={r.candidate.logo_url} alt="" className="w-4 h-4 rounded object-contain border border-gray-100" />
+                                ) : kind === 'player' && r.candidate.nationalityCode ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={`https://flagcdn.com/w20/${r.candidate.nationalityCode.toLowerCase()}.png`}
+                                    alt={r.candidate.nationalityCode}
+                                    className="w-4 h-3 object-cover rounded-sm border border-gray-100"
+                                  />
                                 ) : (
                                   <span className="w-4 h-4 rounded-full bg-gray-100" />
                                 )}
