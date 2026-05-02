@@ -63,7 +63,7 @@ const loadTournamentData = unstable_cache(
 
     const seriesIds = (seriesData ?? []).map((sr: AnyRow) => sr.id as string)
 
-    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }] = await Promise.all([
+    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       aliasQueriesPromise,
@@ -72,9 +72,11 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_special_awards').select('*, players(id, nickname)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
+      supabase.from('tournament_teams').select('team_id, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
+      supabase.from('tournament_players').select('player_id, players(id, nickname, nationality_code, team_id)').eq('tournament_id', id),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData }
   },
   ['tournament-data'],
   // Tag lets admin saves call revalidateTag('tournament-data') for an
@@ -90,7 +92,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData } = await loadTournamentData(id)
 
   // stageId → { teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -296,11 +298,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
       if (r.placement) { e.placementsSum += r.placement; e.gamesWithPlacement++ }
     }
   }
-  const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)
 
-  const playerStats: PlayerStatRow[] = [...playerStatsMap.values()].sort((a, b) => b.kills - a.kills)
-
-  // Build roster
+  // Build roster from match data
   const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
@@ -323,6 +322,56 @@ export default async function TournamentContent({ id, tournament }: { id: string
       })
     }
   }
+
+  // Union the pre-registered tournament roster — registered teams / players
+  // should always show, even if no match has been imported yet or auto-link
+  // failed during import.
+  for (const r of (rosterTeamsData ?? []) as AnyRow[]) {
+    const t = r.teams as AnyRow | null
+    if (!t?.id) continue
+    const teamId = t.id as string
+    const tName = (t.name as string) ?? '?'
+    const logoUrl = (t.logo_url as string | null) ?? aliasLogoLookup[`${teamId}:`] ?? null
+    if (!teamRosterMap.has(teamId)) {
+      teamRosterMap.set(teamId, { name: tName, logo_url: logoUrl, players: new Map() })
+    }
+    if (!teamStatsMap.has(teamId)) {
+      teamStatsMap.set(teamId, {
+        teamId, teamName: tName, logoUrl,
+        games: 0, wwcd: 0, totalKills: 0, totalDamage: 0, totalPoints: 0, placementsSum: 0, gamesWithPlacement: 0,
+      })
+    }
+  }
+  for (const r of (rosterPlayersData ?? []) as AnyRow[]) {
+    const p = r.players as AnyRow | null
+    if (!p?.id) continue
+    const playerId = p.id as string
+    const nickname = (p.nickname as string) ?? '?'
+    const nationality = (p.nationality_code as string | null) ?? null
+    const playerTeamId = (p.team_id as string | null) ?? null
+
+    if (playerTeamId) {
+      const team = teamRosterMap.get(playerTeamId)
+      if (team && !team.players.has(playerId)) {
+        team.players.set(playerId, { id: playerId, nickname, nationality })
+      }
+    }
+    if (!playerStatsMap.has(playerId)) {
+      const team = playerTeamId ? teamStatsMap.get(playerTeamId) : null
+      playerStatsMap.set(playerId, {
+        playerId,
+        nickname,
+        teamId: playerTeamId,
+        teamName: team?.teamName ?? '',
+        logoUrl: team?.logoUrl ?? null,
+        games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+      })
+    }
+  }
+
+  const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)
+  const playerStats: PlayerStatRow[] = [...playerStatsMap.values()].sort((a, b) => b.kills - a.kills)
+
   const roster = [...teamRosterMap.entries()]
     .map(([teamId, team]) => ({
       id: teamId, name: team.name, logo_url: team.logo_url,
