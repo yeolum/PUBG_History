@@ -145,10 +145,10 @@ export default function StageMatchesPage() {
 
   // Re-fetch admin state and invalidate the public cache so changes appear
   // immediately on the user-facing pages instead of waiting for the 30s
-  // ISR / unstable_cache window.
-  const reload = useCallback(() => {
-    revalidatePublic({ tournamentId })
-    return load()
+  // ISR / unstable_cache window. Awaits both so a tab switch right after
+  // save sees the fresh value.
+  const reload = useCallback(async () => {
+    await Promise.all([revalidatePublic({ tournamentId }), load()])
   }, [tournamentId, load])
 
   const stageRule = useMemo(() => ruleFromStage(stage?.scoring_rules), [stage])

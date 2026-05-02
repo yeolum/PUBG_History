@@ -266,10 +266,10 @@ export default function AdminTournamentDetailPage() {
   useEffect(() => { load() }, [load])
 
   // Re-fetch admin data and invalidate the public-page cache so the change
-  // shows up immediately. Use this after every successful write below.
-  const reload = useCallback(() => {
-    revalidatePublic({ tournamentId: id })
-    return load()
+  // shows up immediately. Awaits both so the next request to the public site
+  // (e.g. user switching tabs) reads the fresh value.
+  const reload = useCallback(async () => {
+    await Promise.all([revalidatePublic({ tournamentId: id }), load()])
   }, [id, load])
 
   async function saveTournament() {
