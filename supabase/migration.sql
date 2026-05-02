@@ -331,3 +331,20 @@ BEGIN
       USING NULLIF(REGEXP_REPLACE(COALESCE(prize, ''), '[^0-9]', '', 'g'), '')::NUMERIC;
   END IF;
 END $$;
+
+-- =====================================================
+-- Migration: series-level advancement rules + series-targeted stage prizes
+-- =====================================================
+
+ALTER TABLE series ADD COLUMN IF NOT EXISTS advance_count INT;
+ALTER TABLE series ADD COLUMN IF NOT EXISTS eliminate_count INT;
+
+ALTER TABLE stage_prize_config ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE CASCADE;
+ALTER TABLE stage_prize_config ALTER COLUMN stage_id DROP NOT NULL;
+
+-- Exactly one target (stage XOR series) must be set per row
+ALTER TABLE stage_prize_config DROP CONSTRAINT IF EXISTS stage_prize_config_target_xor;
+ALTER TABLE stage_prize_config ADD CONSTRAINT stage_prize_config_target_xor
+  CHECK ((stage_id IS NOT NULL) <> (series_id IS NOT NULL));
+
+CREATE INDEX IF NOT EXISTS idx_stage_prize_config_series ON stage_prize_config(series_id);

@@ -8,7 +8,7 @@ import type { Stage, Match } from '@/lib/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
-interface SeriesItem { id: string; name: string; order_num: number }
+interface SeriesItem { id: string; name: string; order_num: number; advance_count: number | null; eliminate_count: number | null }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
 interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }

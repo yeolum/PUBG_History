@@ -93,6 +93,8 @@ export interface Series {
   tournament_id: string
   name: string
   order_num: number
+  advance_count: number | null
+  eliminate_count: number | null
   created_at: string
 }
 

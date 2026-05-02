@@ -79,9 +79,14 @@ export default function AdminTournamentDetailPage() {
   const [prizePoolInput, setPrizePoolInput] = useState('')
 
   type StagePrizeRow = { placement: number; prize: string; pgs: string; pgc: string }
+  // Prize target key format: "stage:<uuid>" or "series:<uuid>"
   const [stagePrizeMap, setStagePrizeMap] = useState<Record<string, StagePrizeRow[]>>({})
   const [selectedStagePrizeId, setSelectedStagePrizeId] = useState('')
   const [savingStagePrize, setSavingStagePrize] = useState(false)
+
+  type SeriesRulesRow = { advance: string; eliminate: string }
+  const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
+  const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
   type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
@@ -156,18 +161,35 @@ export default function AdminTournamentDetailPage() {
     }
     setPrizeRows(rows)
 
-    // Stage prize config (sequential query after we have stage IDs)
+    // Stage / series prize config (sequential query after we have stage / series IDs)
     const stageIds = ((s ?? []) as StageFull[]).map((stage) => stage.id)
-    const { data: sp } = stageIds.length > 0
-      ? await supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds).order('placement')
-      : { data: [] as { stage_id: string; placement: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }[] }
+    const seriesIds = ((ser ?? []) as Series[]).map((sr) => sr.id)
+    const [{ data: spStage }, { data: spSeries }] = await Promise.all([
+      stageIds.length > 0
+        ? supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds).order('placement')
+        : Promise.resolve({ data: [] as { stage_id: string; placement: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }[] }),
+      seriesIds.length > 0
+        ? supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds).order('placement')
+        : Promise.resolve({ data: [] as { series_id: string; placement: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }[] }),
+    ])
 
     const spMap: Record<string, StagePrizeRow[]> = {}
-    for (const stage of (s ?? []) as StageFull[]) {
-      spMap[stage.id] = Array.from({ length: 16 }, (_, i) => ({ placement: i + 1, prize: '', pgs: '', pgc: '' }))
+    for (const sr of (ser ?? []) as Series[]) {
+      spMap[`series:${sr.id}`] = Array.from({ length: 16 }, (_, i) => ({ placement: i + 1, prize: '', pgs: '', pgc: '' }))
     }
-    for (const r of (sp ?? [])) {
-      const row = spMap[r.stage_id]?.find((row) => row.placement === r.placement)
+    for (const stage of (s ?? []) as StageFull[]) {
+      spMap[`stage:${stage.id}`] = Array.from({ length: 16 }, (_, i) => ({ placement: i + 1, prize: '', pgs: '', pgc: '' }))
+    }
+    for (const r of (spStage ?? [])) {
+      const row = spMap[`stage:${r.stage_id}`]?.find((row) => row.placement === r.placement)
+      if (row) {
+        row.prize = numberToInput(r.prize)
+        row.pgs = r.pgs_points?.toString() ?? ''
+        row.pgc = r.pgc_points?.toString() ?? ''
+      }
+    }
+    for (const r of (spSeries ?? [])) {
+      const row = spMap[`series:${r.series_id}`]?.find((row) => row.placement === r.placement)
       if (row) {
         row.prize = numberToInput(r.prize)
         row.pgs = r.pgs_points?.toString() ?? ''
@@ -175,7 +197,20 @@ export default function AdminTournamentDetailPage() {
       }
     }
     setStagePrizeMap(spMap)
-    if (stageIds.length > 0 && !selectedStagePrizeId) setSelectedStagePrizeId(stageIds[0])
+    if (!selectedStagePrizeId) {
+      const firstKey = seriesIds.length > 0 ? `series:${seriesIds[0]}` : (stageIds.length > 0 ? `stage:${stageIds[0]}` : '')
+      if (firstKey) setSelectedStagePrizeId(firstKey)
+    }
+
+    // Series advancement rules
+    const srMap: Record<string, SeriesRulesRow> = {}
+    for (const sr of (ser ?? []) as Series[]) {
+      srMap[sr.id] = {
+        advance: sr.advance_count?.toString() ?? '',
+        eliminate: sr.eliminate_count?.toString() ?? '',
+      }
+    }
+    setSeriesRulesMap(srMap)
 
     setWwcdRows((wwcd ?? []).map((r) => ({
       id: r.id as string,
@@ -369,22 +404,40 @@ export default function AdminTournamentDetailPage() {
     if (!selectedStagePrizeId) return
     setSavingStagePrize(true)
     setErr('')
+    const [targetType, targetId] = selectedStagePrizeId.split(':')
+    const targetCol = targetType === 'series' ? 'series_id' : 'stage_id'
     const rows = (stagePrizeMap[selectedStagePrizeId] ?? [])
       .filter((r) => r.prize || r.pgs || r.pgc)
       .map((r) => ({
-        stage_id: selectedStagePrizeId,
+        [targetCol]: targetId,
         placement: r.placement,
         prize: parseNumberInput(r.prize),
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
       }))
-    const { error: delErr1 } = await supabase.from('stage_prize_config').delete().eq('stage_id', selectedStagePrizeId)
+    const { error: delErr1 } = await supabase.from('stage_prize_config').delete().eq(targetCol, targetId)
     if (delErr1) { setErr('Save failed: ' + delErr1.message); setSavingStagePrize(false); return }
     if (rows.length > 0) {
       const { error } = await supabase.from('stage_prize_config').insert(rows)
       if (error) { setErr('Save failed: ' + error.message); setSavingStagePrize(false); return }
     }
     setSavingStagePrize(false)
+    load()
+  }
+
+  async function saveSeriesAdvancement(seriesId: string) {
+    const rules = seriesRulesMap[seriesId]
+    if (!rules) return
+    setSavingSeriesRulesId(seriesId)
+    setErr('')
+    const adv = parseInt(rules.advance, 10)
+    const elim = parseInt(rules.eliminate, 10)
+    const { error } = await supabase.from('series').update({
+      advance_count: Number.isFinite(adv) && adv > 0 ? adv : null,
+      eliminate_count: Number.isFinite(elim) && elim > 0 ? elim : null,
+    }).eq('id', seriesId)
+    setSavingSeriesRulesId(null)
+    if (error) { setErr('Save failed: ' + error.message); return }
     load()
   }
 
@@ -703,29 +756,63 @@ export default function AdminTournamentDetailPage() {
           )}
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          {seriesList.map((s) => (
-            <div
-              key={s.id}
-              draggable
-              onDragStart={() => setDragSeriesId(s.id)}
-              onDragOver={(e) => { e.preventDefault(); setDragOverSeriesId(s.id) }}
-              onDrop={() => {
-                if (dragSeriesId && dragSeriesId !== s.id) reorderSeries(dragSeriesId, s.id)
-                setDragSeriesId(null); setDragOverSeriesId(null)
-              }}
-              onDragEnd={() => { setDragSeriesId(null); setDragOverSeriesId(null) }}
-              className={`flex items-center gap-1.5 bg-white border rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing transition-all ${dragOverSeriesId === s.id && dragSeriesId !== s.id ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'}`}
-            >
-              <span className="text-gray-300 text-xs select-none">⠿</span>
-              <span className="text-sm text-gray-700">{s.name}</span>
-              <button
-                onClick={() => deleteSeries(s.id, s.name)}
-                className="text-gray-300 hover:text-red-500 text-sm leading-none ml-1"
+          {seriesList.map((s) => {
+            const rules = seriesRulesMap[s.id] ?? { advance: '', eliminate: '' }
+            const dirty =
+              (rules.advance || '0') !== (s.advance_count?.toString() ?? '0') ||
+              (rules.eliminate || '0') !== (s.eliminate_count?.toString() ?? '0')
+            return (
+              <div
+                key={s.id}
+                draggable
+                onDragStart={() => setDragSeriesId(s.id)}
+                onDragOver={(e) => { e.preventDefault(); setDragOverSeriesId(s.id) }}
+                onDrop={() => {
+                  if (dragSeriesId && dragSeriesId !== s.id) reorderSeries(dragSeriesId, s.id)
+                  setDragSeriesId(null); setDragOverSeriesId(null)
+                }}
+                onDragEnd={() => { setDragSeriesId(null); setDragOverSeriesId(null) }}
+                className={`flex items-center gap-1.5 bg-white border rounded-lg px-3 py-1.5 cursor-grab active:cursor-grabbing transition-all ${dragOverSeriesId === s.id && dragSeriesId !== s.id ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'}`}
               >
-                ×
-              </button>
-            </div>
-          ))}
+                <span className="text-gray-300 text-xs select-none">⠿</span>
+                <span className="text-sm text-gray-700">{s.name}</span>
+                <span className="mx-1 h-4 w-px bg-gray-200" />
+                <span className="text-xs text-green-600 font-medium">▲</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={rules.advance}
+                  onChange={(e) => setSeriesRulesMap((m) => ({ ...m, [s.id]: { ...rules, advance: e.target.value } }))}
+                  placeholder="0"
+                  className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                />
+                <span className="text-xs text-red-500 font-medium">▼</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={rules.eliminate}
+                  onChange={(e) => setSeriesRulesMap((m) => ({ ...m, [s.id]: { ...rules, eliminate: e.target.value } }))}
+                  placeholder="0"
+                  className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                />
+                {dirty && (
+                  <button
+                    onClick={() => saveSeriesAdvancement(s.id)}
+                    disabled={savingSeriesRulesId === s.id}
+                    className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-medium px-2 py-0.5 rounded"
+                  >
+                    {savingSeriesRulesId === s.id ? '...' : 'Save'}
+                  </button>
+                )}
+                <button
+                  onClick={() => deleteSeries(s.id, s.name)}
+                  className="text-gray-300 hover:text-red-500 text-sm leading-none ml-1"
+                >
+                  ×
+                </button>
+              </div>
+            )
+          })}
           {addingSeries && (
             <div className="flex items-center gap-2">
               <input
@@ -1309,7 +1396,7 @@ export default function AdminTournamentDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">Stage Prizes</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Per-stage placement prizes and points</p>
+            <p className="text-xs text-gray-500 mt-0.5">Placement prizes and points awarded by stage or by series cumulative standings</p>
           </div>
           <div className="flex items-center gap-3">
             <select
@@ -1317,7 +1404,16 @@ export default function AdminTournamentDetailPage() {
               onChange={(e) => setSelectedStagePrizeId(e.target.value)}
               className="text-sm border border-gray-300 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-yellow-400"
             >
-              {stageList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              {seriesList.length > 0 && (
+                <optgroup label="Series">
+                  {seriesList.map((sr) => <option key={sr.id} value={`series:${sr.id}`}>{sr.name} (Series)</option>)}
+                </optgroup>
+              )}
+              {stageList.length > 0 && (
+                <optgroup label="Stages">
+                  {stageList.map((s) => <option key={s.id} value={`stage:${s.id}`}>{s.name}</option>)}
+                </optgroup>
+              )}
             </select>
             <button
               onClick={saveStagePrizes}

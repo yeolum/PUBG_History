@@ -61,7 +61,9 @@ const loadTournamentData = unstable_cache(
 
     const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
 
-    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }] = await Promise.all([
+    const seriesIds = (seriesData ?? []).map((sr: AnyRow) => sr.id as string)
+
+    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       aliasQueriesPromise,
@@ -69,9 +71,10 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, players(id, nickname)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
+      seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData }
   },
   ['tournament-data'],
   { revalidate: 30 }
@@ -85,7 +88,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData } = await loadTournamentData(id)
 
   // stageId → { teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -441,6 +444,72 @@ export default async function TournamentContent({ id, tournament }: { id: string
       const entry = standings[i]
       if (!entry.teamId) continue
       const pc = stagePrizes.find((p) => p.placement === i + 1)
+      if (!pc) continue
+      if (!wwcdBonusByTeamId[entry.teamId]) wwcdBonusByTeamId[entry.teamId] = { prize: 0, pgs: 0, pgc: 0 }
+      wwcdBonusByTeamId[entry.teamId].prize += pc.prize ?? 0
+      wwcdBonusByTeamId[entry.teamId].pgs += pc.pgs ?? 0
+      wwcdBonusByTeamId[entry.teamId].pgc += pc.pgc ?? 0
+    }
+  }
+
+  // Series cumulative standings (used for both display and series-prize folding)
+  type SeriesStandingEntry = { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
+  const seriesStandingsMap = new Map<string, SeriesStandingEntry[]>()
+  for (const sr of seriesList) {
+    const seriesStages = stagesList.filter((s) => s.series_id === sr.id)
+    if (seriesStages.length === 0) continue
+    const ptsMap = new Map<string, SeriesStandingEntry>()
+    for (const stage of seriesStages) {
+      const rule = ruleFromStage(stage.scoring_rules)
+      for (const m of stage.matches) {
+        if (m.status !== 'imported') continue
+        for (const r of (resultsByMatch[m.id] ?? []) as AnyRow[]) {
+          const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+          if (!ptsMap.has(key)) {
+            ptsMap.set(key, {
+              teamId: r.team_id ?? null,
+              teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'),
+              matches: 0, wwcd: 0, placePts: 0, killPts: 0, totalPts: 0,
+            })
+          }
+          const e = ptsMap.get(key)!
+          const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+          const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+          e.placePts += pp
+          e.killPts += kp
+          e.totalPts += pp + kp
+          e.matches++
+          if ((r.placement ?? 99) === 1) e.wwcd++
+        }
+      }
+      const extraForStage = stageAdditionalPts[stage.id] ?? {}
+      for (const e of ptsMap.values()) {
+        const extra = extraForStage[e.teamName.toLowerCase()] ?? 0
+        e.totalPts += extra
+      }
+    }
+    seriesStandingsMap.set(sr.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
+  }
+
+  // Series placement prizes → fold into bonus map
+  const seriesPrizeBySeries: Record<string, { placement: number; prize: number | null; pgs: number | null; pgc: number | null }[]> = {}
+  for (const row of (seriesPrizeConfigData ?? []) as AnyRow[]) {
+    if (!seriesPrizeBySeries[row.series_id]) seriesPrizeBySeries[row.series_id] = []
+    seriesPrizeBySeries[row.series_id].push({
+      placement: row.placement as number,
+      prize: row.prize != null ? Number(row.prize) : null,
+      pgs: row.pgs_points != null ? Number(row.pgs_points) : null,
+      pgc: row.pgc_points != null ? Number(row.pgc_points) : null,
+    })
+  }
+  for (const sr of seriesList) {
+    const seriesPrizes = seriesPrizeBySeries[sr.id]
+    if (!seriesPrizes || seriesPrizes.length === 0) continue
+    const standings = seriesStandingsMap.get(sr.id) ?? []
+    for (let i = 0; i < standings.length; i++) {
+      const entry = standings[i]
+      if (!entry.teamId) continue
+      const pc = seriesPrizes.find((p) => p.placement === i + 1)
       if (!pc) continue
       if (!wwcdBonusByTeamId[entry.teamId]) wwcdBonusByTeamId[entry.teamId] = { prize: 0, pgs: 0, pgc: 0 }
       wwcdBonusByTeamId[entry.teamId].prize += pc.prize ?? 0
