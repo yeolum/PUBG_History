@@ -400,3 +400,37 @@ SET team_id = (SELECT p.team_id FROM players p WHERE p.id = tp.player_id)
 WHERE tp.team_id IS NULL;
 
 CREATE INDEX IF NOT EXISTS idx_tournament_players_team_id ON tournament_players(team_id);
+
+-- =====================================================
+-- Migration: keep players.team_id (current global team) synced with the
+-- team they played for in their most recent imported match. Called from
+-- the match-import path so a transfer is reflected automatically.
+-- =====================================================
+
+CREATE OR REPLACE FUNCTION sync_player_current_teams(player_ids UUID[])
+RETURNS void AS $$
+BEGIN
+  WITH latest AS (
+    SELECT DISTINCT ON (mps.player_id)
+      mps.player_id,
+      mps.team_id
+    FROM match_player_stats mps
+    JOIN matches m ON m.id = mps.match_id
+    WHERE mps.player_id = ANY(player_ids)
+      AND mps.team_id IS NOT NULL
+      AND m.status = 'imported'
+    ORDER BY mps.player_id,
+             m.match_date DESC NULLS LAST,
+             m.order_num DESC
+  )
+  UPDATE players p
+  SET team_id = latest.team_id,
+      updated_at = NOW()
+  FROM latest
+  WHERE p.id = latest.player_id
+    AND p.team_id IS DISTINCT FROM latest.team_id;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER;
+
+-- One-time backfill for existing data — idempotent (no-op when already in sync)
+SELECT sync_player_current_teams(ARRAY(SELECT id FROM players));

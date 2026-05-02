@@ -296,6 +296,16 @@ export async function POST(req: NextRequest) {
     await db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'player_id,alias', ignoreDuplicates: true })
   }
 
+  // Sync each linked player's global team_id to the team they played for in
+  // their most recent imported match. Re-importing an old match never moves
+  // them off a newer team because the function picks the latest by date.
+  const linkedPlayerIds = [...new Set(
+    cleanStats.map((s) => s.player_id).filter((pid): pid is string => !!pid)
+  )]
+  if (linkedPlayerIds.length > 0) {
+    await db.rpc('sync_player_current_teams', { player_ids: linkedPlayerIds })
+  }
+
   const unmatchedTeamNames = teamResultInserts
     .filter((t) => !t.team_id)
     .map((t) => t.pubg_team_name ?? '')

@@ -310,6 +310,8 @@ export default function StageMatchesPage() {
     for (const alias of aliasSet) {
       await supabase.from('player_aliases').upsert([{ player_id: playerId, alias }], { onConflict: 'player_id,alias', ignoreDuplicates: true })
     }
+    // Re-pin the player's global team to whichever match they most recently played in
+    await supabase.rpc('sync_player_current_teams', { player_ids: [playerId] })
     setLinkModal(null)
     reload()
   }
