@@ -31,6 +31,7 @@ interface Props {
   stageAdditionalPts?: Record<string, Record<string, number>>
   wwcdBonusByTeamId?: Record<string, { prize: number; pgs: number; pgc: number }>
   specialAwards?: SpecialAwardItem[]
+  dqTeamIds?: Set<string>
 }
 
 const rankStyle = (rank: number) =>
@@ -51,7 +52,7 @@ function formatDateLabel(dateStr: string) {
 export default function TournamentStagesView({
   stages, series, resultsByMatch, damageByMatch, rankBoard, prizeConfig,
   hasPrize, hasPgsPoints, hasPgcPoints, currency, aliasLogoLookup, stageAdditionalPts = {},
-  wwcdBonusByTeamId = {}, specialAwards = [],
+  wwcdBonusByTeamId = {}, specialAwards = [], dqTeamIds = new Set(),
 }: Props) {
   // All hooks must be before early return
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null)
@@ -341,39 +342,83 @@ export default function TournamentStagesView({
                     </tr>
                   </thead>
                   <tbody>
-                    {rankBoard.map(row => {
-                      const pc = prizeByRank.get(row.rank)
-                      const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
-                      const stats = row.teamId ? overallStandingsMap.get(row.teamId) : null
+                    {(() => {
+                      // Disqualified teams are pulled out of the active ranking, listed at the
+                      // bottom of the table marked DQ, with all stat columns hidden.
+                      const activeRows = rankBoard.filter(r => !r.teamId || !dqTeamIds.has(r.teamId))
+                      const dqRows = rankBoard.filter(r => r.teamId && dqTeamIds.has(r.teamId))
+                      // Re-rank actives so removed DQ slots don't leave gaps
+                      const renumbered = activeRows.map((r, i) => ({ ...r, displayRank: i + 1 }))
+                      const totalCols = 7 + (hasPrize ? 1 : 0) + (hasPgsPoints ? 1 : 0) + (hasPgcPoints ? 1 : 0)
                       return (
-                        <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.rank <= 3 ? 'bg-amber-50/30' : ''}`}>
-                          <td className={`px-3 py-2 font-mono text-xs ${rankStyle(row.rank)}`}>{row.rank}</td>
-                          <td className="px-3 py-2">
-                            <div className="flex items-center gap-1.5">
-                              {logo ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
-                              ) : (
-                                <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
-                              )}
-                              <span className="font-medium text-gray-800 text-xs leading-snug">
-                                {row.teamId ? (
-                                  <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">{row.teamName}</Link>
-                                ) : row.teamName}
-                              </span>
-                            </div>
-                          </td>
-                          <td className="px-3 py-2 text-right text-gray-400 text-xs">{stats?.matches ?? '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-400 text-xs">{stats?.wwcd ?? '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{stats?.placePts ?? '-'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{stats?.kills ?? '-'}</td>
-                          <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{stats?.totalPts ?? '-'}</td>
-                          {hasPrize && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPrize(row.teamId, pc?.prize ?? null)}</td>}
-                          {hasPgsPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgs_points ?? null, 'pgs')}</td>}
-                          {hasPgcPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgc_points ?? null, 'pgc')}</td>}
-                        </tr>
+                        <>
+                          {renumbered.map(row => {
+                            const pc = prizeByRank.get(row.rank)
+                            const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
+                            const stats = row.teamId ? overallStandingsMap.get(row.teamId) : null
+                            return (
+                              <tr key={row.rank} className={`border-b border-gray-50 last:border-0 ${row.displayRank <= 3 ? 'bg-amber-50/30' : ''}`}>
+                                <td className={`px-3 py-2 font-mono text-xs ${rankStyle(row.displayRank)}`}>{row.displayRank}</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-1.5">
+                                    {logo ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                                    ) : (
+                                      <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                    )}
+                                    <span className="font-medium text-gray-800 text-xs leading-snug">
+                                      {row.teamId ? (
+                                        <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">{row.teamName}</Link>
+                                      ) : row.teamName}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td className="px-3 py-2 text-right text-gray-400 text-xs">{stats?.matches ?? '-'}</td>
+                                <td className="px-3 py-2 text-right text-gray-400 text-xs">{stats?.wwcd ?? '-'}</td>
+                                <td className="px-3 py-2 text-right text-gray-500 text-xs">{stats?.placePts ?? '-'}</td>
+                                <td className="px-3 py-2 text-right text-gray-500 text-xs">{stats?.kills ?? '-'}</td>
+                                <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{stats?.totalPts ?? '-'}</td>
+                                {hasPrize && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPrize(row.teamId, pc?.prize ?? null)}</td>}
+                                {hasPgsPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgs_points ?? null, 'pgs')}</td>}
+                                {hasPgcPoints && <td className="px-3 py-2 text-right text-xs text-gray-600">{displayPts(row.teamId, pc?.pgc_points ?? null, 'pgc')}</td>}
+                              </tr>
+                            )
+                          })}
+                          {dqRows.length > 0 && (
+                            <tr>
+                              <td colSpan={totalCols} className="border-t-2 border-red-300 px-3 py-1.5 bg-red-50/40 text-[10px] font-bold text-red-500 tracking-wide">
+                                ✕ DISQUALIFIED
+                              </td>
+                            </tr>
+                          )}
+                          {dqRows.map(row => {
+                            const logo = resolveLogoUrl(row.teamId, row.teamName, aliasLogoLookup)
+                            return (
+                              <tr key={`dq-${row.teamId ?? row.teamName}`} className="border-b border-gray-50 last:border-0 bg-red-50/20">
+                                <td className="px-3 py-2 font-mono text-xs font-bold text-red-500">DQ</td>
+                                <td className="px-3 py-2">
+                                  <div className="flex items-center gap-1.5">
+                                    {logo ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100 opacity-60" />
+                                    ) : (
+                                      <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                    )}
+                                    <span className="font-medium text-gray-500 text-xs leading-snug line-through">
+                                      {row.teamId ? (
+                                        <Link href={`/teams/${row.teamId}`} className="hover:text-yellow-600">{row.teamName}</Link>
+                                      ) : row.teamName}
+                                    </span>
+                                  </div>
+                                </td>
+                                <td colSpan={totalCols - 2} className="px-3 py-2 text-right text-[10px] text-red-500 italic">disqualified</td>
+                              </tr>
+                            )
+                          })}
+                        </>
                       )
-                    })}
+                    })()}
                   </tbody>
                 </table>
               </div>

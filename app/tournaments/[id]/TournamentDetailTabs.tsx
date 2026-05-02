@@ -33,6 +33,7 @@ interface Props {
   teamStats: TeamStatRow[]
   dropLocations: DropLocationRow[]
   mapKeys: string[]
+  dqTeamIds: Set<string>
 }
 
 type Tab = 'scoreboard' | 'players' | 'teams'
@@ -73,6 +74,7 @@ export default function TournamentDetailTabs(props: Props) {
           stageAdditionalPts={props.stageAdditionalPts}
           wwcdBonusByTeamId={props.wwcdBonusByTeamId}
           specialAwards={props.specialAwards}
+          dqTeamIds={props.dqTeamIds}
         />
       )}
 

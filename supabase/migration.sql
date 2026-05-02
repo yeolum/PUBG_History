@@ -434,3 +434,11 @@ $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- One-time backfill for existing data — idempotent (no-op when already in sync)
 SELECT sync_player_current_teams(ARRAY(SELECT id FROM players));
+
+-- =====================================================
+-- Migration: per-tournament team disqualification flag
+-- DQ teams are removed from the active Final Standings ranking and listed
+-- at the bottom of the table marked DQ, with their stat columns hidden.
+-- =====================================================
+
+ALTER TABLE tournament_teams ADD COLUMN IF NOT EXISTS disqualified BOOLEAN NOT NULL DEFAULT FALSE;

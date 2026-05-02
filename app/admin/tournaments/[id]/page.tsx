@@ -90,7 +90,7 @@ export default function AdminTournamentDetailPage() {
   const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
-  type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null }
+  type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null; disqualified: boolean }
   type RosterPlayer = { player_id: string; nickname: string; team_name: string | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
@@ -127,7 +127,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
-      supabase.from('tournament_teams').select('team_id, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
+      supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, players(id, nickname, teams(name))').eq('tournament_id', id),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
@@ -255,6 +255,7 @@ export default function AdminTournamentDetailPage() {
         name: r.teams?.name ?? '?',
         short_name: (r.teams?.short_name as string | null) ?? null,
         logo_url: (r.teams?.logo_url as string | null) ?? null,
+        disqualified: !!r.disqualified,
       }))
       .sort((a, b) => a.name.localeCompare(b.name)))
 
@@ -532,6 +533,15 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('tournament_teams').delete()
       .eq('tournament_id', id).eq('team_id', teamId)
     if (error) { setErr('Remove team failed: ' + error.message); return }
+    reload()
+  }
+
+  async function toggleRosterTeamDQ(teamId: string, current: boolean) {
+    setErr('')
+    const { error } = await supabase.from('tournament_teams')
+      .update({ disqualified: !current })
+      .eq('tournament_id', id).eq('team_id', teamId)
+    if (error) { setErr('Toggle DQ failed: ' + error.message); return }
     reload()
   }
 
@@ -894,18 +904,32 @@ export default function AdminTournamentDetailPage() {
           ) : (
             <div className="flex flex-wrap gap-2">
               {rosterTeams.map((rt) => (
-                <div key={rt.team_id} className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+                <div
+                  key={rt.team_id}
+                  className={`flex items-center gap-1.5 border rounded-lg px-2 py-1 ${rt.disqualified ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'}`}
+                >
                   {rt.logo_url ? (
                     // eslint-disable-next-line @next/next/no-img-element
-                    <img src={rt.logo_url} alt="" className="w-4 h-4 rounded object-contain border border-gray-100" />
+                    <img src={rt.logo_url} alt="" className={`w-4 h-4 rounded object-contain border border-gray-100 ${rt.disqualified ? 'opacity-50' : ''}`} />
                   ) : (
                     <span className="w-4 h-4 rounded-full bg-gray-200" />
                   )}
-                  <span className="text-sm text-gray-700">{rt.name}</span>
+                  <span className={`text-sm ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{rt.name}</span>
                   {rt.short_name && <span className="text-[10px] font-mono text-gray-400">{rt.short_name}</span>}
                   <button
+                    onClick={() => toggleRosterTeamDQ(rt.team_id, rt.disqualified)}
+                    title={rt.disqualified ? 'Remove disqualification' : 'Mark as disqualified'}
+                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none ml-1 transition-colors ${
+                      rt.disqualified
+                        ? 'bg-red-500 text-white hover:bg-red-600'
+                        : 'border border-gray-300 text-gray-400 hover:text-red-500 hover:border-red-300'
+                    }`}
+                  >
+                    DQ
+                  </button>
+                  <button
                     onClick={() => removeRosterTeam(rt.team_id)}
-                    className="text-gray-300 hover:text-red-500 text-sm leading-none ml-1"
+                    className="text-gray-300 hover:text-red-500 text-sm leading-none ml-0.5"
                   >
                     ×
                   </button>

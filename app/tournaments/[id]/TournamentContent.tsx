@@ -72,7 +72,7 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_special_awards').select('*, players(id, nickname)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
-      supabase.from('tournament_teams').select('team_id, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
+      supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
     ])
 
@@ -338,6 +338,14 @@ export default async function TournamentContent({ id, tournament }: { id: string
       })
     }
   }
+
+  // Tournament-scoped disqualified teams — pulled from tournament_teams.disqualified
+  const dqTeamIds = new Set<string>(
+    ((rosterTeamsData ?? []) as AnyRow[])
+      .filter((r) => r.disqualified)
+      .map((r) => ((r.teams as AnyRow | null)?.id as string | null) ?? null)
+      .filter((x): x is string => !!x)
+  )
 
   // Union the pre-registered tournament roster — registered teams / players
   // should always show, even if no match has been imported yet or auto-link
@@ -673,6 +681,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         teamStats={teamStats}
         dropLocations={dropLocations}
         mapKeys={mapKeys}
+        dqTeamIds={dqTeamIds}
       />
     </>
   )
