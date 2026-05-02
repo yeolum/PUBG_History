@@ -348,3 +348,39 @@ ALTER TABLE stage_prize_config ADD CONSTRAINT stage_prize_config_target_xor
   CHECK ((stage_id IS NOT NULL) <> (series_id IS NOT NULL));
 
 CREATE INDEX IF NOT EXISTS idx_stage_prize_config_series ON stage_prize_config(series_id);
+
+-- =====================================================
+-- Migration: per-tournament participant roster
+-- Restricts auto-linking during match import to teams/players that are
+-- actually playing this tournament — prevents wrong links when team tags
+-- or player nicknames collide across the global pool.
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS tournament_teams (
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  team_id       UUID NOT NULL REFERENCES teams(id) ON DELETE CASCADE,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (tournament_id, team_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_teams_team ON tournament_teams(team_id);
+
+CREATE TABLE IF NOT EXISTS tournament_players (
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  player_id     UUID NOT NULL REFERENCES players(id) ON DELETE CASCADE,
+  created_at    TIMESTAMPTZ DEFAULT NOW(),
+  PRIMARY KEY (tournament_id, player_id)
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_players_player ON tournament_players(player_id);
+
+ALTER TABLE tournament_teams ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tournament_players ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "tournament_teams_public_read" ON tournament_teams;
+DROP POLICY IF EXISTS "tournament_teams_auth_write" ON tournament_teams;
+CREATE POLICY "tournament_teams_public_read" ON tournament_teams FOR SELECT USING (true);
+CREATE POLICY "tournament_teams_auth_write"  ON tournament_teams FOR ALL    USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "tournament_players_public_read" ON tournament_players;
+DROP POLICY IF EXISTS "tournament_players_auth_write" ON tournament_players;
+CREATE POLICY "tournament_players_public_read" ON tournament_players FOR SELECT USING (true);
+CREATE POLICY "tournament_players_auth_write"  ON tournament_players FOR ALL    USING (auth.uid() IS NOT NULL);

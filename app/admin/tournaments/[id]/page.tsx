@@ -88,6 +88,12 @@ export default function AdminTournamentDetailPage() {
   const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
+  type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null }
+  type RosterPlayer = { player_id: string; nickname: string; team_name: string | null }
+  const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
+  const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
+  const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | 'player' | null>(null)
+
   type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
   const [savingWwcd, setSavingWwcd] = useState(false)
@@ -106,7 +112,7 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
@@ -118,6 +124,8 @@ export default function AdminTournamentDetailPage() {
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
+      supabase.from('tournament_teams').select('team_id, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
+      supabase.from('tournament_players').select('player_id, players(id, nickname, teams(name))').eq('tournament_id', id),
     ])
     setSeriesList((ser ?? []) as Series[])
     setScoringRules((sr ?? []) as ScoringRule[])
@@ -231,6 +239,25 @@ export default function AdminTournamentDetailPage() {
       pgs: r.pgs_points?.toString() ?? '',
       pgc: r.pgc_points?.toString() ?? '',
     })))
+
+    // Tournament roster
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setRosterTeams(((ttData ?? []) as any[])
+      .map((r) => ({
+        team_id: r.team_id as string,
+        name: r.teams?.name ?? '?',
+        short_name: (r.teams?.short_name as string | null) ?? null,
+        logo_url: (r.teams?.logo_url as string | null) ?? null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name)))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setRosterPlayers(((tpData ?? []) as any[])
+      .map((r) => ({
+        player_id: r.player_id as string,
+        nickname: r.players?.nickname ?? '?',
+        team_name: r.players?.teams?.name ?? null,
+      }))
+      .sort((a, b) => a.nickname.localeCompare(b.nickname)))
   }, [id, supabase, router])
 
   useEffect(() => { load() }, [load])
@@ -438,6 +465,55 @@ export default function AdminTournamentDetailPage() {
     }).eq('id', seriesId)
     setSavingSeriesRulesId(null)
     if (error) { setErr('Save failed: ' + error.message); return }
+    load()
+  }
+
+  async function addRosterTeam(teamId: string) {
+    setErr('')
+    const { error } = await supabase.from('tournament_teams').upsert(
+      [{ tournament_id: id, team_id: teamId }],
+      { onConflict: 'tournament_id,team_id', ignoreDuplicates: true },
+    )
+    if (error) { setErr('Add team failed: ' + error.message); return }
+    // Auto-add the team's currently rostered active players too — admin can remove
+    // any stand-in or alumni manually afterwards.
+    const { data: teamPlayers } = await supabase
+      .from('players')
+      .select('id')
+      .eq('team_id', teamId)
+      .eq('is_active', true)
+    const rows = (teamPlayers ?? []).map((p) => ({ tournament_id: id, player_id: p.id as string }))
+    if (rows.length > 0) {
+      await supabase.from('tournament_players').upsert(rows, {
+        onConflict: 'tournament_id,player_id', ignoreDuplicates: true,
+      })
+    }
+    load()
+  }
+
+  async function removeRosterTeam(teamId: string) {
+    setErr('')
+    const { error } = await supabase.from('tournament_teams').delete()
+      .eq('tournament_id', id).eq('team_id', teamId)
+    if (error) { setErr('Remove team failed: ' + error.message); return }
+    load()
+  }
+
+  async function addRosterPlayer(playerId: string) {
+    setErr('')
+    const { error } = await supabase.from('tournament_players').upsert(
+      [{ tournament_id: id, player_id: playerId }],
+      { onConflict: 'tournament_id,player_id', ignoreDuplicates: true },
+    )
+    if (error) { setErr('Add player failed: ' + error.message); return }
+    load()
+  }
+
+  async function removeRosterPlayer(playerId: string) {
+    setErr('')
+    const { error } = await supabase.from('tournament_players').delete()
+      .eq('tournament_id', id).eq('player_id', playerId)
+    if (error) { setErr('Remove player failed: ' + error.message); return }
     load()
   }
 
@@ -740,6 +816,87 @@ export default function AdminTournamentDetailPage() {
             </div>
           </div>
         )}
+      </div>
+
+      {/* Participants — restricts auto-linking during match import to this roster */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">Participants</h2>
+          <span className="text-xs text-gray-400">
+            Pre-register teams and players so match import only links to them. Leave empty to use the global pool.
+          </span>
+        </div>
+
+        {/* Teams roster */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-sm font-semibold text-gray-700">Teams</span>
+            <span className="text-xs text-gray-400">{rosterTeams.length}</span>
+            <button
+              onClick={() => setRosterPickerOpen('team')}
+              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
+            >
+              + Add Team
+            </button>
+          </div>
+          {rosterTeams.length === 0 ? (
+            <p className="text-sm text-gray-400">No teams registered — global pool will be used during import.</p>
+          ) : (
+            <div className="flex flex-wrap gap-2">
+              {rosterTeams.map((rt) => (
+                <div key={rt.team_id} className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-1">
+                  {rt.logo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={rt.logo_url} alt="" className="w-4 h-4 rounded object-contain border border-gray-100" />
+                  ) : (
+                    <span className="w-4 h-4 rounded-full bg-gray-200" />
+                  )}
+                  <span className="text-sm text-gray-700">{rt.name}</span>
+                  {rt.short_name && <span className="text-[10px] font-mono text-gray-400">{rt.short_name}</span>}
+                  <button
+                    onClick={() => removeRosterTeam(rt.team_id)}
+                    className="text-gray-300 hover:text-red-500 text-sm leading-none ml-1"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Players roster */}
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-sm font-semibold text-gray-700">Players</span>
+            <span className="text-xs text-gray-400">{rosterPlayers.length}</span>
+            <span className="text-[11px] text-gray-400 italic">Adding a team auto-includes its current active roster.</span>
+            <button
+              onClick={() => setRosterPickerOpen('player')}
+              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
+            >
+              + Add Player
+            </button>
+          </div>
+          {rosterPlayers.length === 0 ? (
+            <p className="text-sm text-gray-400">No players registered — global pool will be used during import.</p>
+          ) : (
+            <div className="flex flex-wrap gap-1.5">
+              {rosterPlayers.map((rp) => (
+                <div key={rp.player_id} className="flex items-center gap-1.5 bg-gray-50 border border-gray-200 rounded-lg px-2 py-0.5">
+                  <span className="text-xs text-gray-700">{rp.nickname}</span>
+                  {rp.team_name && <span className="text-[10px] text-gray-400">{rp.team_name}</span>}
+                  <button
+                    onClick={() => removeRosterPlayer(rp.player_id)}
+                    className="text-gray-300 hover:text-red-500 text-xs leading-none ml-0.5"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Series management */}
@@ -1711,6 +1868,22 @@ export default function AdminTournamentDetailPage() {
           </div>
         </div>
       </div>
+
+      {rosterPickerOpen && (
+        <SearchModal
+          type={rosterPickerOpen}
+          targetName={tournament.short_name ?? tournament.name}
+          subtext="Pick one to register; the picker stays open for the next pick — close when done."
+          onConfirm={async (entityId) => {
+            if (rosterPickerOpen === 'team') {
+              await addRosterTeam(entityId)
+            } else {
+              await addRosterPlayer(entityId)
+            }
+          }}
+          onClose={() => setRosterPickerOpen(null)}
+        />
+      )}
 
       {awardPlayerLinkIdx !== null && (
         <SearchModal

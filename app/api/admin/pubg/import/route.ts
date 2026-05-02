@@ -124,17 +124,51 @@ export async function POST(req: NextRequest) {
     error_msg: null,
   }).eq('id', matchRecord.id)
 
-  // Build name → ID lookup maps (including aliases, case-insensitive)
+  // Resolve the tournament_id this match belongs to so we can scope auto-linking
+  // to the tournament's pre-registered participants when they exist.
+  const { data: stageRow } = await db
+    .from('stages')
+    .select('tournament_id')
+    .eq('id', stageId)
+    .single()
+  const tournamentId = stageRow?.tournament_id as string | undefined
+
+  const [{ data: rosterTeamRows }, { data: rosterPlayerRows }] = tournamentId
+    ? await Promise.all([
+        db.from('tournament_teams').select('team_id').eq('tournament_id', tournamentId),
+        db.from('tournament_players').select('player_id').eq('tournament_id', tournamentId),
+      ])
+    : [{ data: null }, { data: null }]
+
+  const allowedTeamIds: Set<string> | null = (rosterTeamRows && rosterTeamRows.length > 0)
+    ? new Set(rosterTeamRows.map((r) => r.team_id as string))
+    : null
+  const allowedPlayerIds: Set<string> | null = (rosterPlayerRows && rosterPlayerRows.length > 0)
+    ? new Set(rosterPlayerRows.map((r) => r.player_id as string))
+    : null
+
+  // Build name → ID lookup maps (including aliases, case-insensitive).
+  // When a tournament roster exists, restrict the candidate pool to it so
+  // colliding tags / nicknames from unrelated teams don't cross-link.
+  let teamsQuery = db.from('teams').select('id, name')
+  if (allowedTeamIds) teamsQuery = teamsQuery.in('id', [...allowedTeamIds])
+  let teamAliasesQuery = db.from('team_aliases').select('alias, team_id')
+  if (allowedTeamIds) teamAliasesQuery = teamAliasesQuery.in('team_id', [...allowedTeamIds])
+  let playersQuery = db.from('players').select('id, nickname, team_id')
+  if (allowedPlayerIds) playersQuery = playersQuery.in('id', [...allowedPlayerIds])
+  let playerAliasesQuery = db.from('player_aliases').select('alias, player_id')
+  if (allowedPlayerIds) playerAliasesQuery = playerAliasesQuery.in('player_id', [...allowedPlayerIds])
+
   const [
     { data: teamAliasRows },
     { data: teamRows },
     { data: playerAliasRows },
     { data: playerRows },
   ] = await Promise.all([
-    db.from('team_aliases').select('alias, team_id'),
-    db.from('teams').select('id, name'),
-    db.from('player_aliases').select('alias, player_id'),
-    db.from('players').select('id, nickname, team_id'),
+    teamAliasesQuery,
+    teamsQuery,
+    playerAliasesQuery,
+    playersQuery,
   ])
 
   // team name/alias → team_id
@@ -222,6 +256,7 @@ export async function POST(req: NextRequest) {
       const teamCandidates = resolvedPlayerIds
         .map((pid) => playerTeam[pid])
         .filter((tid): tid is string => !!tid)
+        .filter((tid) => !allowedTeamIds || allowedTeamIds.has(tid))
       resolvedTeamId = majority(teamCandidates) ?? null
     }
 
