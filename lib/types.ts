@@ -66,7 +66,8 @@ export interface Tournament {
   region: string | null
   start_date: string | null
   end_date: string | null
-  prize_pool: string | null
+  prize_pool: number | null
+  currency: string
   status: TournamentStatus
   banner_url: string | null
   description: string | null
@@ -80,7 +81,7 @@ export interface Tournament {
 
 export interface TournamentPrizeConfig {
   rank: number
-  prize: string | null
+  prize: number | null
   pgs_points: number | null
   pgc_points: number | null
   stage_id: string | null

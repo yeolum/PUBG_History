@@ -4,6 +4,7 @@ import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
 import Pagination from '@/components/Pagination'
+import { formatPrize } from '@/lib/currency'
 
 interface TourEntry {
   id: string
@@ -13,7 +14,8 @@ interface TourEntry {
   tourType: string | null
   finalStageName: string | null
   finalStageRank: number | null
-  finalStagePrize: string | null
+  finalStagePrize: number | null
+  currency: string
 }
 
 interface MatchResult {
@@ -217,8 +219,8 @@ export default function TeamHistoryClient({
                           <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
                         )}
                       </div>
-                      {te.finalStagePrize && (
-                        <p className="text-xs text-yellow-600 font-medium mb-2">{te.finalStagePrize}</p>
+                      {te.finalStagePrize != null && (
+                        <p className="text-xs text-yellow-600 font-medium mb-2">{formatPrize(te.finalStagePrize, te.currency)}</p>
                       )}
                       {roster.length > 0 && (
                         <div className="border-t border-gray-100 pt-2 space-y-1">
@@ -264,8 +266,8 @@ export default function TeamHistoryClient({
                     {te.finalStageRank != null && (
                       <div className="text-right">
                         <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
-                        {te.finalStagePrize && (
-                          <p className="text-xs text-yellow-600 font-medium">{te.finalStagePrize}</p>
+                        {te.finalStagePrize != null && (
+                          <p className="text-xs text-yellow-600 font-medium">{formatPrize(te.finalStagePrize, te.currency)}</p>
                         )}
                       </div>
                     )}

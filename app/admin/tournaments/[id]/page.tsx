@@ -11,6 +11,7 @@ import DisplayNameModal from '@/components/admin/DisplayNameModal'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 import type { ScoringRule } from '@/lib/types'
+import { CURRENCIES, currencySymbol, fmtNumberInput, parseNumberInput, formatPrize } from '@/lib/currency'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
@@ -25,44 +26,11 @@ function navPrize(e: React.KeyboardEvent, rowIdx: number, colIdx: number) {
   el?.focus()
 }
 
-const CURRENCIES = [
-  { code: 'USD', symbol: '$' },
-  { code: 'EUR', symbol: '€' },
-  { code: 'KRW', symbol: '₩' },
-  { code: 'GBP', symbol: '£' },
-  { code: 'JPY', symbol: '¥' },
-  { code: 'CNY', symbol: 'CN¥' },
-  { code: 'AUD', symbol: 'A$' },
-  { code: 'SGD', symbol: 'S$' },
-]
-
-function detectCurrency(str: string): string {
-  if (str.startsWith('A$')) return 'AUD'
-  if (str.startsWith('S$')) return 'SGD'
-  if (str.startsWith('CN¥')) return 'CNY'
-  if (str.startsWith('$')) return 'USD'
-  if (str.startsWith('€')) return 'EUR'
-  if (str.startsWith('₩')) return 'KRW'
-  if (str.startsWith('£')) return 'GBP'
-  if (str.startsWith('¥')) return 'JPY'
-  return 'USD'
-}
-
-function fmtNum(val: string): string {
-  const n = val.replace(/[^\d]/g, '')
-  if (!n) return ''
-  return parseInt(n, 10).toLocaleString('en-US')
-}
-
-function parsePrizeNum(stored: string | null | undefined): string {
-  if (!stored) return ''
-  const n = stored.replace(/[^\d]/g, '')
-  if (!n) return ''
-  return parseInt(n, 10).toLocaleString('en-US')
-}
-
-function currencySymbol(code: string): string {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$'
+function numberToInput(stored: number | string | null | undefined): string {
+  if (stored == null || stored === '') return ''
+  const n = typeof stored === 'number' ? stored : Number(stored)
+  if (!Number.isFinite(n)) return ''
+  return n.toLocaleString('en-US')
 }
 
 interface MatchFull extends Match {
@@ -152,11 +120,9 @@ export default function AdminTournamentDetailPage() {
     setTournament(t as Tournament)
     setForm(t as Tournament)
 
-    // Detect currency from existing prize data
-    const firstPrize = (pc ?? []).find((p) => p.prize)?.prize ?? t?.prize_pool ?? ''
-    const detected = detectCurrency(firstPrize)
-    setPrizeCurrency(detected)
-    setPrizePoolInput(parsePrizeNum(t?.prize_pool))
+    // Currency lives at the tournament level — single source of truth
+    setPrizeCurrency((t?.currency as string) ?? 'USD')
+    setPrizePoolInput(numberToInput(t?.prize_pool as number | null))
     const stageData = (s ?? []) as StageFull[]
     setStageList(stageData)
 
@@ -172,7 +138,7 @@ export default function AdminTournamentDetailPage() {
     }
     const totalTeams = Math.max(allTeamKeys.size, 16)
 
-    const prizeConfig = (pc ?? []) as { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; stage_rank: number | null }[]
+    const prizeConfig = (pc ?? []) as { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; stage_rank: number | null }[]
     const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
     const finalStage = stageData.find((stage) => stage.type === 'grand_final')
 
@@ -183,7 +149,7 @@ export default function AdminTournamentDetailPage() {
         rank,
         stageId: existing?.stage_id ?? (finalStage?.id ?? ''),
         stageRank: existing?.stage_rank ?? rank,
-        prize: parsePrizeNum(existing?.prize),
+        prize: numberToInput(existing?.prize),
         pgs: existing?.pgs_points?.toString() ?? '',
         pgc: existing?.pgc_points?.toString() ?? '',
       })
@@ -194,7 +160,7 @@ export default function AdminTournamentDetailPage() {
     const stageIds = ((s ?? []) as StageFull[]).map((stage) => stage.id)
     const { data: sp } = stageIds.length > 0
       ? await supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds).order('placement')
-      : { data: [] as { stage_id: string; placement: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }[] }
+      : { data: [] as { stage_id: string; placement: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }[] }
 
     const spMap: Record<string, StagePrizeRow[]> = {}
     for (const stage of (s ?? []) as StageFull[]) {
@@ -203,7 +169,7 @@ export default function AdminTournamentDetailPage() {
     for (const r of (sp ?? [])) {
       const row = spMap[r.stage_id]?.find((row) => row.placement === r.placement)
       if (row) {
-        row.prize = parsePrizeNum(r.prize)
+        row.prize = numberToInput(r.prize)
         row.pgs = r.pgs_points?.toString() ?? ''
         row.pgc = r.pgc_points?.toString() ?? ''
       }
@@ -214,7 +180,7 @@ export default function AdminTournamentDetailPage() {
     setWwcdRows((wwcd ?? []).map((r) => ({
       id: r.id as string,
       stageId: (r.stage_id as string) ?? '',
-      prize: parsePrizeNum(r.prize as string | null),
+      prize: numberToInput(r.prize as number | null),
       pgs: r.pgs_points?.toString() ?? '',
       pgc: r.pgc_points?.toString() ?? '',
     })))
@@ -226,7 +192,7 @@ export default function AdminTournamentDetailPage() {
       playerDisplayName: (r.player_display_name as string) ?? '',
       teamId: (r.team_id as string | null) ?? null,
       teamDisplayName: (r.team_display_name as string) ?? '',
-      prize: parsePrizeNum(r.prize as string | null),
+      prize: numberToInput(r.prize as number | null),
       pgs: r.pgs_points?.toString() ?? '',
       pgc: r.pgc_points?.toString() ?? '',
     })))
@@ -238,7 +204,6 @@ export default function AdminTournamentDetailPage() {
     if (!form.name?.trim()) return
     setSaving(true)
     setErr('')
-    const sym = currencySymbol(prizeCurrency)
     const { error } = await supabase.from('tournaments').update({
       name: form.name,
       short_name: form.short_name || null,
@@ -246,7 +211,8 @@ export default function AdminTournamentDetailPage() {
       region: form.region || null,
       start_date: form.start_date || null,
       end_date: form.end_date || null,
-      prize_pool: prizePoolInput ? `${sym}${prizePoolInput}` : null,
+      prize_pool: parseNumberInput(prizePoolInput),
+      currency: prizeCurrency,
       status: form.status,
       description: form.description || null,
       banner_url: form.banner_url ?? null,
@@ -363,10 +329,10 @@ export default function AdminTournamentDetailPage() {
       has_pgs_points: form.has_pgs_points ?? false,
       has_pgc_points: form.has_pgc_points ?? false,
       ranking_method: form.ranking_method ?? 'stage',
+      currency: prizeCurrency,
     }).eq('id', id)
     if (flagErr) { setErr('Save failed: ' + flagErr.message); setSavingPrize(false); return }
 
-    const sym = currencySymbol(prizeCurrency)
     const rows = prizeRows
       .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
       .map((r) => ({
@@ -374,7 +340,7 @@ export default function AdminTournamentDetailPage() {
         rank: r.rank,
         stage_id: r.stageId || null,
         stage_rank: r.stageRank || null,
-        prize: r.prize ? `${sym}${r.prize}` : null,
+        prize: parseNumberInput(r.prize),
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
       }))
@@ -403,13 +369,12 @@ export default function AdminTournamentDetailPage() {
     if (!selectedStagePrizeId) return
     setSavingStagePrize(true)
     setErr('')
-    const sym = currencySymbol(prizeCurrency)
     const rows = (stagePrizeMap[selectedStagePrizeId] ?? [])
       .filter((r) => r.prize || r.pgs || r.pgc)
       .map((r) => ({
         stage_id: selectedStagePrizeId,
         placement: r.placement,
-        prize: r.prize ? `${sym}${r.prize}` : null,
+        prize: parseNumberInput(r.prize),
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
       }))
@@ -426,13 +391,12 @@ export default function AdminTournamentDetailPage() {
   async function saveWwcdRewards() {
     setSavingWwcd(true)
     setErr('')
-    const sym = currencySymbol(prizeCurrency)
     const rows = wwcdRows
       .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
       .map((r, i) => ({
         tournament_id: id,
         stage_id: r.stageId || null,
-        prize: r.prize ? `${sym}${r.prize}` : null,
+        prize: parseNumberInput(r.prize),
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
         order_num: i,
@@ -450,7 +414,6 @@ export default function AdminTournamentDetailPage() {
   async function saveSpecialAwards() {
     setSavingSpecial(true)
     setErr('')
-    const sym = currencySymbol(prizeCurrency)
     const rows = specialRows
       .filter((r) => r.awardName.trim())
       .map((r, i) => ({
@@ -460,7 +423,7 @@ export default function AdminTournamentDetailPage() {
         player_display_name: r.playerDisplayName || null,
         team_id: r.teamId || null,
         team_display_name: r.teamDisplayName || null,
-        prize: r.prize ? `${sym}${r.prize}` : null,
+        prize: parseNumberInput(r.prize),
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
         order_num: i,
@@ -673,7 +636,7 @@ export default function AdminTournamentDetailPage() {
                   </span>
                   <input
                     value={prizePoolInput}
-                    onChange={(e) => setPrizePoolInput(fmtNum(e.target.value))}
+                    onChange={(e) => setPrizePoolInput(fmtNumberInput(e.target.value))}
                     placeholder="0"
                     className={INPUT_CLS + ' pl-7'}
                   />
@@ -706,7 +669,7 @@ export default function AdminTournamentDetailPage() {
                 ['Status', tournament.status === 'upcoming' ? 'Upcoming' : tournament.status === 'ongoing' ? 'Ongoing' : 'Completed'],
                 ['Format', tournament.type],
                 ['Region', tournament.region ?? '-'],
-                ['Prize Pool', tournament.prize_pool ?? '-'],
+                ['Prize Pool', formatPrize(tournament.prize_pool, tournament.currency)],
                 ['Period', `${tournament.start_date ?? '?'} ~ ${tournament.end_date ?? '?'}`],
                 ['Tag', tournament.short_name ?? '-'],
               ].map(([k, v]) => (
@@ -1297,7 +1260,7 @@ export default function AdminTournamentDetailPage() {
                           <span className="text-xs text-gray-400 shrink-0">{currencySymbol(prizeCurrency)}</span>
                           <input
                             value={row.prize}
-                            onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
+                            onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r))}
                             placeholder="0"
                             data-prize-row={i} data-prize-col={colStart + 2}
                             onKeyDown={(e) => navPrize(e, i, colStart + 2)}
@@ -1389,7 +1352,7 @@ export default function AdminTournamentDetailPage() {
                               value={row.prize}
                               onChange={(e) => setStagePrizeMap((m) => ({
                                 ...m,
-                                [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r),
+                                [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r),
                               }))}
                               placeholder="0"
                               className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -1481,7 +1444,7 @@ export default function AdminTournamentDetailPage() {
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
                               value={row.prize}
-                              onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
+                              onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r))}
                               placeholder="0"
                               className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                             />
@@ -1601,7 +1564,7 @@ export default function AdminTournamentDetailPage() {
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
                               value={row.prize}
-                              onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNum(e.target.value) } : r))}
+                              onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r))}
                               placeholder="0"
                               className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                             />

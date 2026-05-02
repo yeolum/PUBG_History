@@ -4,29 +4,9 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { TournamentStatus, TournamentType } from '@/lib/types'
+import { CURRENCIES, currencySymbol, fmtNumberInput, parseNumberInput } from '@/lib/currency'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent'
-
-const CURRENCIES = [
-  { code: 'USD', symbol: '$' },
-  { code: 'EUR', symbol: '€' },
-  { code: 'KRW', symbol: '₩' },
-  { code: 'GBP', symbol: '£' },
-  { code: 'JPY', symbol: '¥' },
-  { code: 'CNY', symbol: 'CN¥' },
-  { code: 'AUD', symbol: 'A$' },
-  { code: 'SGD', symbol: 'S$' },
-]
-
-function currencySymbol(code: string) {
-  return CURRENCIES.find((c) => c.code === code)?.symbol ?? '$'
-}
-
-function fmtNum(val: string): string {
-  const n = val.replace(/[^\d]/g, '')
-  if (!n) return ''
-  return parseInt(n, 10).toLocaleString('en-US')
-}
 
 function Field({ label, children, col2 }: { label: string; children: React.ReactNode; col2?: boolean }) {
   return (
@@ -69,9 +49,6 @@ export default function NewTournamentPage() {
     setSaving(true)
     setError('')
     try {
-      const sym = currencySymbol(prizeCurrency)
-      const prizePool = prizePoolInput ? `${sym}${prizePoolInput}` : null
-
       const { data, error: insertErr } = await supabase.from('tournaments').insert([{
         name: form.name.trim(),
         short_name: form.short_name.trim() || null,
@@ -80,7 +57,8 @@ export default function NewTournamentPage() {
         region: form.region.trim() || null,
         start_date: form.start_date || null,
         end_date: form.end_date || null,
-        prize_pool: prizePool,
+        prize_pool: parseNumberInput(prizePoolInput),
+        currency: prizeCurrency,
         description: form.description.trim() || null,
         has_prize: form.has_prize,
         has_pgs_points: form.has_pgs_points,
@@ -173,7 +151,7 @@ export default function NewTournamentPage() {
                 </span>
                 <input
                   value={prizePoolInput}
-                  onChange={(e) => setPrizePoolInput(fmtNum(e.target.value))}
+                  onChange={(e) => setPrizePoolInput(fmtNumberInput(e.target.value))}
                   placeholder="0"
                   className={INPUT_CLS + ' pl-7'}
                 />

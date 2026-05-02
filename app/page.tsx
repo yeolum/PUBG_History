@@ -4,6 +4,7 @@ export const revalidate = 30
 import Header from '@/components/Header'
 import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
+import { formatPrize } from '@/lib/currency'
 
 const STATUS_LABEL: Record<string, string> = {
   upcoming: 'Upcoming',
@@ -97,8 +98,8 @@ function TournamentCard({ t }: { t: Tournament }) {
           {t.start_date ?? '?'} ~ {t.end_date ?? '?'}
         </p>
       )}
-      {t.prize_pool && (
-        <p className="text-sm font-medium text-yellow-600 mt-2">{t.prize_pool}</p>
+      {t.prize_pool != null && (
+        <p className="text-sm font-medium text-yellow-600 mt-2">{formatPrize(t.prize_pool, t.currency)}</p>
       )}
     </Link>
   )

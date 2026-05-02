@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
 import Pagination from './Pagination'
+import { formatPrize } from '@/lib/currency'
 
 const STATUS_LABEL: Record<string, string> = { upcoming: '예정', ongoing: '진행중', completed: '종료' }
 const STATUS_COLOR: Record<string, string> = {
@@ -64,7 +65,7 @@ export default function TournamentListClient({ tournaments }: { tournaments: Tou
                 {(t.start_date || t.end_date) && (
                   <p className="text-xs text-gray-400">{t.start_date ?? '?'} ~ {t.end_date ?? '?'}</p>
                 )}
-                {t.prize_pool && <p className="text-sm font-medium text-yellow-600">{t.prize_pool}</p>}
+                {t.prize_pool != null && <p className="text-sm font-medium text-yellow-600">{formatPrize(t.prize_pool, t.currency)}</p>}
               </div>
             </Link>
           ))}

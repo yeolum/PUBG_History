@@ -379,7 +379,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
   }
 
   const prizeForStandings = prizeConfig.map((p) => ({
-    rank: p.rank, prize: p.prize, pgs_points: p.pgs_points, pgc_points: p.pgc_points,
+    rank: p.rank,
+    prize: p.prize != null ? Number(p.prize) : null,
+    pgs_points: p.pgs_points != null ? Number(p.pgs_points) : null,
+    pgc_points: p.pgc_points != null ? Number(p.pgc_points) : null,
   }))
 
   const dropLocations: DropLocationRow[] = (dropLocData ?? []).map((d: AnyRow) => ({
@@ -395,16 +398,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
   const mapKeys = [...mapsSet].sort()
 
   // WWCD bonus per linked team
-  function parsePrizeAmt(s: string | null): { sym: string; val: number } | null {
-    if (!s) return null
-    const sym = s.match(/^[^\d]+/)?.[0] ?? '$'
-    const val = parseInt(s.replace(/[^\d]/g, '') || '0', 10)
-    if (isNaN(val)) return null
-    return { sym, val }
-  }
-
   const wwcdRewards = (wwcdRewardsData ?? []) as AnyRow[]
-  const wwcdBonusByTeamId: Record<string, { prize: number; pgs: number; pgc: number; sym: string }> = {}
+  const wwcdBonusByTeamId: Record<string, { prize: number; pgs: number; pgc: number }> = {}
   if (wwcdRewards.length > 0) {
     for (const stage of stagesList) {
       for (const m of stage.matches) {
@@ -414,11 +409,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
           const teamId = r.team_id as string
           for (const reward of wwcdRewards) {
             if (reward.stage_id && reward.stage_id !== stage.id) continue
-            const prizePerWwcd = parsePrizeAmt(reward.prize as string | null)
+            const prizePerWwcd = reward.prize != null ? Number(reward.prize) : 0
             const pgsPerWwcd = reward.pgs_points ? Number(reward.pgs_points) : 0
             const pgcPerWwcd = reward.pgc_points ? Number(reward.pgc_points) : 0
-            if (!wwcdBonusByTeamId[teamId]) wwcdBonusByTeamId[teamId] = { prize: 0, pgs: 0, pgc: 0, sym: prizePerWwcd?.sym ?? '$' }
-            if (prizePerWwcd) wwcdBonusByTeamId[teamId].prize += prizePerWwcd.val
+            if (!wwcdBonusByTeamId[teamId]) wwcdBonusByTeamId[teamId] = { prize: 0, pgs: 0, pgc: 0 }
+            wwcdBonusByTeamId[teamId].prize += prizePerWwcd
             wwcdBonusByTeamId[teamId].pgs += pgsPerWwcd
             wwcdBonusByTeamId[teamId].pgc += pgcPerWwcd
           }
@@ -428,12 +423,12 @@ export default async function TournamentContent({ id, tournament }: { id: string
   }
 
   // Stage placement prizes → fold into bonus map
-  const stagePrizeByStage: Record<string, { placement: number; prize: string | null; pgs: number | null; pgc: number | null }[]> = {}
+  const stagePrizeByStage: Record<string, { placement: number; prize: number | null; pgs: number | null; pgc: number | null }[]> = {}
   for (const row of (stagePrizeConfigData ?? []) as AnyRow[]) {
     if (!stagePrizeByStage[row.stage_id]) stagePrizeByStage[row.stage_id] = []
     stagePrizeByStage[row.stage_id].push({
       placement: row.placement as number,
-      prize: row.prize as string | null,
+      prize: row.prize != null ? Number(row.prize) : null,
       pgs: row.pgs_points != null ? Number(row.pgs_points) : null,
       pgc: row.pgc_points != null ? Number(row.pgc_points) : null,
     })
@@ -447,13 +442,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
       if (!entry.teamId) continue
       const pc = stagePrizes.find((p) => p.placement === i + 1)
       if (!pc) continue
-      const prizeAmt = parsePrizeAmt(pc.prize)
-      const pgsAmt = pc.pgs ?? 0
-      const pgcAmt = pc.pgc ?? 0
-      if (!wwcdBonusByTeamId[entry.teamId]) wwcdBonusByTeamId[entry.teamId] = { prize: 0, pgs: 0, pgc: 0, sym: prizeAmt?.sym ?? '$' }
-      if (prizeAmt) wwcdBonusByTeamId[entry.teamId].prize += prizeAmt.val
-      wwcdBonusByTeamId[entry.teamId].pgs += pgsAmt
-      wwcdBonusByTeamId[entry.teamId].pgc += pgcAmt
+      if (!wwcdBonusByTeamId[entry.teamId]) wwcdBonusByTeamId[entry.teamId] = { prize: 0, pgs: 0, pgc: 0 }
+      wwcdBonusByTeamId[entry.teamId].prize += pc.prize ?? 0
+      wwcdBonusByTeamId[entry.teamId].pgs += pc.pgs ?? 0
+      wwcdBonusByTeamId[entry.teamId].pgc += pc.pgc ?? 0
     }
   }
 
@@ -499,14 +491,14 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   interface SpecialAwardItem {
     id: string; awardName: string; playerId: string | null; playerName: string | null
-    prize: string | null; pgsPoints: number | null; pgcPoints: number | null
+    prize: number | null; pgsPoints: number | null; pgcPoints: number | null
   }
   const specialAwardsList: SpecialAwardItem[] = (specialAwardsData ?? []).map((r: AnyRow) => ({
     id: r.id as string,
     awardName: r.award_name as string,
     playerId: (r.player_id as string | null) ?? null,
     playerName: (r.player_display_name as string | null) ?? (r.player_id ? (playerIdToNickname.get(r.player_id as string) ?? null) : null) ?? ((r.players as AnyRow)?.nickname as string | null) ?? null,
-    prize: (r.prize as string | null) ?? null,
+    prize: r.prize != null ? Number(r.prize) : null,
     pgsPoints: r.pgs_points != null ? Number(r.pgs_points) : null,
     pgcPoints: r.pgc_points != null ? Number(r.pgc_points) : null,
   }))
@@ -532,6 +524,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         hasPrize={t.has_prize}
         hasPgsPoints={t.has_pgs_points}
         hasPgcPoints={t.has_pgc_points}
+        currency={t.currency}
         aliasLogoLookup={aliasLogoLookup}
         stageAdditionalPts={stageAdditionalPts}
         wwcdBonusByTeamId={wwcdBonusByTeamId}

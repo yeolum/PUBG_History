@@ -6,14 +6,15 @@ import MatchStageView from './MatchStageView'
 import { stripTagPrefix } from '@/lib/pubg-api'
 import type { Stage, Match } from '@/lib/types'
 import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
+import { formatPrize } from '@/lib/currency'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
 
 interface SeriesItem { id: string; name: string; order_num: number }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
-interface PrizeConfigItem { rank: number; prize: string | null; pgs_points: number | null; pgc_points: number | null }
-interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: string | null; pgsPoints: number | null; pgcPoints: number | null }
+interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
+interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
@@ -25,9 +26,10 @@ interface Props {
   hasPrize: boolean
   hasPgsPoints: boolean
   hasPgcPoints: boolean
+  currency: string
   aliasLogoLookup: Record<string, string | null>
   stageAdditionalPts?: Record<string, Record<string, number>>
-  wwcdBonusByTeamId?: Record<string, { prize: number; pgs: number; pgc: number; sym: string }>
+  wwcdBonusByTeamId?: Record<string, { prize: number; pgs: number; pgc: number }>
   specialAwards?: SpecialAwardItem[]
 }
 
@@ -48,7 +50,7 @@ function formatDateLabel(dateStr: string) {
 
 export default function TournamentStagesView({
   stages, series, resultsByMatch, damageByMatch, rankBoard, prizeConfig,
-  hasPrize, hasPgsPoints, hasPgcPoints, aliasLogoLookup, stageAdditionalPts = {},
+  hasPrize, hasPgsPoints, hasPgcPoints, currency, aliasLogoLookup, stageAdditionalPts = {},
   wwcdBonusByTeamId = {}, specialAwards = [],
 }: Props) {
   // All hooks must be before early return
@@ -187,19 +189,11 @@ export default function TournamentStagesView({
 
   const prizeByRank = new Map(prizeConfig.map(p => [p.rank, p]))
 
-  function parsePrizeStr(s: string | null): { sym: string; val: number } | null {
-    if (!s) return null
-    const sym = s.match(/^[^\d]+/)?.[0] ?? '$'
-    const val = parseInt(s.replace(/[^\d]/g, '') || '0', 10)
-    return { sym, val }
-  }
-
-  function displayPrize(teamId: string | null, placementPrize: string | null): string {
+  function displayPrize(teamId: string | null, placementPrize: number | null): string {
     const bonus = teamId ? (wwcdBonusByTeamId[teamId]?.prize ?? 0) : 0
-    if (bonus === 0) return placementPrize ?? '-'
-    const p = parsePrizeStr(placementPrize)
-    const sym = p?.sym ?? wwcdBonusByTeamId[teamId!]?.sym ?? '$'
-    return `${sym}${((p?.val ?? 0) + bonus).toLocaleString('en-US')}`
+    const total = (placementPrize ?? 0) + bonus
+    if (total === 0 && placementPrize == null) return '-'
+    return formatPrize(total, currency)
   }
 
   function displayPts(teamId: string | null, base: number | null, field: 'pgs' | 'pgc'): string | number {
@@ -406,7 +400,7 @@ export default function TournamentStagesView({
                         )}
                       </td>
                       <td className="px-3 py-2.5 text-right">
-                        {award.prize && <div className="text-xs font-medium text-gray-800">{award.prize}</div>}
+                        {award.prize != null && <div className="text-xs font-medium text-gray-800">{formatPrize(award.prize, currency)}</div>}
                         {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
                         {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
                       </td>

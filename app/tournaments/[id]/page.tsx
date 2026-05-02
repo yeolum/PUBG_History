@@ -6,6 +6,7 @@ import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import { Suspense, cache } from 'react'
 import TournamentContent from './TournamentContent'
+import { formatPrize } from '@/lib/currency'
 
 export const revalidate = 30
 
@@ -62,7 +63,7 @@ export default async function TournamentDetailPage({ params }: { params: Promise
           {(t.start_date || t.end_date) && (
             <p className="text-sm text-gray-400 mt-0.5">{t.start_date ?? '?'} ~ {t.end_date ?? '?'}</p>
           )}
-          {t.prize_pool && <p className="text-base font-semibold text-yellow-600 mt-0.5">{t.prize_pool}</p>}
+          {t.prize_pool != null && <p className="text-base font-semibold text-yellow-600 mt-0.5">{formatPrize(t.prize_pool, t.currency)}</p>}
           {t.description && <p className="text-sm text-gray-600 mt-1">{t.description}</p>}
         </div>
 

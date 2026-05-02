@@ -44,7 +44,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     matches(id, order_num, map, match_date,
       stages(id, name, type, order_num,
         series(id, name, order_num),
-        tournaments(id, name, short_name, start_date, end_date, type)))
+        tournaments(id, name, short_name, start_date, end_date, type, currency)))
   `
 
   // Q1: explicitly linked stats
@@ -73,9 +73,10 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   // --- Build tournament map (keyed by tour.id) ---
   type TourEntry = {
     id: string; name: string; short_name: string | null; year: number | null; tourType: string | null
+    currency: string
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
     finalStageId: string | null; finalStageName: string | null
-    finalStageRank: number | null; finalStagePrize: string | null
+    finalStageRank: number | null; finalStagePrize: number | null
     playerTeamId: string | null
   }
   const tourMap = new Map<string, TourEntry>()
@@ -94,6 +95,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       tourMap.set(tour.id, {
         id: tour.id, name: tour.name, short_name: tour.short_name,
         year, tourType: tour.type ?? null,
+        currency: (tour.currency as string) ?? 'USD',
         stages: new Map(), finalStageId: null, finalStageName: null,
         finalStageRank: null, finalStagePrize: null, playerTeamId: null,
       })
@@ -179,7 +181,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     for (const p of prizeData ?? []) {
       const te = tourMap.get(p.tournament_id)
       if (te && te.finalStageRank != null && p.rank === te.finalStageRank) {
-        te.finalStagePrize = p.prize ?? null
+        te.finalStagePrize = p.prize != null ? Number(p.prize) : null
       }
     }
   }
@@ -193,6 +195,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     finalStageName: te.finalStageName,
     finalStageRank: te.finalStageRank,
     finalStagePrize: te.finalStagePrize,
+    currency: te.currency,
   }))
 
   // Serialize match stats for client, sorted by match_date desc (most recent first)
