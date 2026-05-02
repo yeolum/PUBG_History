@@ -73,7 +73,7 @@ const loadTournamentData = unstable_cache(
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
       supabase.from('tournament_teams').select('team_id, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
-      supabase.from('tournament_players').select('player_id, players(id, nickname, nationality_code, team_id)').eq('tournament_id', id),
+      supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
     ])
 
     return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData }
@@ -166,18 +166,34 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
   }
 
+  // When a tournament has a registered team roster, prefer those teams' aliases
+  // for tag → team / tag → display-name lookups. Two unrelated teams sharing a
+  // tag (e.g. "DN") would otherwise resolve to whichever was processed first.
+  const registeredTeamIds = new Set<string>(
+    ((rosterTeamsData ?? []) as AnyRow[])
+      .map((r) => ((r.teams as AnyRow | null)?.id as string | null) ?? null)
+      .filter((x): x is string => !!x)
+  )
+  const aliasRows = (allAliasData ?? []).slice().sort((a, b) => {
+    const ar = registeredTeamIds.has((a as AnyRow).team_id) ? 0 : 1
+    const br = registeredTeamIds.has((b as AnyRow).team_id) ? 0 : 1
+    return ar - br
+  })
+
   const aliasToTeamId = new Map<string, string>()
   const aliasTagToName = new Map<string, string>()
-  for (const a of allAliasData ?? []) {
+  for (const a of aliasRows) {
     const row = a as AnyRow
-    aliasToTeamId.set(row.alias.toLowerCase(), row.team_id)
+    if (!aliasToTeamId.has(row.alias.toLowerCase())) {
+      aliasToTeamId.set(row.alias.toLowerCase(), row.team_id)
+    }
     const dashIdx = (row.alias as string).indexOf(' - ')
     if (dashIdx !== -1) {
       const tagPart = row.alias.slice(0, dashIdx).trim().toLowerCase()
       const namePart = row.alias.slice(dashIdx + 3).trim()
       if (tagPart && !aliasToTeamId.has(tagPart)) aliasToTeamId.set(tagPart, row.team_id)
       if (tagPart && namePart && !aliasTagToName.has(tagPart)) aliasTagToName.set(tagPart, namePart)
-      if (namePart) aliasTagToName.set(row.alias.toLowerCase(), namePart)
+      if (namePart && !aliasTagToName.has(row.alias.toLowerCase())) aliasTagToName.set(row.alias.toLowerCase(), namePart)
     }
   }
 
@@ -348,20 +364,23 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const playerId = p.id as string
     const nickname = (p.nickname as string) ?? '?'
     const nationality = (p.nationality_code as string | null) ?? null
-    const playerTeamId = (p.team_id as string | null) ?? null
+    // Use the tournament-scoped team, NOT the player's global team_id, so a player
+    // who was registered as DN here doesn't get cross-listed under GEN just because
+    // their global profile says GEN.
+    const tournamentTeamId = (r.team_id as string | null) ?? null
 
-    if (playerTeamId) {
-      const team = teamRosterMap.get(playerTeamId)
+    if (tournamentTeamId) {
+      const team = teamRosterMap.get(tournamentTeamId)
       if (team && !team.players.has(playerId)) {
         team.players.set(playerId, { id: playerId, nickname, nationality })
       }
     }
     if (!playerStatsMap.has(playerId)) {
-      const team = playerTeamId ? teamStatsMap.get(playerTeamId) : null
+      const team = tournamentTeamId ? teamStatsMap.get(tournamentTeamId) : null
       playerStatsMap.set(playerId, {
         playerId,
         nickname,
-        teamId: playerTeamId,
+        teamId: tournamentTeamId,
         teamName: team?.teamName ?? '',
         logoUrl: team?.logoUrl ?? null,
         games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,

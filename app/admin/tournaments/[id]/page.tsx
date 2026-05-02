@@ -486,13 +486,14 @@ export default function AdminTournamentDetailPage() {
     )
     if (error) { setErr('Add team failed: ' + error.message); return }
     // Auto-add the team's currently rostered active players too — admin can remove
-    // any stand-in or alumni manually afterwards.
+    // any stand-in or alumni manually afterwards. Pin team_id so a later transfer
+    // on the player's global record doesn't move them out of this tournament's team.
     const { data: teamPlayers } = await supabase
       .from('players')
       .select('id')
       .eq('team_id', teamId)
       .eq('is_active', true)
-    const rows = (teamPlayers ?? []).map((p) => ({ tournament_id: id, player_id: p.id as string }))
+    const rows = (teamPlayers ?? []).map((p) => ({ tournament_id: id, player_id: p.id as string, team_id: teamId }))
     if (rows.length > 0) {
       await supabase.from('tournament_players').upsert(rows, {
         onConflict: 'tournament_id,player_id', ignoreDuplicates: true,
@@ -511,8 +512,12 @@ export default function AdminTournamentDetailPage() {
 
   async function addRosterPlayer(playerId: string) {
     setErr('')
+    // Default the tournament-scoped team to the player's current team. Admin
+    // can fix later if the player is actually a stand-in for a different team.
+    const { data: player } = await supabase.from('players').select('team_id').eq('id', playerId).single()
+    const teamId = (player?.team_id as string | null) ?? null
     const { error } = await supabase.from('tournament_players').upsert(
-      [{ tournament_id: id, player_id: playerId }],
+      [{ tournament_id: id, player_id: playerId, team_id: teamId }],
       { onConflict: 'tournament_id,player_id', ignoreDuplicates: true },
     )
     if (error) { setErr('Add player failed: ' + error.message); return }

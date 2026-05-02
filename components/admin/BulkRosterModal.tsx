@@ -13,6 +13,8 @@ interface Candidate {
   sublabel: string | null
   logo_url?: string | null
   nationalityCode?: string | null
+  // For players: their current global team_id, snapshotted into tournament_players.team_id at save
+  teamId?: string | null
 }
 
 interface ReviewRow {
@@ -117,11 +119,11 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const [{ data: players }, { data: aliases }] = await Promise.all([
-          supabase.from('players').select('id, nickname, nationality_code, teams(name)').limit(20000),
+          supabase.from('players').select('id, nickname, nationality_code, team_id, teams(name)').limit(20000),
           supabase.from('player_aliases').select('player_id, alias').limit(50000),
         ])
 
-        const playerById = new Map<string, { id: string; nickname: string; teamName: string | null; nationalityCode: string | null }>()
+        const playerById = new Map<string, { id: string; nickname: string; teamName: string | null; nationalityCode: string | null; teamId: string | null }>()
         for (const p of players ?? []) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const teamName = ((p as any).teams?.name as string | null) ?? null
@@ -130,6 +132,7 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
             nickname: p.nickname as string,
             teamName,
             nationalityCode: (p.nationality_code as string | null) ?? null,
+            teamId: (p.team_id as string | null) ?? null,
           })
         }
 
@@ -159,8 +162,8 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
         const toCandidates = (ids: string[]): Candidate[] =>
           ids
             .map((id) => playerById.get(id))
-            .filter((p): p is { id: string; nickname: string; teamName: string | null; nationalityCode: string | null } => !!p)
-            .map((p) => ({ id: p.id, label: p.nickname, sublabel: p.teamName, nationalityCode: p.nationalityCode }))
+            .filter((p): p is { id: string; nickname: string; teamName: string | null; nationalityCode: string | null; teamId: string | null } => !!p)
+            .map((p) => ({ id: p.id, label: p.nickname, sublabel: p.teamName, nationalityCode: p.nationalityCode, teamId: p.teamId }))
 
         const reviewed: ReviewRow[] = inputs.map((input) => {
           const exact = [...(byKey.get(input.toLowerCase()) ?? [])]
@@ -187,9 +190,7 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
   }
 
   async function saveAll() {
-    const toSave = rows
-      .filter((r) => r.candidate && !existingIds.has(r.candidate.id))
-      .map((r) => r.candidate!.id)
+    const toSave = rows.filter((r) => r.candidate && !existingIds.has(r.candidate.id))
     if (toSave.length === 0) {
       setErr('Nothing to save — all matched rows are already registered or unmatched.')
       return
@@ -198,7 +199,18 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
     setErr('')
     const table = kind === 'team' ? 'tournament_teams' : 'tournament_players'
     const idCol = kind === 'team' ? 'team_id' : 'player_id'
-    const insertRows = toSave.map((entityId) => ({ tournament_id: tournamentId, [idCol]: entityId }))
+    let insertRows: Record<string, string | null>[]
+    if (kind === 'team') {
+      insertRows = toSave.map((r) => ({ tournament_id: tournamentId, team_id: r.candidate!.id }))
+    } else {
+      // Snapshot the player's current team into tournament_players.team_id so a
+      // later transfer doesn't move them out of this tournament's roster.
+      insertRows = toSave.map((r) => ({
+        tournament_id: tournamentId,
+        player_id: r.candidate!.id,
+        team_id: r.candidate!.teamId ?? null,
+      }))
+    }
     const { error } = await supabase.from(table).upsert(insertRows, {
       onConflict: `tournament_id,${idCol}`,
       ignoreDuplicates: true,
@@ -349,9 +361,15 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
         <SearchModal
           type={kind}
           targetName={rows[pickerForIdx]?.input ?? ''}
-          onConfirm={(entityId, entityName) => {
+          onConfirm={async (entityId, entityName) => {
+            // For players, snapshot their current global team_id so save can pin it
+            let teamId: string | null = null
+            if (kind === 'player') {
+              const { data } = await supabase.from('players').select('team_id').eq('id', entityId).single()
+              teamId = (data?.team_id as string | null) ?? null
+            }
             setRows((rs) => rs.map((r, j) => j === pickerForIdx
-              ? { ...r, candidate: { id: entityId, label: entityName, sublabel: null }, status: 'matched', alternatives: [] }
+              ? { ...r, candidate: { id: entityId, label: entityName, sublabel: null, teamId }, status: 'matched', alternatives: [] }
               : r
             ))
             setPickerForIdx(null)

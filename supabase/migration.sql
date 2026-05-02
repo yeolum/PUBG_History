@@ -384,3 +384,19 @@ DROP POLICY IF EXISTS "tournament_players_public_read" ON tournament_players;
 DROP POLICY IF EXISTS "tournament_players_auth_write" ON tournament_players;
 CREATE POLICY "tournament_players_public_read" ON tournament_players FOR SELECT USING (true);
 CREATE POLICY "tournament_players_auth_write"  ON tournament_players FOR ALL    USING (auth.uid() IS NOT NULL);
+
+-- =====================================================
+-- Migration: tournament-scoped team for each registered player
+-- A player's global players.team_id (their current team) is unrelated to the
+-- team they're playing for in any specific tournament — store the tournament
+-- assignment explicitly so display / rosters don't cross-pollinate teams.
+-- =====================================================
+
+ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS team_id UUID REFERENCES teams(id) ON DELETE SET NULL;
+
+-- Backfill: existing rows default to the player's current team_id
+UPDATE tournament_players tp
+SET team_id = (SELECT p.team_id FROM players p WHERE p.id = tp.player_id)
+WHERE tp.team_id IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_tournament_players_team_id ON tournament_players(team_id);
