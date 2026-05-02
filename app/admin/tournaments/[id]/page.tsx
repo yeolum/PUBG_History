@@ -13,6 +13,7 @@ import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 import type { ScoringRule } from '@/lib/types'
 import { CURRENCIES, currencySymbol, fmtNumberInput, parseNumberInput, formatPrize } from '@/lib/currency'
+import { revalidatePublic } from '@/lib/revalidate'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
@@ -264,6 +265,13 @@ export default function AdminTournamentDetailPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Re-fetch admin data and invalidate the public-page cache so the change
+  // shows up immediately. Use this after every successful write below.
+  const reload = useCallback(() => {
+    revalidatePublic({ tournamentId: id })
+    return load()
+  }, [id, load])
+
   async function saveTournament() {
     if (!form.name?.trim()) return
     setSaving(true)
@@ -287,7 +295,7 @@ export default function AdminTournamentDetailPage() {
     setSaving(false)
     if (error) { setErr('Save failed: ' + error.message); return }
     setEditMode(false)
-    load()
+    reload()
   }
 
   async function deleteTournament() {
@@ -311,7 +319,7 @@ export default function AdminTournamentDetailPage() {
     setAddingStage(false)
     setNewStageName('')
     setNewSeriesId('')
-    await load()
+    await reload()
   }
 
   async function saveStage(stageId: string) {
@@ -324,14 +332,14 @@ export default function AdminTournamentDetailPage() {
     }).eq('id', stageId)
     if (error) { setErr('Failed to update stage: ' + error.message); return }
     setEditingStageId(null)
-    load()
+    reload()
   }
 
   async function deleteStage(stageId: string) {
     if (!confirm('Delete this stage and all its matches?')) return
     await supabase.from('stages').delete().eq('id', stageId)
     setSelectedMatchByStage((prev) => { const n = { ...prev }; delete n[stageId]; return n })
-    load()
+    reload()
   }
 
   async function reorderStages(fromId: string, toId: string) {
@@ -346,7 +354,7 @@ export default function AdminTournamentDetailPage() {
     await Promise.all(reordered.map((s, i) =>
       supabase.from('stages').update({ order_num: i + 1 }).eq('id', s.id)
     ))
-    load()
+    reload()
   }
 
   async function reorderSeries(fromId: string, toId: string) {
@@ -361,7 +369,7 @@ export default function AdminTournamentDetailPage() {
     await Promise.all(reordered.map((s, i) =>
       supabase.from('series').update({ order_num: i + 1 }).eq('id', s.id)
     ))
-    load()
+    reload()
   }
 
   async function addSeries() {
@@ -375,13 +383,13 @@ export default function AdminTournamentDetailPage() {
     if (error) { setErr('Failed to add series: ' + error.message); return }
     setAddingSeries(false)
     setNewSeriesName('')
-    load()
+    reload()
   }
 
   async function deleteSeries(seriesId: string, seriesName: string) {
     if (!confirm(`Delete series "${seriesName}"? Stages in this series will become standalone.`)) return
     await supabase.from('series').delete().eq('id', seriesId)
-    load()
+    reload()
   }
 
   async function savePrizeConfig() {
@@ -426,7 +434,7 @@ export default function AdminTournamentDetailPage() {
     }
 
     setSavingPrize(false)
-    load()
+    reload()
   }
 
   async function saveStagePrizes() {
@@ -451,7 +459,7 @@ export default function AdminTournamentDetailPage() {
       if (error) { setErr('Save failed: ' + error.message); setSavingStagePrize(false); return }
     }
     setSavingStagePrize(false)
-    load()
+    reload()
   }
 
   async function saveSeriesAdvancement(seriesId: string) {
@@ -467,7 +475,7 @@ export default function AdminTournamentDetailPage() {
     }).eq('id', seriesId)
     setSavingSeriesRulesId(null)
     if (error) { setErr('Save failed: ' + error.message); return }
-    load()
+    reload()
   }
 
   async function addRosterTeam(teamId: string) {
@@ -490,7 +498,7 @@ export default function AdminTournamentDetailPage() {
         onConflict: 'tournament_id,player_id', ignoreDuplicates: true,
       })
     }
-    load()
+    reload()
   }
 
   async function removeRosterTeam(teamId: string) {
@@ -498,7 +506,7 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('tournament_teams').delete()
       .eq('tournament_id', id).eq('team_id', teamId)
     if (error) { setErr('Remove team failed: ' + error.message); return }
-    load()
+    reload()
   }
 
   async function addRosterPlayer(playerId: string) {
@@ -508,7 +516,7 @@ export default function AdminTournamentDetailPage() {
       { onConflict: 'tournament_id,player_id', ignoreDuplicates: true },
     )
     if (error) { setErr('Add player failed: ' + error.message); return }
-    load()
+    reload()
   }
 
   async function removeRosterPlayer(playerId: string) {
@@ -516,7 +524,7 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('tournament_players').delete()
       .eq('tournament_id', id).eq('player_id', playerId)
     if (error) { setErr('Remove player failed: ' + error.message); return }
-    load()
+    reload()
   }
 
   async function saveWwcdRewards() {
@@ -539,7 +547,7 @@ export default function AdminTournamentDetailPage() {
       if (error) { setErr('Save failed: ' + error.message); setSavingWwcd(false); return }
     }
     setSavingWwcd(false)
-    load()
+    reload()
   }
 
   async function saveSpecialAwards() {
@@ -566,7 +574,7 @@ export default function AdminTournamentDetailPage() {
       if (error) { setErr('Save failed: ' + error.message); setSavingSpecial(false); return }
     }
     setSavingSpecial(false)
-    load()
+    reload()
   }
 
   async function linkTeam(pubgTeamName: string, teamId: string, displayName: string | null, entityName: string) {
@@ -614,7 +622,7 @@ export default function AdminTournamentDetailPage() {
       { onConflict: 'alias', ignoreDuplicates: true }
     )
     setLinkModal(null)
-    load()
+    reload()
   }
 
   async function linkPlayer(pubgPlayerName: string, playerId: string, displayName: string | null, entityName: string) {
@@ -644,7 +652,7 @@ export default function AdminTournamentDetailPage() {
       )
     }
     setLinkModal(null)
-    load()
+    reload()
   }
 
   function toggleMatchTab(stageId: string, matchId: string) {
@@ -1913,7 +1921,7 @@ export default function AdminTournamentDetailPage() {
               : rosterPlayers.map((rp) => rp.player_id)
           )}
           onClose={() => setBulkRosterOpen(null)}
-          onSaved={() => load()}
+          onSaved={() => reload()}
         />
       )}
 

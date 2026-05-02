@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { revalidatePath, revalidateTag } from 'next/cache'
 import { fetchPubgMatch } from '@/lib/pubg-api'
 import { getSuffix } from '@/lib/scoring'
 import { cookies } from 'next/headers'
@@ -302,6 +303,13 @@ export async function POST(req: NextRequest) {
   const unmatchedPlayerNames = [...new Set(
     cleanStats.filter((p) => !p.player_id).map((p) => p.pubg_player_name ?? '')
   )]
+
+  // Public-page invalidation: a fresh match changes scoreboards, prize totals,
+  // team / player profiles, etc. — refresh now instead of waiting 30s.
+  revalidateTag('tournament-data', 'default')
+  if (tournamentId) revalidatePath(`/tournaments/${tournamentId}`)
+  revalidatePath('/tournaments')
+  revalidatePath('/')
 
   return NextResponse.json({
     success: true,

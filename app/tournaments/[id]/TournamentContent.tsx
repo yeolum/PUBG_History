@@ -77,7 +77,9 @@ const loadTournamentData = unstable_cache(
     return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData }
   },
   ['tournament-data'],
-  { revalidate: 30 }
+  // Tag lets admin saves call revalidateTag('tournament-data') for an
+  // immediate refresh; the 30s revalidate is just a backstop.
+  { revalidate: 30, tags: ['tournament-data'] }
 )
 
 function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<string, string | null>): string | null {

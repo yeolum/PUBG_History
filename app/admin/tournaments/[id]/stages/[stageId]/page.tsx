@@ -9,6 +9,7 @@ import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPtsWithRule, ruleFromStage, DEFAULT_RULE, type ScoringRuleConfig } from '@/lib/scoring'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
+import { revalidatePublic } from '@/lib/revalidate'
 
 const INPUT_CLS = 'border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
@@ -142,6 +143,14 @@ export default function StageMatchesPage() {
 
   useEffect(() => { load() }, [load])
 
+  // Re-fetch admin state and invalidate the public cache so changes appear
+  // immediately on the user-facing pages instead of waiting for the 30s
+  // ISR / unstable_cache window.
+  const reload = useCallback(() => {
+    revalidatePublic({ tournamentId })
+    return load()
+  }, [tournamentId, load])
+
   const stageRule = useMemo(() => ruleFromStage(stage?.scoring_rules), [stage])
   const extraPtsMap = useMemo(() => {
     const m: Record<string, number> = {}
@@ -196,7 +205,7 @@ export default function StageMatchesPage() {
     }
     setSavingAddPts(false)
     setAddPtsOpen(false)
-    load()
+    reload()
   }
 
   async function saveAdvancementRules() {
@@ -206,7 +215,7 @@ export default function StageMatchesPage() {
       eliminate_count: eliminateCount > 0 ? eliminateCount : null,
     }).eq('id', stageId)
     setSavingRules(false)
-    load()
+    reload()
   }
 
   function addRow() {
@@ -245,14 +254,14 @@ export default function StageMatchesPage() {
       }
     }
     setAnyImporting(false)
-    load()
+    reload()
   }
 
   async function deleteMatch(matchId: string) {
     if (!confirm('Delete this match?')) return
     await supabase.from('matches').delete().eq('id', matchId)
     if (selectedMatch === matchId) setSelectedMatch(null)
-    load()
+    reload()
   }
 
   async function reorderMatches(fromId: string, toId: string) {
@@ -267,7 +276,7 @@ export default function StageMatchesPage() {
     await Promise.all(reordered.map((m, i) =>
       supabase.from('matches').update({ order_num: i + 1 }).eq('id', m.id)
     ))
-    load()
+    reload()
   }
 
   async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null, entityName: string) {
@@ -281,7 +290,7 @@ export default function StageMatchesPage() {
       await supabase.from('match_player_stats').update({ team_id: teamId }).eq('match_id', matchId).is('team_id', null).eq('placement', row?.placement ?? -1)
     }
     setLinkModal(null)
-    load()
+    reload()
   }
 
   async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null, entityName: string) {
@@ -302,7 +311,7 @@ export default function StageMatchesPage() {
       await supabase.from('player_aliases').upsert([{ player_id: playerId, alias }], { onConflict: 'player_id,alias', ignoreDuplicates: true })
     }
     setLinkModal(null)
-    load()
+    reload()
   }
 
   if (!stage) return <div className="p-8 text-gray-400">Loading...</div>
