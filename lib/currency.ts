@@ -1,12 +1,10 @@
 export const CURRENCIES = [
   { code: 'USD', symbol: '$' },
-  { code: 'EUR', symbol: '€' },
   { code: 'KRW', symbol: '₩' },
-  { code: 'GBP', symbol: '£' },
   { code: 'JPY', symbol: '¥' },
   { code: 'CNY', symbol: 'CN¥' },
-  { code: 'AUD', symbol: 'A$' },
-  { code: 'SGD', symbol: 'S$' },
+  { code: 'VND', symbol: '₫' },
+  { code: 'THB', symbol: '฿' },
 ] as const
 
 export function currencySymbol(code: string | null | undefined): string {
