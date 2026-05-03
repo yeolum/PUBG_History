@@ -9,6 +9,7 @@ import ImageUpload from '@/components/admin/ImageUpload'
 import SearchModal from '@/components/admin/SearchModal'
 import DisplayNameModal from '@/components/admin/DisplayNameModal'
 import BulkRosterModal from '@/components/admin/BulkRosterModal'
+import PlayerAliasesModal from '@/components/admin/PlayerAliasesModal'
 import { getMapDisplayName, stripTagPrefix } from '@/lib/pubg-api'
 import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 import type { ScoringRule } from '@/lib/types'
@@ -96,6 +97,7 @@ export default function AdminTournamentDetailPage() {
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
   const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | 'player' | null>(null)
   const [bulkRosterOpen, setBulkRosterOpen] = useState<'team' | 'player' | null>(null)
+  const [editAliasesPlayer, setEditAliasesPlayer] = useState<{ id: string; nickname: string } | null>(null)
 
   type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
@@ -973,6 +975,13 @@ export default function AdminTournamentDetailPage() {
                   {rp.ambiguous && <span className="text-[10px] text-amber-700 font-bold">⚠</span>}
                   <span className="text-xs text-gray-700">{rp.nickname}</span>
                   {rp.team_name && <span className="text-[10px] text-gray-400">{rp.team_name}</span>}
+                  <button
+                    onClick={() => setEditAliasesPlayer({ id: rp.player_id, nickname: rp.nickname })}
+                    title="Edit aliases (PUBG in-game name etc.)"
+                    className="text-gray-300 hover:text-blue-500 text-[11px] leading-none ml-0.5"
+                  >
+                    ✎
+                  </button>
                   <button
                     onClick={() => removeRosterPlayer(rp.player_id)}
                     className="text-gray-300 hover:text-red-500 text-xs leading-none ml-0.5"
@@ -1983,6 +1992,15 @@ export default function AdminTournamentDetailPage() {
           )}
           onClose={() => setBulkRosterOpen(null)}
           onSaved={() => reload()}
+        />
+      )}
+
+      {editAliasesPlayer && (
+        <PlayerAliasesModal
+          playerId={editAliasesPlayer.id}
+          playerNickname={editAliasesPlayer.nickname}
+          onClose={() => setEditAliasesPlayer(null)}
+          onChanged={() => reload()}
         />
       )}
 
