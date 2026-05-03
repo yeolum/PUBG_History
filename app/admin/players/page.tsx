@@ -114,12 +114,26 @@ export default function AdminPlayersPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('players')
-      .select('*, player_aliases(*), teams(id, name, short_name)')
-      .order('nickname')
+    // Supabase caps a single SELECT at 1000 rows by default. Page through
+    // until we get a short batch so admin sees every player, not just the
+    // first page.
+    const PAGE = 1000
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setRows((data ?? []).map((p) => toRow(p as any)))
+    const all: any[] = []
+    let page = 0
+    while (true) {
+      const { data } = await supabase
+        .from('players')
+        .select('*, player_aliases(*), teams(id, name, short_name)')
+        .order('nickname')
+        .range(page * PAGE, (page + 1) * PAGE - 1)
+      const batch = data ?? []
+      all.push(...batch)
+      if (batch.length < PAGE) break
+      page++
+    }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setRows(all.map((p) => toRow(p as any)))
     setLoading(false)
   }, [supabase])
 

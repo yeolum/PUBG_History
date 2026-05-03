@@ -110,11 +110,23 @@ export default function AdminTeamsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const { data } = await supabase
-      .from('teams')
-      .select('*, team_aliases(*)')
-      .order('name')
-    setRows((data ?? []).map((t) => toRow(t as TeamWithAliases)))
+    // Supabase caps a single SELECT at 1000 rows by default — paginate so
+    // every team is visible, not just the first page.
+    const PAGE = 1000
+    const all: TeamWithAliases[] = []
+    let page = 0
+    while (true) {
+      const { data } = await supabase
+        .from('teams')
+        .select('*, team_aliases(*)')
+        .order('name')
+        .range(page * PAGE, (page + 1) * PAGE - 1)
+      const batch = (data ?? []) as TeamWithAliases[]
+      all.push(...batch)
+      if (batch.length < PAGE) break
+      page++
+    }
+    setRows(all.map((t) => toRow(t)))
     setLoading(false)
   }, [supabase])
 
