@@ -85,6 +85,7 @@ export interface TournamentPrizeConfig {
   pgs_points: number | null
   pgc_points: number | null
   stage_id: string | null
+  series_id: string | null
   stage_rank: number | null
 }
 

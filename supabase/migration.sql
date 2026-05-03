@@ -452,3 +452,12 @@ ALTER TABLE tournament_teams ADD COLUMN IF NOT EXISTS disqualified BOOLEAN NOT N
 
 ALTER TABLE tournament_wwcd_rewards ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE CASCADE;
 CREATE INDEX IF NOT EXISTS idx_tournament_wwcd_rewards_series ON tournament_wwcd_rewards(series_id);
+
+-- =====================================================
+-- Migration: Prize & Points rows can map their rank from a series's
+-- cumulative standings (in addition to a stage). Each row points at
+-- either a stage_id OR a series_id (or neither = unmapped).
+-- =====================================================
+
+ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_tournament_prize_config_series ON tournament_prize_config(series_id);

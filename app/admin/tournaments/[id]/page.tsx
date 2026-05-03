@@ -73,10 +73,11 @@ export default function AdminTournamentDetailPage() {
   const [dragSeriesId, setDragSeriesId] = useState<string | null>(null)
   const [dragOverSeriesId, setDragOverSeriesId] = useState<string | null>(null)
 
-  type PrizeRow = { rank: number; stageId: string; stageRank: number; prize: string; pgs: string; pgc: string }
+  // targetKey encoded as '' (none) | 'stage:UUID' | 'series:UUID'
+  type PrizeRow = { rank: number; targetKey: string; stageRank: number; prize: string; pgs: string; pgc: string }
   const [prizeRows, setPrizeRows] = useState<PrizeRow[]>([])
   const [selectedPrizeRanks, setSelectedPrizeRanks] = useState<Set<number>>(new Set())
-  const [batchStageId, setBatchStageId] = useState('')
+  const [batchTargetKey, setBatchTargetKey] = useState('')
   const [savingPrize, setSavingPrize] = useState(false)
   const [prizeCurrency, setPrizeCurrency] = useState('USD')
   const [prizePoolInput, setPrizePoolInput] = useState('')
@@ -126,7 +127,7 @@ export default function AdminTournamentDetailPage() {
         .select('*, scoring_rules(*), matches(*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname)))')
         .eq('tournament_id', id)
         .order('order_num'),
-      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, stage_rank').eq('tournament_id', id).order('rank'),
+      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
@@ -162,16 +163,22 @@ export default function AdminTournamentDetailPage() {
     }
     const totalTeams = Math.max(allTeamKeys.size, 16)
 
-    const prizeConfig = (pc ?? []) as { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; stage_rank: number | null }[]
+    const prizeConfig = (pc ?? []) as { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; series_id: string | null; stage_rank: number | null }[]
     const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
     const finalStage = stageData.find((stage) => stage.type === 'grand_final')
+    const defaultTargetKey = finalStage ? `stage:${finalStage.id}` : ''
 
     const rows: PrizeRow[] = []
     for (let rank = 1; rank <= totalTeams; rank++) {
       const existing = prizeByRank.get(rank)
+      const targetKey = existing?.series_id
+        ? `series:${existing.series_id}`
+        : existing?.stage_id
+        ? `stage:${existing.stage_id}`
+        : defaultTargetKey
       rows.push({
         rank,
-        stageId: existing?.stage_id ?? (finalStage?.id ?? ''),
+        targetKey,
         stageRank: existing?.stage_rank ?? rank,
         prize: numberToInput(existing?.prize),
         pgs: existing?.pgs_points?.toString() ?? '',
@@ -441,16 +448,20 @@ export default function AdminTournamentDetailPage() {
     if (flagErr) { setErr('Save failed: ' + flagErr.message); setSavingPrize(false); return }
 
     const rows = prizeRows
-      .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
-      .map((r) => ({
-        tournament_id: id,
-        rank: r.rank,
-        stage_id: r.stageId || null,
-        stage_rank: r.stageRank || null,
-        prize: parseNumberInput(r.prize),
-        pgs_points: r.pgs ? parseFloat(r.pgs) : null,
-        pgc_points: r.pgc ? parseFloat(r.pgc) : null,
-      }))
+      .filter((r) => r.targetKey || r.prize || r.pgs || r.pgc)
+      .map((r) => {
+        const [targetType, targetId] = r.targetKey.split(':')
+        return {
+          tournament_id: id,
+          rank: r.rank,
+          stage_id: targetType === 'stage' ? targetId : null,
+          series_id: targetType === 'series' ? targetId : null,
+          stage_rank: r.stageRank || null,
+          prize: parseNumberInput(r.prize),
+          pgs_points: r.pgs ? parseFloat(r.pgs) : null,
+          pgc_points: r.pgc ? parseFloat(r.pgc) : null,
+        }
+      })
 
     if (rows.length > 0) {
       const { error: upsertErr } = await supabase
@@ -1559,21 +1570,32 @@ export default function AdminTournamentDetailPage() {
             <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200 flex items-center gap-3 flex-wrap">
               <span className="text-xs font-medium text-yellow-700">{selectedPrizeRanks.size} rows selected</span>
               <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-600">Set Stage:</label>
+                <label className="text-xs text-gray-600">Set Target:</label>
                 <select
-                  value={batchStageId}
-                  onChange={(e) => setBatchStageId(e.target.value)}
+                  value={batchTargetKey}
+                  onChange={(e) => setBatchTargetKey(e.target.value)}
                   className="text-xs border border-gray-300 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-yellow-400"
                 >
                   <option value="">— none —</option>
-                  {stageList.map((s) => (
-                    <option key={s.id} value={s.id}>{s.name}</option>
-                  ))}
+                  {seriesList.length > 0 && (
+                    <optgroup label="Series">
+                      {seriesList.map((sr) => (
+                        <option key={sr.id} value={`series:${sr.id}`}>{sr.name} (Series)</option>
+                      ))}
+                    </optgroup>
+                  )}
+                  {stageList.length > 0 && (
+                    <optgroup label="Stages">
+                      {stageList.map((s) => (
+                        <option key={s.id} value={`stage:${s.id}`}>{s.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
                 </select>
                 <button
                   onClick={() => {
                     setPrizeRows((rows) => rows.map((r) =>
-                      selectedPrizeRanks.has(r.rank) ? { ...r, stageId: batchStageId } : r
+                      selectedPrizeRanks.has(r.rank) ? { ...r, targetKey: batchTargetKey } : r
                     ))
                     setSelectedPrizeRanks(new Set())
                   }}
@@ -1598,8 +1620,8 @@ export default function AdminTournamentDetailPage() {
                     />
                   </th>
                   <th className="text-left px-4 py-2 w-10">#</th>
-                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2">Stage</th>}
-                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2 w-24">Stage Rank</th>}
+                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2">Target</th>}
+                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2 w-24">Rank</th>}
                   {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
                   {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
                   {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
@@ -1626,16 +1648,27 @@ export default function AdminTournamentDetailPage() {
                     {(form.ranking_method ?? 'stage') === 'stage' && (
                       <td className="px-4 py-2">
                         <select
-                          value={row.stageId}
-                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
+                          value={row.targetKey}
+                          onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, targetKey: e.target.value } : r))}
                           data-prize-row={i} data-prize-col={colStart}
                           onKeyDown={(e) => navPrize(e, i, colStart)}
-                          className="w-40 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          className="w-44 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                         >
                           <option value="">— none —</option>
-                          {stageList.map((stage) => (
-                            <option key={stage.id} value={stage.id}>{stage.name}</option>
-                          ))}
+                          {seriesList.length > 0 && (
+                            <optgroup label="Series">
+                              {seriesList.map((sr) => (
+                                <option key={sr.id} value={`series:${sr.id}`}>{sr.name} (Series)</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {stageList.length > 0 && (
+                            <optgroup label="Stages">
+                              {stageList.map((stage) => (
+                                <option key={stage.id} value={`stage:${stage.id}`}>{stage.name}</option>
+                              ))}
+                            </optgroup>
+                          )}
                         </select>
                       </td>
                     )}
