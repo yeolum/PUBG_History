@@ -37,6 +37,7 @@ export default function StageMatchesPage() {
   const [newMatchId, setNewMatchId] = useState('')
   const [importing, setImporting] = useState(false)
   const [importError, setImportError] = useState('')
+  const [importDropped, setImportDropped] = useState<{ teams: string[]; players: string[] } | null>(null)
 
   // 링크 모달
   const [linkModal, setLinkModal] = useState<{
@@ -74,6 +75,7 @@ export default function StageMatchesPage() {
     if (!matchId) return
     setImporting(true)
     setImportError('')
+    setImportDropped(null)
     try {
       const res = await fetch('/api/admin/pubg/import', {
         method: 'POST',
@@ -84,10 +86,10 @@ export default function StageMatchesPage() {
       if (!res.ok) {
         setImportError(result.error ?? '임포트 실패')
       } else {
-        const droppedT = (result.droppedTeams as string[] | undefined)?.length ?? 0
-        const droppedP = (result.droppedPlayers as string[] | undefined)?.length ?? 0
-        if (droppedT + droppedP > 0) {
-          setImportError(`Imported. ${droppedT} team(s) / ${droppedP} player(s) not in Participants — dropped.`)
+        const teams = (result.droppedTeams as string[] | undefined) ?? []
+        const players = (result.droppedPlayers as string[] | undefined) ?? []
+        if (teams.length + players.length > 0) {
+          setImportDropped({ teams, players })
         }
         setNewMatchId('')
         load()
@@ -236,6 +238,26 @@ export default function StageMatchesPage() {
         </div>
         {importError && (
           <p className="mt-2 text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{importError}</p>
+        )}
+        {importDropped && (importDropped.teams.length + importDropped.players.length > 0) && (
+          <div className="mt-2 text-xs bg-amber-50 border-l-2 border-amber-300 px-3 py-2 rounded-r space-y-1">
+            <div className="font-semibold text-amber-700">⚠ Imported, but the following were not in Participants and were dropped:</div>
+            {importDropped.teams.length > 0 && (
+              <div>
+                <span className="font-semibold text-amber-700">Teams ({importDropped.teams.length}):</span>{' '}
+                <span className="font-mono text-gray-700">{importDropped.teams.join(', ')}</span>
+              </div>
+            )}
+            {importDropped.players.length > 0 && (
+              <div>
+                <span className="font-semibold text-amber-700">Players ({importDropped.players.length}):</span>{' '}
+                <span className="font-mono text-gray-700">{importDropped.players.join(', ')}</span>
+              </div>
+            )}
+            <div className="text-[10px] text-gray-500 italic pt-0.5">
+              Add them to the tournament Participants and re-import this match if you want them included.
+            </div>
+          </div>
         )}
       </div>
 

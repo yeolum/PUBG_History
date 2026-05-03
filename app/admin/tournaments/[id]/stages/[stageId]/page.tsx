@@ -36,7 +36,8 @@ interface ImportRow {
   matchId: string
   status: 'pending' | 'importing' | 'success' | 'error'
   errorMsg?: string
-  warningMsg?: string
+  droppedTeams?: string[]
+  droppedPlayers?: string[]
 }
 
 interface AdditionalPoint {
@@ -248,12 +249,14 @@ export default function StageMatchesPage() {
         if (!res.ok) {
           setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'error', errorMsg: result.error ?? 'Import failed' } : r))
         } else {
-          const droppedT = (result.droppedTeams as string[] | undefined)?.length ?? 0
-          const droppedP = (result.droppedPlayers as string[] | undefined)?.length ?? 0
-          const warningMsg = (droppedT + droppedP > 0)
-            ? `${droppedT} team${droppedT === 1 ? '' : 's'}, ${droppedP} player${droppedP === 1 ? '' : 's'} not in Participants — dropped`
-            : undefined
-          setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'success', warningMsg } : r))
+          const droppedTeams = (result.droppedTeams as string[] | undefined) ?? []
+          const droppedPlayers = (result.droppedPlayers as string[] | undefined) ?? []
+          setImportRows(rows => rows.map(r => r.rowId === row.rowId ? {
+            ...r,
+            status: 'success',
+            droppedTeams,
+            droppedPlayers,
+          } : r))
         }
       } catch {
         setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'error', errorMsg: 'Server error' } : r))
@@ -500,37 +503,63 @@ export default function StageMatchesPage() {
         </div>
 
         <div className="space-y-2 mb-3">
-          {importRows.map((row, i) => (
-            <div key={row.rowId} className="flex items-center gap-2">
-              <span className="text-xs text-gray-400 font-mono w-8 shrink-0 text-right">M{i + 1}</span>
-              <input
-                value={row.matchId}
-                onChange={e => updateRowMatchId(row.rowId, e.target.value)}
-                onPaste={e => handleMatchIdPaste(e, row.rowId)}
-                placeholder="PUBG Match ID (e.g. 12345678-abcd-...)"
-                disabled={row.status === 'importing' || row.status === 'success'}
-                className={`flex-1 ${INPUT_CLS} disabled:opacity-60`}
-                onKeyDown={e => { if (e.key === 'Enter') importAll() }}
-              />
-              <div className="shrink-0 flex items-center gap-1.5 max-w-[55%]">
-                {row.status === 'importing' && <span className="text-xs text-blue-500">...</span>}
-                {row.status === 'success' && (
-                  <>
-                    <span className="text-xs text-green-600 shrink-0">✓ Done</span>
-                    {row.warningMsg && (
-                      <span className="text-xs text-amber-600 truncate" title={row.warningMsg}>⚠ {row.warningMsg}</span>
+          {importRows.map((row, i) => {
+            const droppedT = row.droppedTeams ?? []
+            const droppedP = row.droppedPlayers ?? []
+            const hasDrops = droppedT.length + droppedP.length > 0
+            return (
+              <div key={row.rowId}>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 font-mono w-8 shrink-0 text-right">M{i + 1}</span>
+                  <input
+                    value={row.matchId}
+                    onChange={e => updateRowMatchId(row.rowId, e.target.value)}
+                    onPaste={e => handleMatchIdPaste(e, row.rowId)}
+                    placeholder="PUBG Match ID (e.g. 12345678-abcd-...)"
+                    disabled={row.status === 'importing' || row.status === 'success'}
+                    className={`flex-1 ${INPUT_CLS} disabled:opacity-60`}
+                    onKeyDown={e => { if (e.key === 'Enter') importAll() }}
+                  />
+                  <div className="shrink-0 flex items-center gap-1.5 max-w-[55%]">
+                    {row.status === 'importing' && <span className="text-xs text-blue-500">...</span>}
+                    {row.status === 'success' && (
+                      <>
+                        <span className="text-xs text-green-600 shrink-0">✓ Done</span>
+                        {hasDrops && (
+                          <span className="text-xs text-amber-600 shrink-0">⚠ {droppedT.length}T / {droppedP.length}P not in Participants</span>
+                        )}
+                      </>
                     )}
-                  </>
-                )}
-                {row.status === 'error' && (
-                  <span className="text-xs text-red-500 truncate" title={row.errorMsg}>{row.errorMsg}</span>
+                    {row.status === 'error' && (
+                      <span className="text-xs text-red-500 truncate" title={row.errorMsg}>{row.errorMsg}</span>
+                    )}
+                  </div>
+                  {importRows.length > 1 && row.status !== 'success' && (
+                    <button onClick={() => removeRow(row.rowId)} className="text-gray-300 hover:text-red-500 text-lg leading-none px-1 shrink-0">×</button>
+                  )}
+                </div>
+                {row.status === 'success' && hasDrops && (
+                  <div className="ml-10 mt-1 text-[11px] bg-amber-50 border-l-2 border-amber-300 px-3 py-1.5 rounded-r space-y-1">
+                    {droppedT.length > 0 && (
+                      <div>
+                        <span className="font-semibold text-amber-700">Teams ({droppedT.length}):</span>{' '}
+                        <span className="font-mono text-gray-700">{droppedT.join(', ')}</span>
+                      </div>
+                    )}
+                    {droppedP.length > 0 && (
+                      <div>
+                        <span className="font-semibold text-amber-700">Players ({droppedP.length}):</span>{' '}
+                        <span className="font-mono text-gray-700">{droppedP.join(', ')}</span>
+                      </div>
+                    )}
+                    <div className="text-[10px] text-gray-500 italic pt-0.5">
+                      Add these to the tournament Participants and re-import this match if you want them included.
+                    </div>
+                  </div>
                 )}
               </div>
-              {importRows.length > 1 && row.status !== 'success' && (
-                <button onClick={() => removeRow(row.rowId)} className="text-gray-300 hover:text-red-500 text-lg leading-none px-1 shrink-0">×</button>
-              )}
-            </div>
-          ))}
+            )
+          })}
         </div>
 
         <button
