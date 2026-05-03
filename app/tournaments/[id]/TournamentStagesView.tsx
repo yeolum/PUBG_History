@@ -237,40 +237,49 @@ export default function TournamentStagesView({
 
   return (
     <div>
-      {/* Navigation */}
-      <div className="mb-3">
-        <div className="flex flex-wrap gap-2 mb-1.5">
-          {series.map(s => (
-            <button
-              key={s.id}
-              onClick={() => toggleSeries(s.id)}
-              className={`${tabBase} px-4 py-2 text-sm ${selectedSeriesId === s.id ? tabActive : tabIdle}`}
-            >
-              {s.name}
-            </button>
-          ))}
-          {directStages.map(stage => (
-            <button
-              key={stage.id}
-              onClick={() => selectDirectStage(stage.id)}
-              className={`${tabBase} px-4 py-2 text-sm ${selectedStageId === stage.id && !selectedSeriesId ? tabActive : tabIdle}`}
-            >
-              {stage.name}
-            </button>
-          ))}
-        </div>
-
-        {selectedSeriesId && stagesBySeries.has(selectedSeriesId) && (
-          <div className="flex flex-wrap gap-1.5 pl-4 border-l-2 border-yellow-400">
-            {(stagesBySeries.get(selectedSeriesId) ?? []).map(stage => (
+      {/* Navigation — same scopeBtn style as Player Data / Team Data tabs */}
+      <div className="mb-3 space-y-2">
+        <div className="flex flex-wrap gap-1.5 items-center">
+          {series.map(s => {
+            const active = selectedSeriesId === s.id && !selectedStageId
+            return (
+              <button
+                key={s.id}
+                onClick={() => toggleSeries(s.id)}
+                className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
+              >
+                {s.name}
+              </button>
+            )
+          })}
+          {directStages.map(stage => {
+            const active = selectedStageId === stage.id && !selectedSeriesId
+            return (
               <button
                 key={stage.id}
-                onClick={() => selectSeriesStage(stage.id)}
-                className={`${tabBase} px-3 py-1 text-xs ${selectedStageId === stage.id ? tabActive : tabIdle}`}
+                onClick={() => selectDirectStage(stage.id)}
+                className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
               >
                 {stage.name}
               </button>
-            ))}
+            )
+          })}
+        </div>
+
+        {selectedSeriesId && stagesBySeries.has(selectedSeriesId) && (
+          <div className="flex flex-wrap gap-1.5 pl-3 border-l-2 border-yellow-300">
+            {(stagesBySeries.get(selectedSeriesId) ?? []).map(stage => {
+              const active = selectedStageId === stage.id
+              return (
+                <button
+                  key={stage.id}
+                  onClick={() => selectSeriesStage(stage.id)}
+                  className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
+                >
+                  {stage.name}
+                </button>
+              )
+            })}
           </div>
         )}
       </div>

@@ -27,6 +27,9 @@ interface ReviewRow {
 interface Props {
   kind: Kind
   tournamentId: string
+  // For player kind: pin all matched players to this tournament team_id on save.
+  // Undefined for team kind, or for legacy "no specific team" use cases.
+  forTeamId?: string
   existingIds: Set<string>
   onClose: () => void
   onSaved: () => void
@@ -48,7 +51,7 @@ function parseLines(text: string): string[] {
   return out
 }
 
-export default function BulkRosterModal({ kind, tournamentId, existingIds, onClose, onSaved }: Props) {
+export default function BulkRosterModal({ kind, tournamentId, forTeamId, existingIds, onClose, onSaved }: Props) {
   const supabase = createClient()
   const [phase, setPhase] = useState<'input' | 'review'>('input')
   const [text, setText] = useState('')
@@ -203,17 +206,20 @@ export default function BulkRosterModal({ kind, tournamentId, existingIds, onClo
     if (kind === 'team') {
       insertRows = toSave.map((r) => ({ tournament_id: tournamentId, team_id: r.candidate!.id }))
     } else {
-      // Snapshot the player's current team into tournament_players.team_id so a
-      // later transfer doesn't move them out of this tournament's roster.
+      // Pin every saved player to the team that opened this picker. If no team
+      // was specified (legacy call), fall back to the player's current global
+      // team so older callers still produce a non-null team_id.
       insertRows = toSave.map((r) => ({
         tournament_id: tournamentId,
         player_id: r.candidate!.id,
-        team_id: r.candidate!.teamId ?? null,
+        team_id: forTeamId ?? r.candidate!.teamId ?? null,
       }))
     }
+    // Player rows update on conflict so re-adding the same player to a different
+    // team actually moves them; team rows still stay idempotent.
     const { error } = await supabase.from(table).upsert(insertRows, {
       onConflict: `tournament_id,${idCol}`,
-      ignoreDuplicates: true,
+      ignoreDuplicates: kind === 'team',
     })
     setBusy(false)
     if (error) { setErr('Save failed: ' + error.message); return }

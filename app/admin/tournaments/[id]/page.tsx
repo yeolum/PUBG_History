@@ -92,12 +92,13 @@ export default function AdminTournamentDetailPage() {
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
   type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null; disqualified: boolean }
-  type RosterPlayer = { player_id: string; nickname: string; team_name: string | null; ambiguous: boolean; collisionCount: number }
+  type RosterPlayer = { player_id: string; nickname: string; team_id: string | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
-  const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | 'player' | null>(null)
-  const [bulkRosterOpen, setBulkRosterOpen] = useState<'team' | 'player' | null>(null)
+  const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | { kind: 'player'; teamId: string } | null>(null)
+  const [bulkRosterOpen, setBulkRosterOpen] = useState<'team' | { kind: 'player'; teamId: string } | null>(null)
   const [editAliasesPlayer, setEditAliasesPlayer] = useState<{ id: string; nickname: string } | null>(null)
+  const [expandedTeamIds, setExpandedTeamIds] = useState<Set<string>>(new Set())
 
   type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
@@ -130,7 +131,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
-      supabase.from('tournament_players').select('player_id, players(id, nickname, teams(name))').eq('tournament_id', id),
+      supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
       supabase.from('players').select('id, nickname').limit(20000),
@@ -283,7 +284,7 @@ export default function AdminTournamentDetailPage() {
         return {
           player_id: r.player_id as string,
           nickname,
-          team_name: r.players?.teams?.name ?? null,
+          team_id: (r.team_id as string | null) ?? null,
           ambiguous: candidates.size > 1,
           collisionCount: candidates.size,
         }
@@ -547,16 +548,16 @@ export default function AdminTournamentDetailPage() {
     reload()
   }
 
-  async function addRosterPlayer(playerId: string) {
+  async function addRosterPlayer(playerId: string, teamId: string) {
     setErr('')
-    // Default the tournament-scoped team to the player's current team. Admin
-    // can fix later if the player is actually a stand-in for a different team.
-    const { data: player } = await supabase.from('players').select('team_id').eq('id', playerId).single()
-    const teamId = (player?.team_id as string | null) ?? null
-    const { error } = await supabase.from('tournament_players').upsert(
-      [{ tournament_id: id, player_id: playerId, team_id: teamId }],
-      { onConflict: 'tournament_id,player_id', ignoreDuplicates: true },
-    )
+    // Player is always pinned to a specific team in this tournament — admin
+    // selects the team first, then registers players under it. Re-adding an
+    // existing player updates their team if the row already exists.
+    const { error } = await supabase.from('tournament_players')
+      .upsert(
+        [{ tournament_id: id, player_id: playerId, team_id: teamId }],
+        { onConflict: 'tournament_id,player_id' },
+      )
     if (error) { setErr('Add player failed: ' + error.message); return }
     reload()
   }
@@ -872,17 +873,16 @@ export default function AdminTournamentDetailPage() {
         )}
       </div>
 
-      {/* Participants — restricts auto-linking during match import to this roster */}
+      {/* Participants — register teams first, then add players under each team */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-3">
           <h2 className="text-lg font-semibold text-gray-800">Participants</h2>
           <span className="text-xs text-gray-400">
-            Pre-register teams and players so match import only links to them. Leave empty to use the global pool.
+            Register teams, then expand each team to add its players. Match import only auto-links to entries here.
           </span>
         </div>
 
-        {/* Teams roster */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-3">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
           <div className="flex items-center gap-3 mb-3">
             <span className="text-sm font-semibold text-gray-700">Teams</span>
             <span className="text-xs text-gray-400">{rosterTeams.length}</span>
@@ -891,7 +891,7 @@ export default function AdminTournamentDetailPage() {
                 onClick={() => setBulkRosterOpen('team')}
                 className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg px-2.5 py-1"
               >
-                ⊞ Bulk Add
+                ⊞ Bulk Add Teams
               </button>
               <button
                 onClick={() => setRosterPickerOpen('team')}
@@ -901,97 +901,137 @@ export default function AdminTournamentDetailPage() {
               </button>
             </div>
           </div>
-          {rosterTeams.length === 0 ? (
-            <p className="text-sm text-gray-400">No teams registered — global pool will be used during import.</p>
-          ) : (
-            <div className="flex flex-wrap gap-2">
-              {rosterTeams.map((rt) => (
-                <div
-                  key={rt.team_id}
-                  className={`flex items-center gap-1.5 border rounded-lg px-2 py-1 ${rt.disqualified ? 'bg-red-50 border-red-300' : 'bg-gray-50 border-gray-200'}`}
-                >
-                  {rt.logo_url ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={rt.logo_url} alt="" className={`w-4 h-4 rounded object-contain border border-gray-100 ${rt.disqualified ? 'opacity-50' : ''}`} />
-                  ) : (
-                    <span className="w-4 h-4 rounded-full bg-gray-200" />
-                  )}
-                  <span className={`text-sm ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{rt.name}</span>
-                  {rt.short_name && <span className="text-[10px] font-mono text-gray-400">{rt.short_name}</span>}
-                  <button
-                    onClick={() => toggleRosterTeamDQ(rt.team_id, rt.disqualified)}
-                    title={rt.disqualified ? 'Remove disqualification' : 'Mark as disqualified'}
-                    className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none ml-1 transition-colors ${
-                      rt.disqualified
-                        ? 'bg-red-500 text-white hover:bg-red-600'
-                        : 'border border-gray-300 text-gray-400 hover:text-red-500 hover:border-red-300'
-                    }`}
-                  >
-                    DQ
-                  </button>
-                  <button
-                    onClick={() => removeRosterTeam(rt.team_id)}
-                    className="text-gray-300 hover:text-red-500 text-sm leading-none ml-0.5"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
 
-        {/* Players roster */}
-        <div className="bg-white rounded-xl border border-gray-200 p-4">
-          <div className="flex items-center gap-3 mb-3">
-            <span className="text-sm font-semibold text-gray-700">Players</span>
-            <span className="text-xs text-gray-400">{rosterPlayers.length}</span>
-            <span className="text-[11px] text-gray-400 italic">Adding a team auto-includes its current active roster.</span>
-            <div className="ml-auto flex items-center gap-2">
-              <button
-                onClick={() => setBulkRosterOpen('player')}
-                className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg px-2.5 py-1"
-              >
-                ⊞ Bulk Add
-              </button>
-              <button
-                onClick={() => setRosterPickerOpen('player')}
-                className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1"
-              >
-                + Add Player
-              </button>
-            </div>
-          </div>
-          {rosterPlayers.length === 0 ? (
-            <p className="text-sm text-gray-400">No players registered — global pool will be used during import.</p>
+          {rosterTeams.length === 0 ? (
+            <p className="text-sm text-gray-400">No teams registered yet.</p>
           ) : (
-            <div className="flex flex-wrap gap-1.5">
-              {rosterPlayers.map((rp) => (
-                <div
-                  key={rp.player_id}
-                  className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}
-                  title={rp.ambiguous ? `Nickname "${rp.nickname}" matches ${rp.collisionCount} players in the database — verify this is the right one` : undefined}
-                >
-                  {rp.ambiguous && <span className="text-[10px] text-amber-700 font-bold">⚠</span>}
-                  <span className="text-xs text-gray-700">{rp.nickname}</span>
-                  {rp.team_name && <span className="text-[10px] text-gray-400">{rp.team_name}</span>}
-                  <button
-                    onClick={() => setEditAliasesPlayer({ id: rp.player_id, nickname: rp.nickname })}
-                    title="Edit aliases (PUBG in-game name etc.)"
-                    className="text-gray-300 hover:text-blue-500 text-[11px] leading-none ml-0.5"
-                  >
-                    ✎
-                  </button>
-                  <button
-                    onClick={() => removeRosterPlayer(rp.player_id)}
-                    className="text-gray-300 hover:text-red-500 text-xs leading-none ml-0.5"
-                  >
-                    ×
-                  </button>
-                </div>
-              ))}
+            <div className="space-y-2">
+              {rosterTeams.map((rt) => {
+                const teamPlayers = rosterPlayers.filter((rp) => rp.team_id === rt.team_id)
+                const isExpanded = expandedTeamIds.has(rt.team_id)
+                return (
+                  <div key={rt.team_id} className={`border rounded-lg overflow-hidden ${rt.disqualified ? 'border-red-300 bg-red-50/40' : 'border-gray-200'}`}>
+                    <div className={`flex items-center gap-2 px-3 py-2 ${rt.disqualified ? '' : 'bg-gray-50'}`}>
+                      <button
+                        onClick={() => setExpandedTeamIds((s) => {
+                          const n = new Set(s)
+                          if (n.has(rt.team_id)) n.delete(rt.team_id); else n.add(rt.team_id)
+                          return n
+                        })}
+                        className="text-gray-400 hover:text-gray-700 text-xs w-4 shrink-0"
+                      >
+                        {isExpanded ? '▼' : '▶'}
+                      </button>
+                      {rt.logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={rt.logo_url} alt="" className={`w-5 h-5 rounded object-contain border border-gray-100 ${rt.disqualified ? 'opacity-50' : ''}`} />
+                      ) : (
+                        <span className="w-5 h-5 rounded-full bg-gray-200 shrink-0" />
+                      )}
+                      <span className={`text-sm font-medium ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{rt.name}</span>
+                      {rt.short_name && <span className="text-[10px] font-mono text-gray-400">{rt.short_name}</span>}
+                      <span className="text-xs text-gray-400 ml-2">{teamPlayers.length} player{teamPlayers.length === 1 ? '' : 's'}</span>
+                      <div className="ml-auto flex items-center gap-2">
+                        <button
+                          onClick={() => toggleRosterTeamDQ(rt.team_id, rt.disqualified)}
+                          title={rt.disqualified ? 'Remove disqualification' : 'Mark as disqualified'}
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none transition-colors ${
+                            rt.disqualified
+                              ? 'bg-red-500 text-white hover:bg-red-600'
+                              : 'border border-gray-300 text-gray-400 hover:text-red-500 hover:border-red-300'
+                          }`}
+                        >
+                          DQ
+                        </button>
+                        <button
+                          onClick={() => removeRosterTeam(rt.team_id)}
+                          className="text-gray-300 hover:text-red-500 text-base leading-none"
+                          title="Remove team from tournament"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="px-3 py-2 bg-white border-t border-gray-100">
+                        {teamPlayers.length === 0 ? (
+                          <p className="text-xs text-gray-400 mb-2">No players registered for this team yet.</p>
+                        ) : (
+                          <div className="flex flex-wrap gap-1.5 mb-2">
+                            {teamPlayers.map((rp) => (
+                              <div
+                                key={rp.player_id}
+                                className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}
+                                title={rp.ambiguous ? `Nickname "${rp.nickname}" matches ${rp.collisionCount} players in the database — verify this is the right one` : undefined}
+                              >
+                                {rp.ambiguous && <span className="text-[10px] text-amber-700 font-bold">⚠</span>}
+                                <span className="text-xs text-gray-700">{rp.nickname}</span>
+                                <button
+                                  onClick={() => setEditAliasesPlayer({ id: rp.player_id, nickname: rp.nickname })}
+                                  title="Edit aliases (PUBG in-game name etc.)"
+                                  className="text-gray-300 hover:text-blue-500 text-[11px] leading-none ml-0.5"
+                                >
+                                  ✎
+                                </button>
+                                <button
+                                  onClick={() => removeRosterPlayer(rp.player_id)}
+                                  className="text-gray-300 hover:text-red-500 text-xs leading-none ml-0.5"
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => setBulkRosterOpen({ kind: 'player', teamId: rt.team_id })}
+                            className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg px-2.5 py-1"
+                          >
+                            ⊞ Bulk Add Players
+                          </button>
+                          <button
+                            onClick={() => setRosterPickerOpen({ kind: 'player', teamId: rt.team_id })}
+                            className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1"
+                          >
+                            + Add Player
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           )}
+
+          {/* Orphan players: registered but no team_id (or team not in roster anymore). Surface so admin can clean up. */}
+          {(() => {
+            const teamIdSet = new Set(rosterTeams.map((rt) => rt.team_id))
+            const orphans = rosterPlayers.filter((rp) => !rp.team_id || !teamIdSet.has(rp.team_id))
+            if (orphans.length === 0) return null
+            return (
+              <div className="mt-4 pt-3 border-t border-gray-100">
+                <p className="text-xs font-semibold text-amber-700 mb-2">⚠ Unassigned ({orphans.length}) — players whose tournament team is missing</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {orphans.map((rp) => (
+                    <div key={rp.player_id} className="flex items-center gap-1.5 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">
+                      <span className="text-xs text-gray-700">{rp.nickname}</span>
+                      <button
+                        onClick={() => setEditAliasesPlayer({ id: rp.player_id, nickname: rp.nickname })}
+                        className="text-gray-300 hover:text-blue-500 text-[11px] leading-none ml-0.5"
+                      >✎</button>
+                      <button
+                        onClick={() => removeRosterPlayer(rp.player_id)}
+                        className="text-gray-300 hover:text-red-500 text-xs leading-none ml-0.5"
+                      >×</button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       </div>
 
@@ -1967,14 +2007,18 @@ export default function AdminTournamentDetailPage() {
 
       {rosterPickerOpen && (
         <SearchModal
-          type={rosterPickerOpen}
-          targetName={tournament.short_name ?? tournament.name}
+          type={rosterPickerOpen === 'team' ? 'team' : 'player'}
+          targetName={
+            rosterPickerOpen === 'team'
+              ? (tournament.short_name ?? tournament.name)
+              : (rosterTeams.find((rt) => rt.team_id === (rosterPickerOpen as { teamId: string }).teamId)?.name ?? 'Team')
+          }
           subtext="Pick one to register; the picker stays open for the next pick — close when done."
           onConfirm={async (entityId) => {
             if (rosterPickerOpen === 'team') {
               await addRosterTeam(entityId)
             } else {
-              await addRosterPlayer(entityId)
+              await addRosterPlayer(entityId, rosterPickerOpen.teamId)
             }
           }}
           onClose={() => setRosterPickerOpen(null)}
@@ -1983,8 +2027,9 @@ export default function AdminTournamentDetailPage() {
 
       {bulkRosterOpen && (
         <BulkRosterModal
-          kind={bulkRosterOpen}
+          kind={bulkRosterOpen === 'team' ? 'team' : 'player'}
           tournamentId={id}
+          forTeamId={bulkRosterOpen === 'team' ? undefined : bulkRosterOpen.teamId}
           existingIds={new Set(
             bulkRosterOpen === 'team'
               ? rosterTeams.map((rt) => rt.team_id)
