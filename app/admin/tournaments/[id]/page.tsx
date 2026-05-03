@@ -100,7 +100,8 @@ export default function AdminTournamentDetailPage() {
   const [editAliasesPlayer, setEditAliasesPlayer] = useState<{ id: string; nickname: string } | null>(null)
   const [expandedTeamIds, setExpandedTeamIds] = useState<Set<string>>(new Set())
 
-  type WwcdRewardRow = { id: string; stageId: string; prize: string; pgs: string; pgc: string }
+  // Target encoded as '' (all stages) | 'stage:UUID' | 'series:UUID'
+  type WwcdRewardRow = { id: string; targetKey: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
   const [savingWwcd, setSavingWwcd] = useState(false)
   type SpecialAwardRow = { id: string; awardName: string; playerId: string | null; playerDisplayName: string; teamId: string | null; teamDisplayName: string; prize: string; pgs: string; pgc: string }
@@ -230,13 +231,18 @@ export default function AdminTournamentDetailPage() {
     }
     setSeriesRulesMap(srMap)
 
-    setWwcdRows((wwcd ?? []).map((r) => ({
-      id: r.id as string,
-      stageId: (r.stage_id as string) ?? '',
-      prize: numberToInput(r.prize as number | null),
-      pgs: r.pgs_points?.toString() ?? '',
-      pgc: r.pgc_points?.toString() ?? '',
-    })))
+    setWwcdRows((wwcd ?? []).map((r) => {
+      const sid = (r.stage_id as string | null) ?? null
+      const srid = (r.series_id as string | null) ?? null
+      const targetKey = srid ? `series:${srid}` : sid ? `stage:${sid}` : ''
+      return {
+        id: r.id as string,
+        targetKey,
+        prize: numberToInput(r.prize as number | null),
+        pgs: r.pgs_points?.toString() ?? '',
+        pgc: r.pgc_points?.toString() ?? '',
+      }
+    }))
 
     setSpecialRows((special ?? []).map((r) => ({
       id: r.id as string,
@@ -574,15 +580,19 @@ export default function AdminTournamentDetailPage() {
     setSavingWwcd(true)
     setErr('')
     const rows = wwcdRows
-      .filter((r) => r.stageId || r.prize || r.pgs || r.pgc)
-      .map((r, i) => ({
-        tournament_id: id,
-        stage_id: r.stageId || null,
-        prize: parseNumberInput(r.prize),
-        pgs_points: r.pgs ? parseFloat(r.pgs) : null,
-        pgc_points: r.pgc ? parseFloat(r.pgc) : null,
-        order_num: i,
-      }))
+      .filter((r) => r.targetKey || r.prize || r.pgs || r.pgc)
+      .map((r, i) => {
+        const [targetType, targetId] = r.targetKey.split(':')
+        return {
+          tournament_id: id,
+          stage_id: targetType === 'stage' ? targetId : null,
+          series_id: targetType === 'series' ? targetId : null,
+          prize: parseNumberInput(r.prize),
+          pgs_points: r.pgs ? parseFloat(r.pgs) : null,
+          pgc_points: r.pgc ? parseFloat(r.pgc) : null,
+          order_num: i,
+        }
+      })
     const { error: delErr2 } = await supabase.from('tournament_wwcd_rewards').delete().eq('tournament_id', id)
     if (delErr2) { setErr('Save failed: ' + delErr2.message); setSavingWwcd(false); return }
     if (rows.length > 0) {
@@ -1799,7 +1809,7 @@ export default function AdminTournamentDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">WWCD Rewards</h2>
-            <p className="text-xs text-gray-500 mt-0.5">Per-WWCD prize/points, applied per stage or across all stages</p>
+            <p className="text-xs text-gray-500 mt-0.5">Per-WWCD prize/points, scoped to a stage, a series, or applied across all stages</p>
           </div>
           <button
             onClick={saveWwcdRewards}
@@ -1815,7 +1825,7 @@ export default function AdminTournamentDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-4 py-2">Stage</th>
+                    <th className="text-left px-4 py-2">Target</th>
                     {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)}) / WWCD</th>}
                     {form.has_pgs_points && <th className="text-right px-4 py-2">PGS / WWCD</th>}
                     {form.has_pgc_points && <th className="text-right px-4 py-2">PGC / WWCD</th>}
@@ -1827,12 +1837,21 @@ export default function AdminTournamentDetailPage() {
                     <tr key={i} className="border-b border-gray-50 last:border-0">
                       <td className="px-4 py-2">
                         <select
-                          value={row.stageId}
-                          onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, stageId: e.target.value } : r))}
-                          className="w-44 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                          value={row.targetKey}
+                          onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, targetKey: e.target.value } : r))}
+                          className="w-52 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                         >
                           <option value="">— all stages —</option>
-                          {stageList.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          {seriesList.length > 0 && (
+                            <optgroup label="Series">
+                              {seriesList.map((sr) => <option key={sr.id} value={`series:${sr.id}`}>{sr.name} (Series)</option>)}
+                            </optgroup>
+                          )}
+                          {stageList.length > 0 && (
+                            <optgroup label="Stages">
+                              {stageList.map((s) => <option key={s.id} value={`stage:${s.id}`}>{s.name}</option>)}
+                            </optgroup>
+                          )}
                         </select>
                       </td>
                       {form.has_prize && (
@@ -1884,7 +1903,7 @@ export default function AdminTournamentDetailPage() {
           )}
           <div className="px-4 py-2.5 border-t border-gray-100">
             <button
-              onClick={() => setWwcdRows((rows) => [...rows, { id: '', stageId: '', prize: '', pgs: '', pgc: '' }])}
+              onClick={() => setWwcdRows((rows) => [...rows, { id: '', targetKey: '', prize: '', pgs: '', pgc: '' }])}
               className="text-sm text-yellow-600 hover:text-yellow-700 font-medium"
             >
               + Add Row

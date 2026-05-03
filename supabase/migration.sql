@@ -442,3 +442,13 @@ SELECT sync_player_current_teams(ARRAY(SELECT id FROM players));
 -- =====================================================
 
 ALTER TABLE tournament_teams ADD COLUMN IF NOT EXISTS disqualified BOOLEAN NOT NULL DEFAULT FALSE;
+
+-- =====================================================
+-- Migration: WWCD rewards can target a series (in addition to a stage / all)
+-- A reward applies to a chicken dinner in: a specific stage (stage_id set),
+-- any stage of a series (series_id set), or every imported match in the
+-- tournament (both null).
+-- =====================================================
+
+ALTER TABLE tournament_wwcd_rewards ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE CASCADE;
+CREATE INDEX IF NOT EXISTS idx_tournament_wwcd_rewards_series ON tournament_wwcd_rewards(series_id);

@@ -489,7 +489,12 @@ export default async function TournamentContent({ id, tournament }: { id: string
           if ((r.placement as number) !== 1 || !r.team_id) continue
           const teamId = r.team_id as string
           for (const reward of wwcdRewards) {
+            // Reward applies when its target matches this stage:
+            //   stage_id set  → must equal current stage
+            //   series_id set → current stage must belong to that series
+            //   neither set   → applies to every imported match (legacy "all")
             if (reward.stage_id && reward.stage_id !== stage.id) continue
+            if (reward.series_id && reward.series_id !== stage.series_id) continue
             const prizePerWwcd = reward.prize != null ? Number(reward.prize) : 0
             const pgsPerWwcd = reward.pgs_points ? Number(reward.pgs_points) : 0
             const pgcPerWwcd = reward.pgc_points ? Number(reward.pgc_points) : 0
