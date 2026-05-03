@@ -905,78 +905,86 @@ export default function AdminTournamentDetailPage() {
           {rosterTeams.length === 0 ? (
             <p className="text-sm text-gray-400">No teams registered yet.</p>
           ) : (
-            <div className="space-y-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-2">
               {rosterTeams.map((rt) => {
                 const teamPlayers = rosterPlayers.filter((rp) => rp.team_id === rt.team_id)
                 const isExpanded = expandedTeamIds.has(rt.team_id)
+                const teamHasWarning = teamPlayers.some((p) => p.ambiguous)
                 return (
-                  <div key={rt.team_id} className={`border rounded-lg overflow-hidden ${rt.disqualified ? 'border-red-300 bg-red-50/40' : 'border-gray-200'}`}>
-                    <div className={`flex items-center gap-2 px-3 py-2 ${rt.disqualified ? '' : 'bg-gray-50'}`}>
-                      <button
-                        onClick={() => setExpandedTeamIds((s) => {
-                          const n = new Set(s)
-                          if (n.has(rt.team_id)) n.delete(rt.team_id); else n.add(rt.team_id)
-                          return n
-                        })}
-                        className="text-gray-400 hover:text-gray-700 text-xs w-4 shrink-0"
-                      >
-                        {isExpanded ? '▼' : '▶'}
-                      </button>
+                  <div
+                    key={rt.team_id}
+                    className={`border rounded-lg overflow-hidden text-xs ${
+                      rt.disqualified ? 'border-red-300 bg-red-50/40' : 'border-gray-200'
+                    } ${isExpanded ? 'col-span-2 md:col-span-3 xl:col-span-4' : ''}`}
+                  >
+                    <button
+                      onClick={() => setExpandedTeamIds((s) => {
+                        const n = new Set(s)
+                        if (n.has(rt.team_id)) n.delete(rt.team_id); else n.add(rt.team_id)
+                        return n
+                      })}
+                      className={`w-full flex items-center gap-1.5 px-2 py-1.5 text-left hover:bg-gray-50 transition-colors ${rt.disqualified ? '' : 'bg-gray-50/60'}`}
+                    >
+                      <span className="text-gray-400 text-[10px] w-2 shrink-0">{isExpanded ? '▼' : '▶'}</span>
                       {rt.logo_url ? (
                         // eslint-disable-next-line @next/next/no-img-element
-                        <img src={rt.logo_url} alt="" className={`w-5 h-5 rounded object-contain border border-gray-100 ${rt.disqualified ? 'opacity-50' : ''}`} />
+                        <img src={rt.logo_url} alt="" className={`w-4 h-4 rounded object-contain border border-gray-100 shrink-0 ${rt.disqualified ? 'opacity-50' : ''}`} />
                       ) : (
-                        <span className="w-5 h-5 rounded-full bg-gray-200 shrink-0" />
+                        <span className="w-4 h-4 rounded-full bg-gray-200 shrink-0" />
                       )}
-                      <span className={`text-sm font-medium ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{rt.name}</span>
-                      {rt.short_name && <span className="text-[10px] font-mono text-gray-400">{rt.short_name}</span>}
-                      <span className="text-xs text-gray-400 ml-2">{teamPlayers.length} player{teamPlayers.length === 1 ? '' : 's'}</span>
-                      <div className="ml-auto flex items-center gap-2">
-                        <button
-                          onClick={() => toggleRosterTeamDQ(rt.team_id, rt.disqualified)}
-                          title={rt.disqualified ? 'Remove disqualification' : 'Mark as disqualified'}
-                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none transition-colors ${
-                            rt.disqualified
-                              ? 'bg-red-500 text-white hover:bg-red-600'
-                              : 'border border-gray-300 text-gray-400 hover:text-red-500 hover:border-red-300'
-                          }`}
-                        >
-                          DQ
-                        </button>
-                        <button
-                          onClick={() => removeRosterTeam(rt.team_id)}
-                          className="text-gray-300 hover:text-red-500 text-base leading-none"
-                          title="Remove team from tournament"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    </div>
+                      <span className={`font-medium truncate ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{rt.name}</span>
+                      <span className="text-gray-400 ml-auto shrink-0">{teamPlayers.length}</span>
+                      {teamHasWarning && <span className="text-amber-600 text-[10px] font-bold shrink-0">⚠</span>}
+                    </button>
 
                     {isExpanded && (
                       <div className="px-3 py-2 bg-white border-t border-gray-100">
+                        <div className="flex items-center gap-2 mb-2">
+                          {rt.short_name && <span className="text-[10px] font-mono text-gray-400">{rt.short_name}</span>}
+                          <div className="ml-auto flex items-center gap-1.5">
+                            <button
+                              onClick={() => toggleRosterTeamDQ(rt.team_id, rt.disqualified)}
+                              title={rt.disqualified ? 'Remove disqualification' : 'Mark as disqualified'}
+                              className={`text-[10px] font-bold px-1.5 py-0.5 rounded leading-none transition-colors ${
+                                rt.disqualified
+                                  ? 'bg-red-500 text-white hover:bg-red-600'
+                                  : 'border border-gray-300 text-gray-400 hover:text-red-500 hover:border-red-300'
+                              }`}
+                            >
+                              DQ
+                            </button>
+                            <button
+                              onClick={() => removeRosterTeam(rt.team_id)}
+                              className="text-gray-300 hover:text-red-500 text-sm leading-none"
+                              title="Remove team from tournament"
+                            >
+                              ×
+                            </button>
+                          </div>
+                        </div>
+
                         {teamPlayers.length === 0 ? (
-                          <p className="text-xs text-gray-400 mb-2">No players registered for this team yet.</p>
+                          <p className="text-[11px] text-gray-400 mb-2">No players registered for this team yet.</p>
                         ) : (
-                          <div className="flex flex-wrap gap-1.5 mb-2">
+                          <div className="flex flex-wrap gap-1 mb-2">
                             {teamPlayers.map((rp) => (
                               <div
                                 key={rp.player_id}
-                                className={`flex items-center gap-1.5 border rounded-lg px-2 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}
+                                className={`flex items-center gap-1 border rounded px-1.5 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}
                                 title={rp.ambiguous ? `Nickname "${rp.nickname}" matches ${rp.collisionCount} players in the database — verify this is the right one` : undefined}
                               >
-                                {rp.ambiguous && <span className="text-[10px] text-amber-700 font-bold">⚠</span>}
-                                <span className="text-xs text-gray-700">{rp.nickname}</span>
+                                {rp.ambiguous && <span className="text-[9px] text-amber-700 font-bold">⚠</span>}
+                                <span className="text-[11px] text-gray-700">{rp.nickname}</span>
                                 <button
                                   onClick={() => setEditAliasesPlayer({ id: rp.player_id, nickname: rp.nickname })}
                                   title="Edit aliases (PUBG in-game name etc.)"
-                                  className="text-gray-300 hover:text-blue-500 text-[11px] leading-none ml-0.5"
+                                  className="text-gray-300 hover:text-blue-500 text-[10px] leading-none"
                                 >
                                   ✎
                                 </button>
                                 <button
                                   onClick={() => removeRosterPlayer(rp.player_id)}
-                                  className="text-gray-300 hover:text-red-500 text-xs leading-none ml-0.5"
+                                  className="text-gray-300 hover:text-red-500 text-[11px] leading-none"
                                 >
                                   ×
                                 </button>
@@ -984,16 +992,16 @@ export default function AdminTournamentDetailPage() {
                             ))}
                           </div>
                         )}
-                        <div className="flex items-center gap-2">
+                        <div className="flex items-center gap-1.5">
                           <button
                             onClick={() => setBulkRosterOpen({ kind: 'player', teamId: rt.team_id })}
-                            className="text-xs bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded-lg px-2.5 py-1"
+                            className="text-[11px] bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 rounded px-2 py-0.5"
                           >
-                            ⊞ Bulk Add Players
+                            ⊞ Bulk Add
                           </button>
                           <button
                             onClick={() => setRosterPickerOpen({ kind: 'player', teamId: rt.team_id })}
-                            className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1"
+                            className="text-[11px] text-gray-500 hover:text-gray-700 border border-gray-200 rounded px-2 py-0.5"
                           >
                             + Add Player
                           </button>
