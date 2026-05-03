@@ -35,3 +35,27 @@ export function getSuffix(name: string): string {
   const idx = name.indexOf('_')
   return idx >= 0 ? name.substring(idx + 1) : name
 }
+
+// Lowercased lookup variants for a PUBG-style name. The first variant is
+// always the full name; if the name contains an underscore (typical
+// "TAG_PlayerName" pattern) the after-first-underscore portion is added as a
+// secondary variant. This handles both cases at once:
+//   "Heaven"        → ["heaven"]
+//   "DNS_Heaven"    → ["dns_heaven", "heaven"]
+//   "JoShY-_-"      → ["joshy-_-", "-"]            (full still indexed)
+//   "DNS_JoShY-_-"  → ["dns_joshy-_-", "joshy-_-"] (suffix preserves underscores)
+// Indexing both lets a player whose nickname is "JoShY-_-" still match a
+// match name "DNS_JoShY-_-": the input's suffix variant resolves to the
+// player's full-name variant.
+export function getNameVariants(name: string): string[] {
+  const trimmed = name.trim()
+  if (!trimmed) return []
+  const full = trimmed.toLowerCase()
+  const out = [full]
+  const idx = trimmed.indexOf('_')
+  if (idx > 0) {
+    const tail = trimmed.substring(idx + 1).trim().toLowerCase()
+    if (tail && tail !== full) out.push(tail)
+  }
+  return out
+}

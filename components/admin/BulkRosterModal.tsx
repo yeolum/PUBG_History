@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import SearchModal from './SearchModal'
-import { getSuffix } from '@/lib/scoring'
+import { getNameVariants } from '@/lib/scoring'
 
 type Kind = 'team' | 'player'
 
@@ -139,28 +139,20 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
           })
         }
 
-        const byKey = new Map<string, Set<string>>()
-        const bySuffix = new Map<string, Set<string>>()
-        const addKey = (key: string, playerId: string) => {
-          const k = key.trim().toLowerCase()
-          if (!k) return
-          if (!byKey.has(k)) byKey.set(k, new Set())
-          byKey.get(k)!.add(playerId)
+        // Single index keyed by every name variant — both the full name and
+        // (for "TAG_Player" patterns) the after-underscore suffix. The same
+        // helper is used at lookup time so a name with embedded underscores
+        // like "JoShY-_-" still resolves either as itself or via a "TAG_…"
+        // PUBG match name.
+        const byVariant = new Map<string, Set<string>>()
+        const addName = (name: string, playerId: string) => {
+          for (const v of getNameVariants(name)) {
+            if (!byVariant.has(v)) byVariant.set(v, new Set())
+            byVariant.get(v)!.add(playerId)
+          }
         }
-        const addSuffix = (key: string, playerId: string) => {
-          const suf = getSuffix(key).trim().toLowerCase()
-          if (!suf) return
-          if (!bySuffix.has(suf)) bySuffix.set(suf, new Set())
-          bySuffix.get(suf)!.add(playerId)
-        }
-        for (const p of players ?? []) {
-          addKey(p.nickname as string, p.id as string)
-          addSuffix(p.nickname as string, p.id as string)
-        }
-        for (const a of aliases ?? []) {
-          addKey(a.alias as string, a.player_id as string)
-          addSuffix(a.alias as string, a.player_id as string)
-        }
+        for (const p of players ?? []) addName(p.nickname as string, p.id as string)
+        for (const a of aliases ?? []) addName(a.alias as string, a.player_id as string)
 
         const toCandidates = (ids: string[]): Candidate[] =>
           ids
@@ -169,18 +161,17 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
             .map((p) => ({ id: p.id, label: p.nickname, sublabel: p.teamName, nationalityCode: p.nationalityCode, teamId: p.teamId }))
 
         const reviewed: ReviewRow[] = inputs.map((input) => {
-          const exact = [...(byKey.get(input.toLowerCase()) ?? [])]
-          if (exact.length > 0) {
-            const cands = toCandidates(exact)
+          // Try each variant of the input — full name first, then suffix.
+          // Stop at the first variant that has any match; ambiguity within
+          // that variant surfaces as 'ambiguous' so admin can re-pick.
+          for (const v of getNameVariants(input)) {
+            const ids = [...(byVariant.get(v) ?? [])]
+            if (ids.length === 0) continue
+            const cands = toCandidates(ids)
             if (cands.length === 1) return { input, candidate: cands[0], status: 'matched', alternatives: [] }
             return { input, candidate: cands[0], status: 'ambiguous', alternatives: cands }
           }
-          // Fallback: suffix lookup (e.g. "DNS_Heaven" → "Heaven")
-          const suf = [...(bySuffix.get(getSuffix(input).toLowerCase()) ?? [])]
-          if (suf.length === 0) return { input, candidate: null, status: 'unmatched', alternatives: [] }
-          const cands = toCandidates(suf)
-          if (cands.length === 1) return { input, candidate: cands[0], status: 'matched', alternatives: [] }
-          return { input, candidate: cands[0], status: 'ambiguous', alternatives: cands }
+          return { input, candidate: null, status: 'unmatched', alternatives: [] }
         })
         setRows(reviewed)
       }

@@ -3,7 +3,7 @@ import { createServerClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { revalidatePath, revalidateTag } from 'next/cache'
 import { fetchPubgMatch } from '@/lib/pubg-api'
-import { getSuffix } from '@/lib/scoring'
+import { getNameVariants } from '@/lib/scoring'
 import { cookies } from 'next/headers'
 
 async function getAuthUser() {
@@ -185,20 +185,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // player nickname/alias → player_id (exact match)
+  // player nickname/alias variant → player_id[] (multiple per key when ambiguous).
+  // Each name (nickname or alias) is indexed under its full lowercased form
+  // AND, when it contains an underscore, under the after-first-underscore
+  // suffix too. This makes "JoShY-_-" findable both as itself and via
+  // "TAG_JoShY-_-" PUBG match names.
+  const playerByName: Record<string, string[]> = {}
+  // Single-value lookup retained for the team-tag fallback below.
   const playerById: Record<string, string> = {}
-  for (const p of playerRows ?? []) playerById[p.nickname.toLowerCase()] = p.id
-  for (const a of playerAliasRows ?? []) playerById[a.alias.toLowerCase()] = a.player_id
-
-  // player suffix → player_id[] (may have multiple matches)
-  const playerBySuffix: Record<string, string[]> = {}
-  const addSuffix = (name: string, playerId: string) => {
-    const suf = getSuffix(name).toLowerCase()
-    if (!playerBySuffix[suf]) playerBySuffix[suf] = []
-    if (!playerBySuffix[suf].includes(playerId)) playerBySuffix[suf].push(playerId)
+  const addName = (name: string, playerId: string) => {
+    for (const v of getNameVariants(name)) {
+      if (!playerByName[v]) playerByName[v] = []
+      if (!playerByName[v].includes(playerId)) playerByName[v].push(playerId)
+      // Last-write-wins map preserves the prior `playerById` semantics for
+      // the team-resolution fallback path.
+      playerById[v] = playerId
+    }
   }
-  for (const p of playerRows ?? []) addSuffix(p.nickname, p.id)
-  for (const a of playerAliasRows ?? []) addSuffix(a.alias, a.player_id)
+  for (const p of playerRows ?? []) addName(p.nickname as string, p.id as string)
+  for (const a of playerAliasRows ?? []) addName(a.alias as string, a.player_id as string)
 
   // player_id → team_id (current team membership)
   const playerTeam: Record<string, string> = {}
@@ -207,13 +212,15 @@ export async function POST(req: NextRequest) {
   }
 
   function resolvePlayerId(pubgName: string): string | null {
-    // 1. Exact name/alias match
-    const exact = playerById[pubgName.toLowerCase()]
-    if (exact) return exact
-    // 2. Suffix match (unambiguous only)
-    const suf = getSuffix(pubgName).toLowerCase()
-    const candidates = playerBySuffix[suf] ?? []
-    if (candidates.length === 1) return candidates[0]
+    // Try each variant of the input — full first, then after-underscore
+    // suffix. Stop at the first variant with at least one match; only
+    // accept it if it points to a single player so ambiguous names stay
+    // unlinked instead of cross-linking.
+    for (const v of getNameVariants(pubgName)) {
+      const candidates = playerByName[v] ?? []
+      if (candidates.length === 1) return candidates[0]
+      if (candidates.length > 1) return null
+    }
     return null
   }
 
