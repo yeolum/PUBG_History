@@ -35,6 +35,30 @@ interface Props {
   onSaved: () => void
 }
 
+// Supabase caps a single SELECT at 1000 rows by default (PostgREST
+// `db-max-rows`), regardless of `.limit(N)`. Page through with .range
+// until a short batch comes back so the matcher sees every player /
+// alias, not just the first 1000.
+const PAGE = 1000
+async function fetchAll<T>(
+  supabase: ReturnType<typeof createClient>,
+  build: (q: ReturnType<ReturnType<typeof createClient>['from']>) => unknown,
+  table: string,
+): Promise<T[]> {
+  const out: T[] = []
+  let page = 0
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = build(supabase.from(table)) as any
+    const { data } = await q.range(page * PAGE, (page + 1) * PAGE - 1)
+    const batch = (data ?? []) as T[]
+    out.push(...batch)
+    if (batch.length < PAGE) break
+    page++
+  }
+  return out
+}
+
 function parseLines(text: string): string[] {
   const seen = new Set<string>()
   const out: string[] = []
@@ -71,14 +95,17 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
 
     try {
       if (kind === 'team') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const [{ data: teams }, { data: aliases }] = await Promise.all([
-          supabase.from('teams').select('id, name, short_name, logo_url').limit(5000),
-          supabase.from('team_aliases').select('team_id, alias').limit(20000),
+        const [teams, aliases] = await Promise.all([
+          fetchAll<{ id: string; name: string; short_name: string | null; logo_url: string | null }>(
+            supabase, (q) => q.select('id, name, short_name, logo_url').order('id'), 'teams',
+          ),
+          fetchAll<{ team_id: string; alias: string }>(
+            supabase, (q) => q.select('team_id, alias').order('id'), 'team_aliases',
+          ),
         ])
 
         const teamById = new Map<string, { id: string; name: string; short_name: string | null; logo_url: string | null }>()
-        for (const t of teams ?? []) teamById.set(t.id as string, t as { id: string; name: string; short_name: string | null; logo_url: string | null })
+        for (const t of teams) teamById.set(t.id, t)
 
         // Build "lowercased key → team_ids[]" map covering name, short_name, alias, tag-part of "TAG - Name"
         const byKey = new Map<string, Set<string>>()
@@ -88,17 +115,17 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
           if (!byKey.has(k)) byKey.set(k, new Set())
           byKey.get(k)!.add(teamId)
         }
-        for (const t of teams ?? []) {
-          addKey(t.name as string, t.id as string)
-          if (t.short_name) addKey(t.short_name as string, t.id as string)
+        for (const t of teams) {
+          addKey(t.name, t.id)
+          if (t.short_name) addKey(t.short_name, t.id)
         }
-        for (const a of aliases ?? []) {
-          const alias = a.alias as string
-          addKey(alias, a.team_id as string)
+        for (const a of aliases) {
+          const alias = a.alias
+          addKey(alias, a.team_id)
           const dashIdx = alias.indexOf(' - ')
           if (dashIdx !== -1) {
-            addKey(alias.slice(0, dashIdx), a.team_id as string)
-            addKey(alias.slice(dashIdx + 3), a.team_id as string)
+            addKey(alias.slice(0, dashIdx), a.team_id)
+            addKey(alias.slice(dashIdx + 3), a.team_id)
           }
         }
 
@@ -121,15 +148,18 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
         setRows(reviewed)
       } else {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const [{ data: players }, { data: aliases }] = await Promise.all([
-          supabase.from('players').select('id, nickname, nationality_code, team_id, teams(name)').limit(20000),
-          supabase.from('player_aliases').select('player_id, alias').limit(50000),
+        const [players, aliases] = await Promise.all([
+          fetchAll<any>(
+            supabase, (q) => q.select('id, nickname, nationality_code, team_id, teams(name)').order('id'), 'players',
+          ),
+          fetchAll<{ player_id: string; alias: string }>(
+            supabase, (q) => q.select('player_id, alias').order('id'), 'player_aliases',
+          ),
         ])
 
         const playerById = new Map<string, { id: string; nickname: string; teamName: string | null; nationalityCode: string | null; teamId: string | null }>()
-        for (const p of players ?? []) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const teamName = ((p as any).teams?.name as string | null) ?? null
+        for (const p of players) {
+          const teamName = (p.teams?.name as string | null) ?? null
           playerById.set(p.id as string, {
             id: p.id as string,
             nickname: p.nickname as string,
@@ -151,8 +181,8 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
             byVariant.get(v)!.add(playerId)
           }
         }
-        for (const p of players ?? []) addName(p.nickname as string, p.id as string)
-        for (const a of aliases ?? []) addName(a.alias as string, a.player_id as string)
+        for (const p of players) addName(p.nickname as string, p.id as string)
+        for (const a of aliases) addName(a.alias, a.player_id)
 
         const toCandidates = (ids: string[]): Candidate[] =>
           ids

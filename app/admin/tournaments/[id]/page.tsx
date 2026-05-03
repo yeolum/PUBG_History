@@ -120,7 +120,27 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, { data: allPlayers }, { data: allPlayerAliases }] = await Promise.all([
+    // Supabase caps a single SELECT at 1000 rows server-side regardless of
+    // .limit(N), so the global collision check needs to page through.
+    async function fetchAllPaged<T>(
+      table: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      buildQuery: (q: any) => any,
+    ): Promise<T[]> {
+      const out: T[] = []
+      const PAGE = 1000
+      let page = 0
+      while (true) {
+        const { data } = await buildQuery(supabase.from(table)).range(page * PAGE, (page + 1) * PAGE - 1)
+        const batch = (data ?? []) as T[]
+        out.push(...batch)
+        if (batch.length < PAGE) break
+        page++
+      }
+      return out
+    }
+
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, allPlayers, allPlayerAliases] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
@@ -136,8 +156,10 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
-      supabase.from('players').select('id, nickname').limit(20000),
-      supabase.from('player_aliases').select('player_id, alias').limit(50000),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAllPaged<any>('players', (q) => q.select('id, nickname').order('id')),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      fetchAllPaged<any>('player_aliases', (q) => q.select('player_id, alias').order('id')),
     ])
     setSeriesList((ser ?? []) as Series[])
     setScoringRules((sr ?? []) as ScoringRule[])
@@ -285,9 +307,9 @@ export default function AdminTournamentDetailPage() {
       nameToPlayerIds.get(k)!.add(playerId)
     }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const p of (allPlayers ?? []) as any[]) addName(p.nickname as string, p.id as string)
+    for (const p of allPlayers as any[]) addName(p.nickname as string, p.id as string)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const a of (allPlayerAliases ?? []) as any[]) addName(a.alias as string, a.player_id as string)
+    for (const a of allPlayerAliases as any[]) addName(a.alias as string, a.player_id as string)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setRosterPlayers(((tpData ?? []) as any[])
