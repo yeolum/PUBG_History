@@ -469,3 +469,45 @@ CREATE INDEX IF NOT EXISTS idx_tournament_prize_config_series ON tournament_priz
 -- =====================================================
 
 ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS tag TEXT;
+
+-- =====================================================
+-- Migration: combined scoreboards — view-only aggregations of selected
+-- stages. Cumulative standings of the chosen stages can be:
+--   - Picked as a Prize & Points target (combined_scoreboard_id)
+--   - Browsed as its own scoreboard tab on the public page
+-- They never add to team_stats / player_stats / final standings
+-- aggregation themselves; only the underlying matches do.
+-- =====================================================
+
+CREATE TABLE IF NOT EXISTS combined_scoreboards (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  name          TEXT NOT NULL,
+  order_num     INT NOT NULL DEFAULT 0,
+  created_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_combined_scoreboards_tournament ON combined_scoreboards(tournament_id);
+
+CREATE TABLE IF NOT EXISTS combined_scoreboard_stages (
+  combined_scoreboard_id UUID NOT NULL REFERENCES combined_scoreboards(id) ON DELETE CASCADE,
+  stage_id               UUID NOT NULL REFERENCES stages(id) ON DELETE CASCADE,
+  PRIMARY KEY (combined_scoreboard_id, stage_id)
+);
+CREATE INDEX IF NOT EXISTS idx_combined_scoreboard_stages_stage ON combined_scoreboard_stages(stage_id);
+
+ALTER TABLE combined_scoreboards ENABLE ROW LEVEL SECURITY;
+ALTER TABLE combined_scoreboard_stages ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "combined_scoreboards_public_read" ON combined_scoreboards;
+DROP POLICY IF EXISTS "combined_scoreboards_auth_write"  ON combined_scoreboards;
+CREATE POLICY "combined_scoreboards_public_read" ON combined_scoreboards FOR SELECT USING (true);
+CREATE POLICY "combined_scoreboards_auth_write"  ON combined_scoreboards FOR ALL    USING (auth.uid() IS NOT NULL);
+
+DROP POLICY IF EXISTS "combined_scoreboard_stages_public_read" ON combined_scoreboard_stages;
+DROP POLICY IF EXISTS "combined_scoreboard_stages_auth_write"  ON combined_scoreboard_stages;
+CREATE POLICY "combined_scoreboard_stages_public_read" ON combined_scoreboard_stages FOR SELECT USING (true);
+CREATE POLICY "combined_scoreboard_stages_auth_write"  ON combined_scoreboard_stages FOR ALL    USING (auth.uid() IS NOT NULL);
+
+-- Prize & Points Target can now point to a combined scoreboard's rank.
+ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS combined_scoreboard_id UUID REFERENCES combined_scoreboards(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_tournament_prize_config_combined ON tournament_prize_config(combined_scoreboard_id);

@@ -48,7 +48,7 @@ const loadTournamentData = unstable_cache(
 
     const [{ data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*), matches(*)').eq('tournament_id', id).order('order_num'),
-      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, stage_rank').eq('tournament_id', id).order('rank'),
+      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
     ])
 
@@ -63,7 +63,7 @@ const loadTournamentData = unstable_cache(
 
     const seriesIds = (seriesData ?? []).map((sr: AnyRow) => sr.id as string)
 
-    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }] = await Promise.all([
+    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       aliasQueriesPromise,
@@ -74,9 +74,11 @@ const loadTournamentData = unstable_cache(
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
       supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
+      supabase.from('combined_scoreboards').select('id, name, order_num').eq('tournament_id', id).order('order_num'),
+      supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData }
   },
   ['tournament-data'],
   // Tag lets admin saves call revalidateTag('tournament-data') for an
@@ -92,7 +94,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData } = await loadTournamentData(id)
 
   // stageId → { teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -474,18 +476,72 @@ export default async function TournamentContent({ id, tournament }: { id: string
     seriesStandingsMap.set(sr.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
   }
 
+  // Combined scoreboards — view-only aggregations of any subset of stages.
+  // Same shape as seriesStandingsMap so rankBoard / scoreboard view can treat them uniformly.
+  type CombinedItem = { id: string; name: string; order_num: number; stageIds: Set<string> }
+  const combinedStagesByCombined = new Map<string, Set<string>>()
+  for (const r of (combinedStageData ?? []) as AnyRow[]) {
+    const cid = r.combined_scoreboard_id as string
+    if (!combinedStagesByCombined.has(cid)) combinedStagesByCombined.set(cid, new Set())
+    combinedStagesByCombined.get(cid)!.add(r.stage_id as string)
+  }
+  const combinedList: CombinedItem[] = ((combinedData ?? []) as AnyRow[]).map((c) => ({
+    id: c.id as string,
+    name: c.name as string,
+    order_num: c.order_num as number,
+    stageIds: combinedStagesByCombined.get(c.id as string) ?? new Set(),
+  }))
+
+  const combinedStandingsMap = new Map<string, SeriesStandingEntry[]>()
+  for (const cb of combinedList) {
+    if (cb.stageIds.size === 0) continue
+    const ptsMap = new Map<string, SeriesStandingEntry>()
+    for (const stage of stagesList) {
+      if (!cb.stageIds.has(stage.id)) continue
+      const rule = ruleFromStage(stage.scoring_rules)
+      for (const m of stage.matches) {
+        if (m.status !== 'imported') continue
+        for (const r of (resultsByMatch[m.id] ?? []) as AnyRow[]) {
+          const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+          if (!ptsMap.has(key)) {
+            ptsMap.set(key, {
+              teamId: r.team_id ?? null,
+              teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'),
+              matches: 0, wwcd: 0, placePts: 0, killPts: 0, totalPts: 0,
+            })
+          }
+          const e = ptsMap.get(key)!
+          const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+          const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+          e.placePts += pp
+          e.killPts += kp
+          e.totalPts += pp + kp
+          e.matches++
+          if ((r.placement ?? 99) === 1) e.wwcd++
+        }
+      }
+      const extraForStage = stageAdditionalPts[stage.id] ?? {}
+      for (const e of ptsMap.values()) {
+        e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+      }
+    }
+    combinedStandingsMap.set(cb.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
+  }
+
   type RankEntry = { teamId: string | null; teamName: string; rank: number }
   const rankBoard: RankEntry[] = []
   const rankMethod = (t.ranking_method ?? 'stage') as 'stage' | 'prize' | 'pgs' | 'pgc'
 
   if (rankMethod === 'stage') {
-    const hasMapping = prizeConfig.some((p) => (p.stage_id != null || p.series_id != null) && p.stage_rank != null)
+    const hasMapping = prizeConfig.some((p) => (p.stage_id != null || p.series_id != null || p.combined_scoreboard_id != null) && p.stage_rank != null)
     if (hasMapping) {
       for (const pc of prizeConfig) {
         if (!pc.stage_rank) continue
-        // Pull from series cumulative standings if series_id is set, otherwise
-        // from the stage's standings.
-        const standings = pc.series_id
+        // Pull from combined scoreboard standings, then series, then stage —
+        // first non-null target wins (admin UI enforces only one is set).
+        const standings = pc.combined_scoreboard_id
+          ? (combinedStandingsMap.get(pc.combined_scoreboard_id) ?? [])
+          : pc.series_id
           ? (seriesStandingsMap.get(pc.series_id) ?? [])
           : pc.stage_id
           ? (stageStandingsMap.get(pc.stage_id) ?? [])
@@ -678,6 +734,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
       <TournamentDetailTabs
         stages={stagesList}
         series={seriesList}
+        combined={combinedList.map((c) => ({ id: c.id, name: c.name, order_num: c.order_num, stageIds: [...c.stageIds] }))}
+        combinedStandings={Object.fromEntries([...combinedStandingsMap.entries()])}
         resultsByMatch={resultsByMatch}
         damageByMatch={damageByMatch}
         rankBoard={rankBoard}

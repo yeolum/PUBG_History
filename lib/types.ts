@@ -87,7 +87,16 @@ export interface TournamentPrizeConfig {
   pgc_points: number | null
   stage_id: string | null
   series_id: string | null
+  combined_scoreboard_id: string | null
   stage_rank: number | null
+}
+
+export interface CombinedScoreboard {
+  id: string
+  tournament_id: string
+  name: string
+  order_num: number
+  created_at: string
 }
 
 export interface Series {

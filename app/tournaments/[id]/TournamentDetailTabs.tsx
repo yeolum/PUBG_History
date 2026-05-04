@@ -12,10 +12,13 @@ interface SeriesItem { id: string; name: string; order_num: number; advance_coun
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
 interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
+interface CombinedItem { id: string; name: string; order_num: number; stageIds: string[] }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
   series: SeriesItem[]
+  combined: CombinedItem[]
+  combinedStandings: Record<string, { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }[]>
   resultsByMatch: Record<string, AnyObj[]>
   damageByMatch: Record<string, { placement: number; damage_dealt: number }[]>
   rankBoard: RankEntry[]
@@ -62,6 +65,8 @@ export default function TournamentDetailTabs(props: Props) {
         <TournamentStagesView
           stages={props.stages}
           series={props.series}
+          combined={props.combined}
+          combinedStandings={props.combinedStandings}
           resultsByMatch={props.resultsByMatch}
           damageByMatch={props.damageByMatch}
           rankBoard={props.rankBoard}

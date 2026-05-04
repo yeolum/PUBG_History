@@ -92,6 +92,12 @@ export default function AdminTournamentDetailPage() {
   const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
+  type CombinedRow = { id: string; name: string; order_num: number; stageIds: Set<string> }
+  const [combinedList, setCombinedList] = useState<CombinedRow[]>([])
+  const [addingCombined, setAddingCombined] = useState(false)
+  const [newCombinedName, setNewCombinedName] = useState('')
+  const [savingCombinedId, setSavingCombinedId] = useState<string | null>(null)
+
   type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null; disqualified: boolean }
   type RosterPlayer = { player_id: string; nickname: string; team_id: string | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
@@ -140,20 +146,22 @@ export default function AdminTournamentDetailPage() {
       return out
     }
 
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, allPlayers, allPlayerAliases] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, { data: combinedData }, { data: combinedStageData }, allPlayers, allPlayerAliases] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
         .select('*, scoring_rules(*), matches(*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname)))')
         .eq('tournament_id', id)
         .order('order_num'),
-      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, stage_rank').eq('tournament_id', id).order('rank'),
+      supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
+      supabase.from('combined_scoreboards').select('id, name, order_num').eq('tournament_id', id).order('order_num'),
+      supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -185,7 +193,7 @@ export default function AdminTournamentDetailPage() {
     }
     const totalTeams = Math.max(allTeamKeys.size, 16)
 
-    const prizeConfig = (pc ?? []) as { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; series_id: string | null; stage_rank: number | null }[]
+    const prizeConfig = (pc ?? []) as { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null; stage_id: string | null; series_id: string | null; combined_scoreboard_id: string | null; stage_rank: number | null }[]
     const prizeByRank = new Map(prizeConfig.map((p) => [p.rank, p]))
     const finalStage = stageData.find((stage) => stage.type === 'grand_final')
     const defaultTargetKey = finalStage ? `stage:${finalStage.id}` : ''
@@ -193,7 +201,9 @@ export default function AdminTournamentDetailPage() {
     const rows: PrizeRow[] = []
     for (let rank = 1; rank <= totalTeams; rank++) {
       const existing = prizeByRank.get(rank)
-      const targetKey = existing?.series_id
+      const targetKey = existing?.combined_scoreboard_id
+        ? `combined:${existing.combined_scoreboard_id}`
+        : existing?.series_id
         ? `series:${existing.series_id}`
         : existing?.stage_id
         ? `stage:${existing.stage_id}`
@@ -259,6 +269,19 @@ export default function AdminTournamentDetailPage() {
       }
     }
     setSeriesRulesMap(srMap)
+
+    // Combined scoreboards: load list + their stage memberships
+    const stagesByCombined = new Map<string, Set<string>>()
+    for (const r of (combinedStageData ?? []) as { combined_scoreboard_id: string; stage_id: string }[]) {
+      if (!stagesByCombined.has(r.combined_scoreboard_id)) stagesByCombined.set(r.combined_scoreboard_id, new Set())
+      stagesByCombined.get(r.combined_scoreboard_id)!.add(r.stage_id)
+    }
+    setCombinedList(((combinedData ?? []) as { id: string; name: string; order_num: number }[]).map((c) => ({
+      id: c.id,
+      name: c.name,
+      order_num: c.order_num,
+      stageIds: stagesByCombined.get(c.id) ?? new Set(),
+    })))
 
     setWwcdRows((wwcd ?? []).map((r) => {
       const sid = (r.stage_id as string | null) ?? null
@@ -479,6 +502,7 @@ export default function AdminTournamentDetailPage() {
           rank: r.rank,
           stage_id: targetType === 'stage' ? targetId : null,
           series_id: targetType === 'series' ? targetId : null,
+          combined_scoreboard_id: targetType === 'combined' ? targetId : null,
           stage_rank: r.stageRank || null,
           prize: parseNumberInput(r.prize),
           pgs_points: r.pgs ? parseFloat(r.pgs) : null,
@@ -528,6 +552,42 @@ export default function AdminTournamentDetailPage() {
       if (error) { setErr('Save failed: ' + error.message); setSavingStagePrize(false); return }
     }
     setSavingStagePrize(false)
+    reload()
+  }
+
+  async function addCombinedScoreboard() {
+    const name = newCombinedName.trim()
+    if (!name) return
+    setErr('')
+    const maxOrder = combinedList.length > 0 ? Math.max(...combinedList.map((c) => c.order_num)) + 1 : 0
+    const { error } = await supabase.from('combined_scoreboards').insert([{ tournament_id: id, name, order_num: maxOrder }])
+    if (error) { setErr('Add combined scoreboard failed: ' + error.message); return }
+    setNewCombinedName('')
+    setAddingCombined(false)
+    reload()
+  }
+
+  async function deleteCombinedScoreboard(combinedId: string, name: string) {
+    if (!confirm(`Delete combined scoreboard "${name}"?`)) return
+    const { error } = await supabase.from('combined_scoreboards').delete().eq('id', combinedId)
+    if (error) { setErr('Delete failed: ' + error.message); return }
+    reload()
+  }
+
+  async function saveCombinedScoreboard(combinedId: string, name: string, stageIds: Set<string>) {
+    setSavingCombinedId(combinedId)
+    setErr('')
+    const { error: updateErr } = await supabase.from('combined_scoreboards').update({ name }).eq('id', combinedId)
+    if (updateErr) { setErr('Save failed: ' + updateErr.message); setSavingCombinedId(null); return }
+    // Replace stages: delete all then insert chosen
+    const { error: delErr } = await supabase.from('combined_scoreboard_stages').delete().eq('combined_scoreboard_id', combinedId)
+    if (delErr) { setErr('Save failed: ' + delErr.message); setSavingCombinedId(null); return }
+    const rows = [...stageIds].map((sid) => ({ combined_scoreboard_id: combinedId, stage_id: sid }))
+    if (rows.length > 0) {
+      const { error: insErr } = await supabase.from('combined_scoreboard_stages').insert(rows)
+      if (insErr) { setErr('Save failed: ' + insErr.message); setSavingCombinedId(null); return }
+    }
+    setSavingCombinedId(null)
     reload()
   }
 
@@ -1189,6 +1249,88 @@ export default function AdminTournamentDetailPage() {
         </div>
       </div>
 
+      {/* Combined Scoreboards — view-only aggregations of selected stages */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">Combined Scoreboards</h2>
+          <span className="text-xs text-gray-400">View-only stage aggregations — appear as a tab on the public scoreboard and selectable as a Prize &amp; Points target.</span>
+          {!addingCombined && (
+            <button
+              onClick={() => setAddingCombined(true)}
+              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
+            >
+              + Add Combined Scoreboard
+            </button>
+          )}
+        </div>
+
+        {addingCombined && (
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              autoFocus
+              value={newCombinedName}
+              onChange={(e) => setNewCombinedName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addCombinedScoreboard() }}
+              placeholder="Name (e.g. Weekly Finals Cumulative)"
+              className="flex-1 max-w-xs border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            />
+            <button onClick={addCombinedScoreboard} className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-3 py-1.5 rounded-lg">Add</button>
+            <button onClick={() => { setAddingCombined(false); setNewCombinedName('') }} className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
+          </div>
+        )}
+
+        {combinedList.length === 0 && !addingCombined ? (
+          <p className="text-sm text-gray-400">No combined scoreboards yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {combinedList.map((c) => {
+              const isDirty = false  // local edits fire saveCombinedScoreboard inline below
+              void isDirty
+              return (
+                <div key={c.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input
+                      defaultValue={c.name}
+                      onBlur={(e) => {
+                        const next = e.target.value.trim()
+                        if (next && next !== c.name) saveCombinedScoreboard(c.id, next, c.stageIds)
+                      }}
+                      className="text-sm font-medium border border-transparent hover:border-gray-200 focus:border-yellow-400 focus:bg-white rounded px-2 py-0.5 focus:outline-none"
+                    />
+                    <span className="text-xs text-gray-400">{c.stageIds.size} / {stageList.length} stages</span>
+                    <button
+                      onClick={() => deleteCombinedScoreboard(c.id, c.name)}
+                      className="text-gray-300 hover:text-red-500 text-sm leading-none ml-auto"
+                    >×</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {stageList.map((stage) => {
+                      const checked = c.stageIds.has(stage.id)
+                      return (
+                        <label key={stage.id} className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border cursor-pointer ${checked ? 'bg-yellow-50 border-yellow-300 text-yellow-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = new Set(c.stageIds)
+                              if (e.target.checked) next.add(stage.id); else next.delete(stage.id)
+                              saveCombinedScoreboard(c.id, c.name, next)
+                            }}
+                            disabled={savingCombinedId === c.id}
+                            className="sr-only"
+                          />
+                          {stage.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Stages with inline match linking */}
       <div>
         <h2 className="text-lg font-semibold text-gray-800 mb-4">Stages</h2>
@@ -1612,6 +1754,13 @@ export default function AdminTournamentDetailPage() {
                       ))}
                     </optgroup>
                   )}
+                  {combinedList.length > 0 && (
+                    <optgroup label="Combined Scoreboards">
+                      {combinedList.map((c) => (
+                        <option key={c.id} value={`combined:${c.id}`}>{c.name} (Combined)</option>
+                      ))}
+                    </optgroup>
+                  )}
                   {stageList.length > 0 && (
                     <optgroup label="Stages">
                       {stageList.map((s) => (
@@ -1687,6 +1836,13 @@ export default function AdminTournamentDetailPage() {
                             <optgroup label="Series">
                               {seriesList.map((sr) => (
                                 <option key={sr.id} value={`series:${sr.id}`}>{sr.name} (Series)</option>
+                              ))}
+                            </optgroup>
+                          )}
+                          {combinedList.length > 0 && (
+                            <optgroup label="Combined Scoreboards">
+                              {combinedList.map((c) => (
+                                <option key={c.id} value={`combined:${c.id}`}>{c.name} (Combined)</option>
                               ))}
                             </optgroup>
                           )}

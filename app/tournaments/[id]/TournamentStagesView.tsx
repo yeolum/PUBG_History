@@ -15,10 +15,14 @@ interface SeriesItem { id: string; name: string; order_num: number; advance_coun
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
 interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
+interface CombinedItem { id: string; name: string; order_num: number; stageIds: string[] }
+interface CombinedStanding { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]
   series: SeriesItem[]
+  combined?: CombinedItem[]
+  combinedStandings?: Record<string, CombinedStanding[]>
   resultsByMatch: Record<string, AnyObj[]>
   damageByMatch: Record<string, { placement: number; damage_dealt: number }[]>
   rankBoard: RankEntry[]
@@ -50,7 +54,8 @@ function formatDateLabel(dateStr: string) {
 }
 
 export default function TournamentStagesView({
-  stages, series, resultsByMatch, damageByMatch, rankBoard, prizeConfig,
+  stages, series, combined = [], combinedStandings = {},
+  resultsByMatch, damageByMatch, rankBoard, prizeConfig,
   hasPrize, hasPgsPoints, hasPgcPoints, currency, aliasLogoLookup, stageAdditionalPts = {},
   wwcdBonusByTeamId = {}, specialAwards = [], dqTeamIds = new Set(),
 }: Props) {
@@ -58,6 +63,7 @@ export default function TournamentStagesView({
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null)
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
+  const [selectedCombinedId, setSelectedCombinedId] = useState<string | null>(null)
 
   const stagesBySeries = useMemo(() => {
     const map = new Map<string, (Stage & { matches: Match[] })[]>()
@@ -212,6 +218,7 @@ export default function TournamentStagesView({
 
   function selectDirectStage(stageId: string) {
     setSelectedSeriesId(null)
+    setSelectedCombinedId(null)
     setSelectedStageId(stageId)
     setSelectedMatchId(null)
   }
@@ -226,41 +233,85 @@ export default function TournamentStagesView({
       setSelectedSeriesId(null)
     } else {
       setSelectedSeriesId(seriesId)
+      setSelectedCombinedId(null)
+      setSelectedStageId(null)
+      setSelectedMatchId(null)
+    }
+  }
+
+  function toggleCombined(combinedId: string) {
+    if (selectedCombinedId === combinedId) {
+      setSelectedCombinedId(null)
+    } else {
+      setSelectedCombinedId(combinedId)
+      setSelectedSeriesId(null)
       setSelectedStageId(null)
       setSelectedMatchId(null)
     }
   }
 
   const selectedSeriesName = series.find(s => s.id === selectedSeriesId)?.name ?? ''
+  const selectedCombined = combined.find(c => c.id === selectedCombinedId) ?? null
 
-  const isNothingSelected = !selectedSeriesId && !selectedStageId
+  // Unified top-level tab ordering: each section sorts by the min order_num of
+  // its constituent stages, so admin can interleave Series-Stage-Stage-Series
+  // just by reordering stages.
+  type TopTab =
+    | { kind: 'series'; series: SeriesItem; orderKey: number }
+    | { kind: 'stage'; stage: Stage & { matches: Match[] }; orderKey: number }
+    | { kind: 'combined'; combined: CombinedItem; orderKey: number }
+  const topTabs: TopTab[] = useMemo(() => {
+    const tabs: TopTab[] = []
+    for (const sr of series) {
+      const stagesIn = stages.filter(s => s.series_id === sr.id)
+      const orderKey = stagesIn.length > 0 ? Math.min(...stagesIn.map(s => s.order_num)) : sr.order_num
+      tabs.push({ kind: 'series', series: sr, orderKey })
+    }
+    for (const stage of stages) {
+      if (stage.series_id) continue
+      tabs.push({ kind: 'stage', stage, orderKey: stage.order_num })
+    }
+    for (const cb of combined) {
+      const stagesIn = stages.filter(s => cb.stageIds.includes(s.id))
+      const orderKey = stagesIn.length > 0 ? Math.min(...stagesIn.map(s => s.order_num)) : cb.order_num
+      tabs.push({ kind: 'combined', combined: cb, orderKey })
+    }
+    return tabs.sort((a, b) => a.orderKey - b.orderKey)
+  }, [series, stages, combined])
+
+  const isNothingSelected = !selectedSeriesId && !selectedStageId && !selectedCombinedId
 
   return (
     <div>
-      {/* Navigation — same scopeBtn style as Player Data / Team Data tabs */}
+      {/* Navigation — same scopeBtn style as Player Data / Team Data tabs.
+          Series, standalone stages and combined scoreboards are interleaved
+          by their effective order so admin can lay them out freely. */}
       <div className="mb-3 space-y-2">
         <div className="flex flex-wrap gap-1.5 items-center">
-          {series.map(s => {
-            const active = selectedSeriesId === s.id && !selectedStageId
+          {topTabs.map(tab => {
+            const baseCls = 'px-2.5 py-1 text-xs rounded-lg border transition-colors'
+            const idleCls = 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'
+            const activeCls = 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold'
+            if (tab.kind === 'series') {
+              const active = selectedSeriesId === tab.series.id && !selectedStageId
+              return (
+                <button key={`series-${tab.series.id}`} onClick={() => toggleSeries(tab.series.id)} className={`${baseCls} ${active ? activeCls : idleCls}`}>
+                  {tab.series.name}
+                </button>
+              )
+            }
+            if (tab.kind === 'stage') {
+              const active = selectedStageId === tab.stage.id && !selectedSeriesId && !selectedCombinedId
+              return (
+                <button key={`stage-${tab.stage.id}`} onClick={() => selectDirectStage(tab.stage.id)} className={`${baseCls} ${active ? activeCls : idleCls}`}>
+                  {tab.stage.name}
+                </button>
+              )
+            }
+            const active = selectedCombinedId === tab.combined.id
             return (
-              <button
-                key={s.id}
-                onClick={() => toggleSeries(s.id)}
-                className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
-              >
-                {s.name}
-              </button>
-            )
-          })}
-          {directStages.map(stage => {
-            const active = selectedStageId === stage.id && !selectedSeriesId
-            return (
-              <button
-                key={stage.id}
-                onClick={() => selectDirectStage(stage.id)}
-                className={`px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
-              >
-                {stage.name}
+              <button key={`combined-${tab.combined.id}`} onClick={() => toggleCombined(tab.combined.id)} className={`${baseCls} ${active ? activeCls : idleCls}`}>
+                {tab.combined.name}
               </button>
             )
           })}
@@ -466,10 +517,63 @@ export default function TournamentStagesView({
           )}
         </div>
       ) : (
-        /* Stage/Series selected: full-width scoreboard, no Final Standings */
+        /* Stage/Series/Combined selected: full-width scoreboard, no Final Standings */
         <div className="overflow-x-auto">
           <div className="min-w-max">
-            {selectedSeriesId && !selectedStageId ? (
+            {selectedCombinedId ? (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                  <span className="font-semibold text-sm text-gray-800">{selectedCombined?.name ?? ''} — Standings</span>
+                </div>
+                {(combinedStandings[selectedCombinedId] ?? []).length > 0 ? (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-xs text-gray-400 border-b border-gray-100">
+                          <th className="text-left px-4 py-2 w-8">#</th>
+                          <th className="text-left px-4 py-2">Team</th>
+                          <th className="text-right px-4 py-2">M</th>
+                          <th className="text-right px-4 py-2">WWCD</th>
+                          <th className="text-right px-4 py-2">Plc Pts</th>
+                          <th className="text-right px-4 py-2">Kills</th>
+                          <th className="text-right px-4 py-2 font-semibold text-gray-500">Total</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {(combinedStandings[selectedCombinedId] ?? []).map((s, i) => {
+                          const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                          return (
+                            <tr key={`${s.teamId ?? s.teamName}-${i}`} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                              <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                              <td className="px-4 py-2 text-xs">
+                                <div className="flex items-center gap-1.5">
+                                  {logo ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                                  ) : (
+                                    <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                  )}
+                                  {s.teamId ? (
+                                    <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
+                                  ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
+                                </div>
+                              </td>
+                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
+                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
+                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.killPts}</td>
+                              <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                ) : (
+                  <div className="p-10 text-center text-gray-400 text-sm">No imported matches in the selected stages yet</div>
+                )}
+              </div>
+            ) : selectedSeriesId && !selectedStageId ? (
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
                   <span className="font-semibold text-sm text-gray-800">{selectedSeriesName} — Standings</span>

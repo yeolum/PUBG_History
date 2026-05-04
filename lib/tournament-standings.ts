@@ -52,12 +52,14 @@ export const getTournamentFinalStandings = unstable_cache(
   async (tournamentId: string): Promise<Map<string, TournamentFinalStanding>> => {
     const supabase = createPublicClient()
 
-    const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }, { data: ttData }] = await Promise.all([
+    const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }, { data: ttData }, { data: combinedData }, { data: combinedStageData }] = await Promise.all([
       supabase.from('tournaments').select('id, ranking_method').eq('id', tournamentId).single(),
       supabase.from('stages').select('id, type, series_id, scoring_rules(*), matches(id, status)').eq('tournament_id', tournamentId).order('order_num'),
-      supabase.from('tournament_prize_config').select('rank, prize, stage_id, series_id, stage_rank').eq('tournament_id', tournamentId).order('rank'),
+      supabase.from('tournament_prize_config').select('rank, prize, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', tournamentId).order('rank'),
       supabase.from('series').select('id').eq('tournament_id', tournamentId),
       supabase.from('tournament_teams').select('team_id, disqualified').eq('tournament_id', tournamentId),
+      supabase.from('combined_scoreboards').select('id').eq('tournament_id', tournamentId),
+      supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
     ])
 
     if (!tournament) return new Map()
@@ -179,6 +181,49 @@ export const getTournamentFinalStandings = unstable_cache(
       ))
     }
 
+    // Combined scoreboards — same shape as series cumulative standings.
+    const combinedStagesByCombined = new Map<string, Set<string>>()
+    for (const r of (combinedStageData ?? []) as AnyRow[]) {
+      const cid = r.combined_scoreboard_id as string
+      if (!combinedStagesByCombined.has(cid)) combinedStagesByCombined.set(cid, new Set())
+      combinedStagesByCombined.get(cid)!.add(r.stage_id as string)
+    }
+    const combinedStandingsMap = new Map<string, StandingsEntry[]>()
+    for (const cb of (combinedData ?? []) as AnyRow[]) {
+      const cid = cb.id as string
+      const stageIds = combinedStagesByCombined.get(cid) ?? new Set()
+      if (stageIds.size === 0) continue
+      const ptsMap = new Map<string, StandingsEntry>()
+      for (const stage of stagesList) {
+        if (!stageIds.has(stage.id as string)) continue
+        for (const m of stage.matches ?? []) {
+          if (m.status !== 'imported') continue
+          for (const r of resultsByMatch.get(m.id as string) ?? []) {
+            const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
+            if (!ptsMap.has(key)) {
+              ptsMap.set(key, {
+                teamId: r.team_id ?? null,
+                teamName: (r.pubg_team_name as string | null) ?? '',
+                totalPts: 0, placePts: 0,
+              })
+            }
+            const e = ptsMap.get(key)!
+            const rule = matchToRule.get(m.id as string) ?? ruleFromStage(null)
+            const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+            e.totalPts += pp + Math.round((r.total_kills ?? 0) * rule.kill_pts)
+            e.placePts += pp
+          }
+        }
+        const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
+        for (const e of ptsMap.values()) {
+          e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+        }
+      }
+      combinedStandingsMap.set(cid, [...ptsMap.values()].sort((a, b) =>
+        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
+      ))
+    }
+
     // WWCD bonus per linked team
     const wwcdRewards = (wwcdData ?? []) as AnyRow[]
     const wwcdBonusByTeamId: Record<string, { prize: number; pgs: number; pgc: number }> = {}
@@ -253,11 +298,13 @@ export const getTournamentFinalStandings = unstable_cache(
     const rankBoard: RankEntry[] = []
 
     if (rankMethod === 'stage') {
-      const hasMapping = prizeConfig.some((p) => (p.stage_id != null || p.series_id != null) && p.stage_rank != null)
+      const hasMapping = prizeConfig.some((p) => (p.stage_id != null || p.series_id != null || p.combined_scoreboard_id != null) && p.stage_rank != null)
       if (hasMapping) {
         for (const pc of prizeConfig) {
           if (!pc.stage_rank) continue
-          const standings = pc.series_id
+          const standings = pc.combined_scoreboard_id
+            ? (combinedStandingsMap.get(pc.combined_scoreboard_id as string) ?? [])
+            : pc.series_id
             ? (seriesStandingsMap.get(pc.series_id as string) ?? [])
             : pc.stage_id
             ? (stageStandingsMap.get(pc.stage_id as string) ?? [])
