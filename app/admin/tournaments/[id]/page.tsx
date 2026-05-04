@@ -1208,6 +1208,150 @@ export default function AdminTournamentDetailPage() {
         </div>
       </div>
 
+      {/* Scoreboard Tab Order — compact unified drag list for the public scoreboard */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-2">
+          <h2 className="text-lg font-semibold text-gray-800">Scoreboard Tab Order</h2>
+          <span className="text-xs text-gray-400">Drag to set the order of top-level tabs (series / stages / combined) on the public scoreboard.</span>
+        </div>
+        {tabOrderList.length === 0 ? (
+          <p className="text-sm text-gray-400">Add a series, stage, or combined scoreboard first.</p>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 p-2">
+            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-1">
+              {tabOrderList.map((entry) => {
+                const key = `${entry.kind}:${entry.id}`
+                const isDragOver = tabOrderDragOverId === key && tabOrderDragId !== key
+                const badgeStyle =
+                  entry.kind === 'series' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : entry.kind === 'combined' ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                  : 'bg-gray-50 text-gray-600 border-gray-200'
+                const label =
+                  entry.kind === 'series' ? 'S'
+                  : entry.kind === 'combined' ? 'C'
+                  : 'St'
+                const fullLabel =
+                  entry.kind === 'series' ? 'Series'
+                  : entry.kind === 'combined' ? 'Combined'
+                  : 'Stage'
+                return (
+                  <div
+                    key={key}
+                    draggable={!savingTabOrder}
+                    onDragStart={() => setTabOrderDragId(key)}
+                    onDragOver={(e) => { e.preventDefault(); setTabOrderDragOverId(key) }}
+                    onDrop={() => {
+                      if (tabOrderDragId && tabOrderDragId !== key) {
+                        const fromIdx = tabOrderList.findIndex((it) => `${it.kind}:${it.id}` === tabOrderDragId)
+                        const toIdx = tabOrderList.findIndex((it) => `${it.kind}:${it.id}` === key)
+                        if (fromIdx !== -1 && toIdx !== -1) {
+                          const next = [...tabOrderList]
+                          const [moved] = next.splice(fromIdx, 1)
+                          next.splice(toIdx, 0, moved)
+                          setTabOrderList(next)
+                          saveTabOrder(next)
+                        }
+                      }
+                      setTabOrderDragId(null); setTabOrderDragOverId(null)
+                    }}
+                    onDragEnd={() => { setTabOrderDragId(null); setTabOrderDragOverId(null) }}
+                    title={`${fullLabel}: ${entry.name}`}
+                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded border bg-gray-50 cursor-grab active:cursor-grabbing transition-all min-w-0 ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'} ${savingTabOrder ? 'opacity-60' : ''}`}
+                  >
+                    <span className="text-gray-300 text-[10px] select-none shrink-0">⠿</span>
+                    <span className={`text-[9px] font-semibold w-4 text-center rounded border shrink-0 ${badgeStyle}`}>{label}</span>
+                    <span className="text-xs text-gray-800 truncate">{entry.name}</span>
+                  </div>
+                )
+              })}
+            </div>
+            {savingTabOrder && <p className="mt-2 text-[11px] text-gray-400">Saving…</p>}
+          </div>
+        )}
+      </div>
+
+      {/* Combined Scoreboards — view-only aggregations of selected stages */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">Combined Scoreboards</h2>
+          <span className="text-xs text-gray-400">View-only stage aggregations — appear as a tab on the public scoreboard and selectable as a Prize &amp; Points target.</span>
+          {!addingCombined && (
+            <button
+              onClick={() => setAddingCombined(true)}
+              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
+            >
+              + Add Combined Scoreboard
+            </button>
+          )}
+        </div>
+
+        {addingCombined && (
+          <div className="flex items-center gap-2 mb-3">
+            <input
+              autoFocus
+              value={newCombinedName}
+              onChange={(e) => setNewCombinedName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') addCombinedScoreboard() }}
+              placeholder="Name (e.g. Weekly Finals Cumulative)"
+              className="flex-1 max-w-xs border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
+            />
+            <button onClick={addCombinedScoreboard} className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-3 py-1.5 rounded-lg">Add</button>
+            <button onClick={() => { setAddingCombined(false); setNewCombinedName('') }} className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
+          </div>
+        )}
+
+        {combinedList.length === 0 && !addingCombined ? (
+          <p className="text-sm text-gray-400">No combined scoreboards yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {combinedList.map((c) => {
+              const isDirty = false  // local edits fire saveCombinedScoreboard inline below
+              void isDirty
+              return (
+                <div key={c.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                  <div className="flex items-center gap-2 mb-2">
+                    <input
+                      defaultValue={c.name}
+                      onBlur={(e) => {
+                        const next = e.target.value.trim()
+                        if (next && next !== c.name) saveCombinedScoreboard(c.id, next, c.stageIds)
+                      }}
+                      className="text-sm font-medium border border-transparent hover:border-gray-200 focus:border-yellow-400 focus:bg-white rounded px-2 py-0.5 focus:outline-none"
+                    />
+                    <span className="text-xs text-gray-400">{c.stageIds.size} / {stageList.length} stages</span>
+                    <button
+                      onClick={() => deleteCombinedScoreboard(c.id, c.name)}
+                      className="text-gray-300 hover:text-red-500 text-sm leading-none ml-auto"
+                    >×</button>
+                  </div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {stageList.map((stage) => {
+                      const checked = c.stageIds.has(stage.id)
+                      return (
+                        <label key={stage.id} className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border cursor-pointer ${checked ? 'bg-yellow-50 border-yellow-300 text-yellow-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const next = new Set(c.stageIds)
+                              if (e.target.checked) next.add(stage.id); else next.delete(stage.id)
+                              saveCombinedScoreboard(c.id, c.name, next)
+                            }}
+                            disabled={savingCombinedId === c.id}
+                            className="sr-only"
+                          />
+                          {stage.name}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </div>
+
       {/* Series management */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-3">
@@ -1303,145 +1447,6 @@ export default function AdminTournamentDetailPage() {
             <p className="text-sm text-gray-400">No series — stages will appear as a flat list</p>
           )}
         </div>
-      </div>
-
-      {/* Combined Scoreboards — view-only aggregations of selected stages */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-semibold text-gray-800">Combined Scoreboards</h2>
-          <span className="text-xs text-gray-400">View-only stage aggregations — appear as a tab on the public scoreboard and selectable as a Prize &amp; Points target.</span>
-          {!addingCombined && (
-            <button
-              onClick={() => setAddingCombined(true)}
-              className="text-xs text-gray-500 hover:text-gray-700 border border-gray-200 rounded-lg px-2.5 py-1 ml-auto"
-            >
-              + Add Combined Scoreboard
-            </button>
-          )}
-        </div>
-
-        {addingCombined && (
-          <div className="flex items-center gap-2 mb-3">
-            <input
-              autoFocus
-              value={newCombinedName}
-              onChange={(e) => setNewCombinedName(e.target.value)}
-              onKeyDown={(e) => { if (e.key === 'Enter') addCombinedScoreboard() }}
-              placeholder="Name (e.g. Weekly Finals Cumulative)"
-              className="flex-1 max-w-xs border border-gray-300 rounded-lg px-2.5 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400"
-            />
-            <button onClick={addCombinedScoreboard} className="text-xs bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-medium px-3 py-1.5 rounded-lg">Add</button>
-            <button onClick={() => { setAddingCombined(false); setNewCombinedName('') }} className="text-xs text-gray-400 hover:text-gray-600 px-2">Cancel</button>
-          </div>
-        )}
-
-        {combinedList.length === 0 && !addingCombined ? (
-          <p className="text-sm text-gray-400">No combined scoreboards yet.</p>
-        ) : (
-          <div className="space-y-2">
-            {combinedList.map((c) => {
-              const isDirty = false  // local edits fire saveCombinedScoreboard inline below
-              void isDirty
-              return (
-                <div key={c.id} className="bg-white border border-gray-200 rounded-lg p-3">
-                  <div className="flex items-center gap-2 mb-2">
-                    <input
-                      defaultValue={c.name}
-                      onBlur={(e) => {
-                        const next = e.target.value.trim()
-                        if (next && next !== c.name) saveCombinedScoreboard(c.id, next, c.stageIds)
-                      }}
-                      className="text-sm font-medium border border-transparent hover:border-gray-200 focus:border-yellow-400 focus:bg-white rounded px-2 py-0.5 focus:outline-none"
-                    />
-                    <span className="text-xs text-gray-400">{c.stageIds.size} / {stageList.length} stages</span>
-                    <button
-                      onClick={() => deleteCombinedScoreboard(c.id, c.name)}
-                      className="text-gray-300 hover:text-red-500 text-sm leading-none ml-auto"
-                    >×</button>
-                  </div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {stageList.map((stage) => {
-                      const checked = c.stageIds.has(stage.id)
-                      return (
-                        <label key={stage.id} className={`flex items-center gap-1.5 text-xs px-2 py-0.5 rounded border cursor-pointer ${checked ? 'bg-yellow-50 border-yellow-300 text-yellow-700' : 'border-gray-200 text-gray-600 hover:border-gray-300'}`}>
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={(e) => {
-                              const next = new Set(c.stageIds)
-                              if (e.target.checked) next.add(stage.id); else next.delete(stage.id)
-                              saveCombinedScoreboard(c.id, c.name, next)
-                            }}
-                            disabled={savingCombinedId === c.id}
-                            className="sr-only"
-                          />
-                          {stage.name}
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-
-      {/* Scoreboard Tab Order — unified drag list for the public scoreboard */}
-      <div className="mb-6">
-        <div className="flex items-center gap-3 mb-3">
-          <h2 className="text-lg font-semibold text-gray-800">Scoreboard Tab Order</h2>
-          <span className="text-xs text-gray-400">Drag to set the order of top-level tabs (series / stages / combined) on the public scoreboard.</span>
-        </div>
-        {tabOrderList.length === 0 ? (
-          <p className="text-sm text-gray-400">Add a series, stage, or combined scoreboard first.</p>
-        ) : (
-          <div className="bg-white rounded-xl border border-gray-200 p-3">
-            <div className="flex flex-col gap-1">
-              {tabOrderList.map((entry) => {
-                const key = `${entry.kind}:${entry.id}`
-                const isDragOver = tabOrderDragOverId === key && tabOrderDragId !== key
-                const badgeStyle =
-                  entry.kind === 'series' ? 'bg-blue-50 text-blue-700 border-blue-200'
-                  : entry.kind === 'combined' ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
-                  : 'bg-gray-50 text-gray-600 border-gray-200'
-                const label =
-                  entry.kind === 'series' ? 'Series'
-                  : entry.kind === 'combined' ? 'Combined'
-                  : 'Stage'
-                return (
-                  <div
-                    key={key}
-                    draggable={!savingTabOrder}
-                    onDragStart={() => setTabOrderDragId(key)}
-                    onDragOver={(e) => { e.preventDefault(); setTabOrderDragOverId(key) }}
-                    onDrop={() => {
-                      if (tabOrderDragId && tabOrderDragId !== key) {
-                        const fromIdx = tabOrderList.findIndex((it) => `${it.kind}:${it.id}` === tabOrderDragId)
-                        const toIdx = tabOrderList.findIndex((it) => `${it.kind}:${it.id}` === key)
-                        if (fromIdx !== -1 && toIdx !== -1) {
-                          const next = [...tabOrderList]
-                          const [moved] = next.splice(fromIdx, 1)
-                          next.splice(toIdx, 0, moved)
-                          setTabOrderList(next)
-                          saveTabOrder(next)
-                        }
-                      }
-                      setTabOrderDragId(null); setTabOrderDragOverId(null)
-                    }}
-                    onDragEnd={() => { setTabOrderDragId(null); setTabOrderDragOverId(null) }}
-                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-gray-50 cursor-grab active:cursor-grabbing transition-all ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'} ${savingTabOrder ? 'opacity-60' : ''}`}
-                  >
-                    <span className="text-gray-300 text-xs select-none">⠿</span>
-                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${badgeStyle}`}>{label}</span>
-                    <span className="text-sm text-gray-800">{entry.name}</span>
-                  </div>
-                )
-              })}
-            </div>
-            {savingTabOrder && <p className="mt-2 text-xs text-gray-400">Saving…</p>}
-          </div>
-        )}
       </div>
 
       {/* Stages with inline match linking */}
