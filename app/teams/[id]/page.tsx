@@ -81,6 +81,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   type TourEntry = {
     id: string; name: string; short_name: string | null; year: number | null; tourType: string | null
     bannerUrl: string | null
+    startDate: string | null; endDate: string | null
     currency: string
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
     finalStageId: string | null; finalStageName: string | null
@@ -102,6 +103,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         id: tour.id, name: tour.name, short_name: tour.short_name,
         year, tourType: tour.type ?? null,
         bannerUrl: (tour.banner_url as string | null) ?? null,
+        startDate: (tour.start_date as string | null) ?? null,
+        endDate: (tour.end_date as string | null) ?? null,
         currency: (tour.currency as string) ?? 'USD',
         stages: new Map(), finalStageId: null, finalStageName: null,
         finalStageRank: null, finalStagePrize: null,
@@ -246,6 +249,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     year: te.year,
     tourType: te.tourType,
     bannerUrl: te.bannerUrl,
+    startDate: te.startDate,
+    endDate: te.endDate,
     finalStageName: te.finalStageName,
     finalStageRank: te.finalStageRank,
     finalStagePrize: te.finalStagePrize,

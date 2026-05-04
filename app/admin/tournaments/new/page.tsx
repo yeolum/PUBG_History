@@ -26,6 +26,7 @@ export default function NewTournamentPage() {
   const [form, setForm] = useState({
     name: '',
     short_name: '',
+    tag: '',
     status: 'upcoming' as TournamentStatus,
     type: 'online' as TournamentType,
     region: '',
@@ -52,6 +53,7 @@ export default function NewTournamentPage() {
       const { data, error: insertErr } = await supabase.from('tournaments').insert([{
         name: form.name.trim(),
         short_name: form.short_name.trim() || null,
+        tag: form.tag.trim() || null,
         status: form.status,
         type: form.type,
         region: form.region.trim() || null,
@@ -91,10 +93,19 @@ export default function NewTournamentPage() {
             />
           </Field>
 
-          <Field label="Tag">
+          <Field label="Short Name">
             <input
               value={form.short_name}
               onChange={(e) => set('short_name', e.target.value)}
+              placeholder="PUBG Global Series 25"
+              className={INPUT_CLS}
+            />
+          </Field>
+
+          <Field label="Tag">
+            <input
+              value={form.tag}
+              onChange={(e) => set('tag', e.target.value)}
               placeholder="PGS25"
               className={INPUT_CLS}
             />

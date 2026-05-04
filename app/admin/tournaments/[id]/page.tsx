@@ -343,6 +343,7 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('tournaments').update({
       name: form.name,
       short_name: form.short_name || null,
+      tag: form.tag || null,
       type: form.type,
       region: form.region || null,
       start_date: form.start_date || null,
@@ -813,8 +814,12 @@ export default function AdminTournamentDetailPage() {
               <input value={form.name ?? ''} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} className={INPUT_CLS} />
             </div>
             <div>
+              <label className="text-xs text-gray-500 block mb-1">Short Name</label>
+              <input value={form.short_name ?? ''} onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))} placeholder="PUBG Global Series 25" className={INPUT_CLS} />
+            </div>
+            <div>
               <label className="text-xs text-gray-500 block mb-1">Tag</label>
-              <input value={form.short_name ?? ''} onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))} className={INPUT_CLS} />
+              <input value={form.tag ?? ''} onChange={(e) => setForm((f) => ({ ...f, tag: e.target.value }))} placeholder="PGS25" className={INPUT_CLS} />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Status</label>
@@ -898,7 +903,8 @@ export default function AdminTournamentDetailPage() {
                 ['Region', tournament.region ?? '-'],
                 ['Prize Pool', formatPrize(tournament.prize_pool, tournament.currency)],
                 ['Period', `${tournament.start_date ?? '?'} ~ ${tournament.end_date ?? '?'}`],
-                ['Tag', tournament.short_name ?? '-'],
+                ['Short Name', tournament.short_name ?? '-'],
+                ['Tag', tournament.tag ?? '-'],
               ].map(([k, v]) => (
                 <div key={k} className="flex gap-2">
                   <span className="text-gray-400 w-20 shrink-0">{k}</span>

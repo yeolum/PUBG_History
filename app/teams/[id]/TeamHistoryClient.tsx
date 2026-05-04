@@ -13,6 +13,8 @@ interface TourEntry {
   year: number | null
   tourType: string | null
   bannerUrl: string | null
+  startDate: string | null
+  endDate: string | null
   finalStageName: string | null
   finalStageRank: number | null
   finalStagePrize: number | null
@@ -212,7 +214,7 @@ export default function TeamHistoryClient({
                   const roster = tourRosters[te.id] ?? []
                   return (
                     <div key={te.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <div className="flex items-center justify-between mb-3 gap-2">
+                      <div className="flex items-center justify-between mb-1 gap-2">
                         <Link href={`/tournaments/${te.id}`} className="flex items-center gap-1.5 text-sm font-bold text-gray-900 hover:text-yellow-600 truncate min-w-0">
                           {te.bannerUrl && (
                             // eslint-disable-next-line @next/next/no-img-element
@@ -224,6 +226,9 @@ export default function TeamHistoryClient({
                           <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
                         )}
                       </div>
+                      {(te.startDate || te.endDate) && (
+                        <p className="text-[11px] text-gray-400 mb-2">{te.startDate ?? '?'} ~ {te.endDate ?? '?'}</p>
+                      )}
                       {te.finalStagePrize != null && (
                         <p className="text-xs text-yellow-600 font-medium mb-2">{formatPrize(te.finalStagePrize, te.currency)}</p>
                       )}
@@ -269,6 +274,9 @@ export default function TeamHistoryClient({
                         <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600 truncate block">
                           {te.short_name ?? te.name}
                         </Link>
+                        {(te.startDate || te.endDate) && (
+                          <p className="text-[11px] text-gray-400 mt-0.5">{te.startDate ?? '?'} ~ {te.endDate ?? '?'}</p>
+                        )}
                         {te.finalStageName && (
                           <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
                         )}

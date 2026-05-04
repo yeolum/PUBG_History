@@ -62,6 +62,7 @@ export interface Tournament {
   id: string
   name: string
   short_name: string | null
+  tag: string | null
   type: TournamentType
   region: string | null
   start_date: string | null

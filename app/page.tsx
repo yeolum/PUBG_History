@@ -87,8 +87,8 @@ function TournamentCard({ t }: { t: Tournament }) {
         <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${STATUS_COLOR[t.status]}`}>
           {STATUS_LABEL[t.status]}
         </span>
-        {t.short_name && (
-          <span className="text-xs text-gray-400 font-mono">{t.short_name}</span>
+        {t.tag && (
+          <span className="text-xs text-gray-400 font-mono">{t.tag}</span>
         )}
       </div>
       <h3 className="font-semibold text-gray-900 text-base leading-tight flex items-center gap-2">

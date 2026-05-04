@@ -13,6 +13,8 @@ interface TourEntry {
   year: number | null
   tourType: string | null
   bannerUrl: string | null
+  startDate: string | null
+  endDate: string | null
   finalStageName: string | null
   finalStageRank: number | null
   finalStagePrize: number | null
@@ -208,6 +210,9 @@ export default function PlayerHistoryClient({
                     <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600 truncate block">
                       {te.short_name ?? te.name}
                     </Link>
+                    {(te.startDate || te.endDate) && (
+                      <p className="text-[11px] text-gray-400 mt-0.5">{te.startDate ?? '?'} ~ {te.endDate ?? '?'}</p>
+                    )}
                     {te.finalStageName && (
                       <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
                     )}

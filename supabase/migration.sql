@@ -461,3 +461,11 @@ CREATE INDEX IF NOT EXISTS idx_tournament_wwcd_rewards_series ON tournament_wwcd
 
 ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS series_id UUID REFERENCES series(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_tournament_prize_config_series ON tournament_prize_config(series_id);
+
+-- =====================================================
+-- Migration: tournaments get a separate `tag` (very short identifier) on
+-- top of the existing `short_name`. Profiles render short_name; the
+-- tournament detail header also surfaces tag as a monospace badge.
+-- =====================================================
+
+ALTER TABLE tournaments ADD COLUMN IF NOT EXISTS tag TEXT;
