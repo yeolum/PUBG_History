@@ -15,8 +15,8 @@ interface TourEntry {
   bannerUrl: string | null
   startDate: string | null
   endDate: string | null
-  finalStageName: string | null
   finalStageRank: number | null
+  finalStageRankLabel: string | null
   finalStagePrize: number | null
   currency: string
 }
@@ -222,7 +222,9 @@ export default function TeamHistoryClient({
                           )}
                           <span className="truncate">{te.short_name ?? te.name}</span>
                         </Link>
-                        {te.finalStageRank != null && (
+                        {te.finalStageRankLabel === 'DQ' ? (
+                          <span className="text-xs font-bold text-red-500 shrink-0">DQ</span>
+                        ) : te.finalStageRank != null && (
                           <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
                         )}
                       </div>
@@ -277,13 +279,14 @@ export default function TeamHistoryClient({
                         {(te.startDate || te.endDate) && (
                           <p className="text-[11px] text-gray-400 mt-0.5">{te.startDate ?? '?'} ~ {te.endDate ?? '?'}</p>
                         )}
-                        {te.finalStageName && (
-                          <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
-                        )}
                       </div>
                     </div>
-                    {te.finalStageRank != null && (
-                      <div className="text-right">
+                    {te.finalStageRankLabel === 'DQ' ? (
+                      <div className="text-right shrink-0">
+                        <p className="text-sm font-bold text-red-500">DQ</p>
+                      </div>
+                    ) : te.finalStageRank != null && (
+                      <div className="text-right shrink-0">
                         <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
                         {te.finalStagePrize != null && (
                           <p className="text-xs text-yellow-600 font-medium">{formatPrize(te.finalStagePrize, te.currency)}</p>

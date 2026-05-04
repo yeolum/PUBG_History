@@ -6,8 +6,8 @@ import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import type { Player, TeamAlias } from '@/lib/types'
 import type { Metadata } from 'next'
-import { calcPlacementPts } from '@/lib/scoring'
 import TeamHistoryClient from './TeamHistoryClient'
+import { getTournamentFinalStandings } from '@/lib/tournament-standings'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -84,8 +84,9 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     startDate: string | null; endDate: string | null
     currency: string
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
-    finalStageId: string | null; finalStageName: string | null
-    finalStageRank: number | null; finalStagePrize: number | null
+    finalStageRank: number | null
+    finalStageRankLabel: string | null  // 'DQ' when disqualified
+    finalStagePrize: number | null
   }
   const tourMap = new Map<string, TourEntry>()
   const stageMatchInfo = new Map<string, Array<{ matchId: string; order_num: number }>>()
@@ -106,8 +107,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         startDate: (tour.start_date as string | null) ?? null,
         endDate: (tour.end_date as string | null) ?? null,
         currency: (tour.currency as string) ?? 'USD',
-        stages: new Map(), finalStageId: null, finalStageName: null,
-        finalStageRank: null, finalStagePrize: null,
+        stages: new Map(),
+        finalStageRank: null, finalStageRankLabel: null, finalStagePrize: null,
       })
     }
     const te = tourMap.get(tour.id)!
@@ -126,67 +127,19 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     matches.forEach((m, i) => matchNumMap.set(m.matchId, i + 1))
   }
 
-  // --- Find the final stage for each tournament ---
-  for (const [, te] of tourMap) {
-    const stages = [...te.stages.values()]
-    const final = stages.find((s) => s.type === 'grand_final') ?? null
-    if (final) { te.finalStageId = final.id; te.finalStageName = final.name }
-  }
-
-  // --- Compute final stage cumulative standings to find this team's rank ---
-  const finalStageIds = [...tourMap.values()].map((te) => te.finalStageId).filter(Boolean) as string[]
-  if (finalStageIds.length > 0) {
-    const { data: fsMatchesData } = await supabase
-      .from('matches')
-      .select('id, stage_id')
-      .in('stage_id', finalStageIds)
-      .eq('status', 'imported')
-    const fsMatchIds = (fsMatchesData ?? []).map((m) => m.id)
-    if (fsMatchIds.length > 0) {
-      const { data: fsAllResults } = await supabase
-        .from('match_team_results')
-        .select('team_id, pubg_team_name, placement, total_kills, match_id')
-        .in('match_id', fsMatchIds)
-
-      for (const stageId of finalStageIds) {
-        const stageMatchIds = (fsMatchesData ?? []).filter((m) => m.stage_id === stageId).map((m) => m.id)
-        const stageResults = (fsAllResults ?? []).filter((r) => stageMatchIds.includes(r.match_id))
-        const ptsMap = new Map<string, { pts: number; placePts: number }>()
-        for (const r of stageResults) {
-          const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
-          if (!ptsMap.has(key)) ptsMap.set(key, { pts: 0, placePts: 0 })
-          const e = ptsMap.get(key)!
-          const pp = calcPlacementPts(r.placement ?? 99)
-          e.pts += pp + (r.total_kills ?? 0)
-          e.placePts += pp
-        }
-        const sorted = [...ptsMap.entries()].sort((a, b) =>
-          b[1].pts !== a[1].pts ? b[1].pts - a[1].pts : b[1].placePts - a[1].placePts
-        )
-        const rank = sorted.findIndex(([key]) => key === id) + 1
-        for (const [, te] of tourMap) {
-          if (te.finalStageId === stageId) {
-            te.finalStageRank = rank > 0 ? rank : null
-          }
-        }
-      }
-    }
-  }
-
-  // --- Fetch prize from prize_config ---
-  const tourIds = [...tourMap.keys()]
-  if (tourIds.length > 0) {
-    const { data: prizeData } = await supabase
-      .from('tournament_prize_config')
-      .select('tournament_id, rank, prize')
-      .in('tournament_id', tourIds)
-    for (const p of prizeData ?? []) {
-      const te = tourMap.get(p.tournament_id)
-      if (te && te.finalStageRank != null && p.rank === te.finalStageRank) {
-        te.finalStagePrize = p.prize != null ? Number(p.prize) : null
-      }
-    }
-  }
+  // --- Resolve final rank + prize from the tournament's Final Standings table.
+  // Uses the same shared helper that the tournament Scoreboard uses, so the
+  // numbers shown here match the scoreboard exactly (including DQ + bonuses).
+  await Promise.all(
+    [...tourMap.values()].map(async (te) => {
+      const standings = await getTournamentFinalStandings(te.id)
+      const my = standings.get(id)
+      if (!my) return
+      te.finalStageRank = my.rank === 'DQ' ? null : my.rank
+      te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
+      te.finalStagePrize = my.prize
+    }),
+  )
 
   const tourList = [...tourMap.values()]
 
@@ -251,8 +204,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     bannerUrl: te.bannerUrl,
     startDate: te.startDate,
     endDate: te.endDate,
-    finalStageName: te.finalStageName,
     finalStageRank: te.finalStageRank,
+    finalStageRankLabel: te.finalStageRankLabel,
     finalStagePrize: te.finalStagePrize,
     currency: te.currency,
   }))

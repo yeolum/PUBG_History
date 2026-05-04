@@ -15,8 +15,8 @@ interface TourEntry {
   bannerUrl: string | null
   startDate: string | null
   endDate: string | null
-  finalStageName: string | null
   finalStageRank: number | null
+  finalStageRankLabel: string | null
   finalStagePrize: number | null
   currency: string
 }
@@ -213,12 +213,13 @@ export default function PlayerHistoryClient({
                     {(te.startDate || te.endDate) && (
                       <p className="text-[11px] text-gray-400 mt-0.5">{te.startDate ?? '?'} ~ {te.endDate ?? '?'}</p>
                     )}
-                    {te.finalStageName && (
-                      <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
-                    )}
                   </div>
                 </div>
-                {te.finalStageRank != null && (
+                {te.finalStageRankLabel === 'DQ' ? (
+                  <div className="text-right shrink-0">
+                    <p className="text-sm font-bold text-red-500">DQ</p>
+                  </div>
+                ) : te.finalStageRank != null && (
                   <div className="text-right shrink-0">
                     <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
                     {te.finalStagePrize != null && (
