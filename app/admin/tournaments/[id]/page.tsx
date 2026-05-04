@@ -1218,7 +1218,7 @@ export default function AdminTournamentDetailPage() {
           <p className="text-sm text-gray-400">Add a series, stage, or combined scoreboard first.</p>
         ) : (
           <div className="bg-white rounded-xl border border-gray-200 p-2">
-            <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-1">
+            <div className="flex flex-col gap-0.5">
               {tabOrderList.map((entry) => {
                 const key = `${entry.kind}:${entry.id}`
                 const isDragOver = tabOrderDragOverId === key && tabOrderDragId !== key
@@ -1227,10 +1227,6 @@ export default function AdminTournamentDetailPage() {
                   : entry.kind === 'combined' ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
                   : 'bg-gray-50 text-gray-600 border-gray-200'
                 const label =
-                  entry.kind === 'series' ? 'S'
-                  : entry.kind === 'combined' ? 'C'
-                  : 'St'
-                const fullLabel =
                   entry.kind === 'series' ? 'Series'
                   : entry.kind === 'combined' ? 'Combined'
                   : 'Stage'
@@ -1255,11 +1251,10 @@ export default function AdminTournamentDetailPage() {
                       setTabOrderDragId(null); setTabOrderDragOverId(null)
                     }}
                     onDragEnd={() => { setTabOrderDragId(null); setTabOrderDragOverId(null) }}
-                    title={`${fullLabel}: ${entry.name}`}
-                    className={`flex items-center gap-1.5 px-2 py-0.5 rounded border bg-gray-50 cursor-grab active:cursor-grabbing transition-all min-w-0 ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'} ${savingTabOrder ? 'opacity-60' : ''}`}
+                    className={`flex items-center gap-2 px-2 py-0.5 rounded border bg-gray-50 cursor-grab active:cursor-grabbing transition-all ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'} ${savingTabOrder ? 'opacity-60' : ''}`}
                   >
-                    <span className="text-gray-300 text-[10px] select-none shrink-0">⠿</span>
-                    <span className={`text-[9px] font-semibold w-4 text-center rounded border shrink-0 ${badgeStyle}`}>{label}</span>
+                    <span className="text-gray-300 text-[10px] select-none">⠿</span>
+                    <span className={`text-[9px] font-semibold px-1.5 py-0 rounded border ${badgeStyle}`}>{label}</span>
                     <span className="text-xs text-gray-800 truncate">{entry.name}</span>
                   </div>
                 )
