@@ -447,16 +447,56 @@ export default function AdminTournamentDetailPage() {
 
   async function reorderSeries(fromId: string, toId: string) {
     if (fromId === toId) return
-    const sorted = [...seriesList].sort((a, b) => a.order_num - b.order_num)
-    const fromIdx = sorted.findIndex(s => s.id === fromId)
-    const toIdx = sorted.findIndex(s => s.id === toId)
+
+    // Public scoreboard interleaves series + standalone stages by min stage.order_num.
+    // Reordering a series chip alone (just series.order_num) wouldn't move it on the
+    // public page — so we also rewrite stages.order_num so the dragged series's
+    // stages take contiguous slots at the new top-level position.
+
+    // Build the current top-level entry list ordered by effective position.
+    type Entry = { type: 'series'; id: string; stageIds: string[] } | { type: 'stage'; id: string }
+    const entries: { entry: Entry; order: number }[] = []
+    for (const sr of seriesList) {
+      const stagesIn = stageList
+        .filter((s) => s.series_id === sr.id)
+        .sort((a, b) => a.order_num - b.order_num)
+      // Place series with no stages at the very end (use a large sentinel).
+      const order = stagesIn.length > 0 ? stagesIn[0].order_num : 1_000_000 + sr.order_num
+      entries.push({ entry: { type: 'series', id: sr.id, stageIds: stagesIn.map((s) => s.id) }, order })
+    }
+    for (const stage of stageList) {
+      if (stage.series_id) continue
+      entries.push({ entry: { type: 'stage', id: stage.id }, order: stage.order_num })
+    }
+    entries.sort((a, b) => a.order - b.order)
+
+    // Move the dragged series chip in this combined order.
+    const fromIdx = entries.findIndex((e) => e.entry.type === 'series' && e.entry.id === fromId)
+    const toIdx = entries.findIndex((e) => e.entry.type === 'series' && e.entry.id === toId)
     if (fromIdx === -1 || toIdx === -1) return
-    const reordered = [...sorted]
+    const reordered = [...entries]
     const [moved] = reordered.splice(fromIdx, 1)
     reordered.splice(toIdx, 0, moved)
-    await Promise.all(reordered.map((s, i) =>
-      supabase.from('series').update({ order_num: i + 1 }).eq('id', s.id)
-    ))
+
+    // Re-assign contiguous stages.order_num based on the new combined order.
+    let next = 1
+    const updates: { id: string; order_num: number }[] = []
+    for (const { entry } of reordered) {
+      if (entry.type === 'series') {
+        for (const sid of entry.stageIds) updates.push({ id: sid, order_num: next++ })
+      } else {
+        updates.push({ id: entry.id, order_num: next++ })
+      }
+    }
+    // Also keep series.order_num in sync with the new visual order (used elsewhere as a tiebreaker / fallback).
+    const seriesOrderUpdates = reordered
+      .map((e, i) => e.entry.type === 'series' ? { id: e.entry.id, order_num: i + 1 } : null)
+      .filter((u): u is { id: string; order_num: number } => !!u)
+
+    await Promise.all([
+      ...updates.map((u) => supabase.from('stages').update({ order_num: u.order_num }).eq('id', u.id)),
+      ...seriesOrderUpdates.map((u) => supabase.from('series').update({ order_num: u.order_num }).eq('id', u.id)),
+    ])
     reload()
   }
 
