@@ -1446,11 +1446,11 @@ export default function AdminTournamentDetailPage() {
 
       {/* Stages with inline match linking */}
       <div>
-        <h2 className="text-lg font-semibold text-gray-800 mb-4">Stages</h2>
+        <h2 className="text-lg font-semibold text-gray-800 mb-2">Stages</h2>
 
-        <div className="space-y-3">
+        <div className="space-y-1.5">
           {stageList.length === 0 && !addingStage && (
-            <p className="text-sm text-gray-400 text-center py-4">No stages yet.</p>
+            <p className="text-sm text-gray-400 text-center py-2">No stages yet.</p>
           )}
 
           {stageList
@@ -1500,7 +1500,7 @@ export default function AdminTournamentDetailPage() {
                 >
                   {/* Stage header row */}
                   {editingStageId === stage.id ? (
-                    <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 flex-wrap">
+                    <div className="flex items-center gap-2 px-3 py-1 border-b border-gray-100 flex-wrap">
                       <input
                         autoFocus
                         value={editStageForm.name}
@@ -1550,7 +1550,7 @@ export default function AdminTournamentDetailPage() {
                     </div>
                   ) : (
                     <div
-                      className="flex items-center justify-between px-4 py-2.5 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
+                      className="flex items-center justify-between px-3 py-1.5 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors"
                       onClick={() => router.push(`/admin/tournaments/${id}/stages/${stage.id}`)}
                     >
                       <div className="flex items-center gap-2">
@@ -1590,15 +1590,15 @@ export default function AdminTournamentDetailPage() {
 
                   {/* Match tabs + inline linking */}
                   {importedMatches.length > 0 && (
-                    <div className="px-4 py-3">
+                    <div className="px-3 py-2">
                       {/* Match buttons */}
-                      <div className="flex flex-wrap gap-1.5 mb-3">
+                      <div className="flex flex-wrap gap-1 mb-2">
                         {sortedMatches.map((match, mi) => (
                           <button
                             key={match.id}
                             onClick={() => toggleMatchTab(stage.id, match.id)}
                             disabled={match.status !== 'imported'}
-                            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors disabled:opacity-40 disabled:cursor-default ${
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium border transition-colors disabled:opacity-40 disabled:cursor-default ${
                               selectedMatchId === match.id
                                 ? 'bg-yellow-400 border-yellow-400 text-gray-900'
                                 : 'bg-white border-gray-200 text-gray-700 hover:border-yellow-400'
