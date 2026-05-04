@@ -1788,14 +1788,14 @@ export default function AdminTournamentDetailPage() {
       </div>
 
       {/* Prize & Points Configuration */}
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-4">
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-2">
           <h2 className="text-lg font-semibold text-gray-800">Prize &amp; Points</h2>
           {prizeRows.length > 0 && (
             <button
               onClick={savePrizeConfig}
               disabled={savingPrize}
-              className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+              className="text-sm px-3 py-1 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
             >
               {savingPrize ? 'Saving...' : 'Save'}
             </button>
@@ -1804,7 +1804,7 @@ export default function AdminTournamentDetailPage() {
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
           {/* Column toggles + ranking method */}
-          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center gap-6 flex-wrap">
+          <div className="px-3 py-1.5 bg-gray-50 border-b border-gray-200 flex items-center gap-6 flex-wrap">
             {([
               { key: 'has_prize' as const, label: 'Prize Money' },
               { key: 'has_pgs_points' as const, label: 'PGS Points' },
@@ -1850,7 +1850,7 @@ export default function AdminTournamentDetailPage() {
           </div>
 
           {selectedPrizeRanks.size > 0 && (
-            <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200 flex items-center gap-3 flex-wrap">
+            <div className="px-3 py-1 bg-yellow-50 border-b border-yellow-200 flex items-center gap-3 flex-wrap">
               <span className="text-xs font-medium text-yellow-700">{selectedPrizeRanks.size} rows selected</span>
               <div className="flex items-center gap-2">
                 <label className="text-xs text-gray-600">Set Target:</label>
@@ -1909,12 +1909,12 @@ export default function AdminTournamentDetailPage() {
                       className="rounded"
                     />
                   </th>
-                  <th className="text-left px-4 py-2 w-10">#</th>
-                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2">Target</th>}
-                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-4 py-2 w-24">Rank</th>}
-                  {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
-                  {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
-                  {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
+                  <th className="text-left px-3 py-1 w-10">#</th>
+                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-3 py-1">Target</th>}
+                  {(form.ranking_method ?? 'stage') === 'stage' && <th className="text-left px-3 py-1 w-24">Rank</th>}
+                  {form.has_prize && <th className="text-right px-3 py-1">Prize ({currencySymbol(prizeCurrency)})</th>}
+                  {form.has_pgs_points && <th className="text-right px-3 py-1">PGS</th>}
+                  {form.has_pgc_points && <th className="text-right px-3 py-1">PGC</th>}
                 </tr>
               </thead>
               <tbody>
@@ -1934,9 +1934,9 @@ export default function AdminTournamentDetailPage() {
                         className="rounded"
                       />
                     </td>
-                    <td className="px-4 py-2 text-gray-400 font-mono text-xs">{row.rank}</td>
+                    <td className="px-3 py-1 text-gray-400 font-mono text-xs">{row.rank}</td>
                     {(form.ranking_method ?? 'stage') === 'stage' && (
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         <select
                           value={row.targetKey}
                           onChange={(e) => setPrizeRows((rows) => rows.map((r, j) => j === i ? { ...r, targetKey: e.target.value } : r))}
@@ -1970,7 +1970,7 @@ export default function AdminTournamentDetailPage() {
                       </td>
                     )}
                     {(form.ranking_method ?? 'stage') === 'stage' && (
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         <input
                           type="number"
                           min={1}
@@ -1983,7 +1983,7 @@ export default function AdminTournamentDetailPage() {
                       </td>
                     )}
                     {form.has_prize && (
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-3 py-1 text-right">
                         <div className="flex items-center justify-end gap-1">
                           <span className="text-xs text-gray-400 shrink-0">{currencySymbol(prizeCurrency)}</span>
                           <input
@@ -1998,7 +1998,7 @@ export default function AdminTournamentDetailPage() {
                       </td>
                     )}
                     {form.has_pgs_points && (
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-3 py-1 text-right">
                         <input
                           type="number"
                           value={row.pgs}
@@ -2011,7 +2011,7 @@ export default function AdminTournamentDetailPage() {
                       </td>
                     )}
                     {form.has_pgc_points && (
-                      <td className="px-4 py-2 text-right">
+                      <td className="px-3 py-1 text-right">
                         <input
                           type="number"
                           value={row.pgc}
@@ -2033,8 +2033,8 @@ export default function AdminTournamentDetailPage() {
       </div>
 
       {/* Stage Prizes */}
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-4">
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-2">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">Stage Prizes</h2>
             <p className="text-xs text-gray-500 mt-0.5">Placement prizes and points awarded by stage or by series cumulative standings</p>
@@ -2059,7 +2059,7 @@ export default function AdminTournamentDetailPage() {
             <button
               onClick={saveStagePrizes}
               disabled={savingStagePrize || !selectedStagePrizeId}
-              className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+              className="text-sm px-3 py-1 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
             >
               {savingStagePrize ? 'Saving...' : 'Save'}
             </button>
@@ -2071,18 +2071,18 @@ export default function AdminTournamentDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-4 py-2 w-10">#</th>
-                    {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
-                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
-                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
+                    <th className="text-left px-3 py-1 w-10">#</th>
+                    {form.has_prize && <th className="text-right px-3 py-1">Prize ({currencySymbol(prizeCurrency)})</th>}
+                    {form.has_pgs_points && <th className="text-right px-3 py-1">PGS</th>}
+                    {form.has_pgc_points && <th className="text-right px-3 py-1">PGC</th>}
                   </tr>
                 </thead>
                 <tbody>
                   {(stagePrizeMap[selectedStagePrizeId] ?? []).map((row, i) => (
                     <tr key={row.placement} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-1.5 text-gray-400 font-mono text-xs">{row.placement}</td>
+                      <td className="px-3 py-0.5 text-gray-400 font-mono text-xs">{row.placement}</td>
                       {form.has_prize && (
-                        <td className="px-4 py-1.5 text-right">
+                        <td className="px-3 py-0.5 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
@@ -2098,7 +2098,7 @@ export default function AdminTournamentDetailPage() {
                         </td>
                       )}
                       {form.has_pgs_points && (
-                        <td className="px-4 py-1.5 text-right">
+                        <td className="px-3 py-0.5 text-right">
                           <input
                             type="number"
                             value={row.pgs}
@@ -2112,7 +2112,7 @@ export default function AdminTournamentDetailPage() {
                         </td>
                       )}
                       {form.has_pgc_points && (
-                        <td className="px-4 py-1.5 text-right">
+                        <td className="px-3 py-0.5 text-right">
                           <input
                             type="number"
                             value={row.pgc}
@@ -2135,8 +2135,8 @@ export default function AdminTournamentDetailPage() {
       </div>
 
       {/* WWCD Rewards */}
-      <div className="mt-8">
-        <div className="flex items-center justify-between mb-4">
+      <div className="mt-6">
+        <div className="flex items-center justify-between mb-2">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">WWCD Rewards</h2>
             <p className="text-xs text-gray-500 mt-0.5">Per-WWCD prize/points, scoped to a stage, a series, or applied across all stages</p>
@@ -2144,7 +2144,7 @@ export default function AdminTournamentDetailPage() {
           <button
             onClick={saveWwcdRewards}
             disabled={savingWwcd}
-            className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+            className="text-sm px-3 py-1 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
           >
             {savingWwcd ? 'Saving...' : 'Save'}
           </button>
@@ -2155,17 +2155,17 @@ export default function AdminTournamentDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-4 py-2">Target</th>
-                    {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)}) / WWCD</th>}
-                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS / WWCD</th>}
-                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC / WWCD</th>}
+                    <th className="text-left px-3 py-1">Target</th>
+                    {form.has_prize && <th className="text-right px-3 py-1">Prize ({currencySymbol(prizeCurrency)}) / WWCD</th>}
+                    {form.has_pgs_points && <th className="text-right px-3 py-1">PGS / WWCD</th>}
+                    {form.has_pgc_points && <th className="text-right px-3 py-1">PGC / WWCD</th>}
                     <th className="w-10" />
                   </tr>
                 </thead>
                 <tbody>
                   {wwcdRows.map((row, i) => (
                     <tr key={i} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         <select
                           value={row.targetKey}
                           onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, targetKey: e.target.value } : r))}
@@ -2185,7 +2185,7 @@ export default function AdminTournamentDetailPage() {
                         </select>
                       </td>
                       {form.has_prize && (
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-1 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
@@ -2198,7 +2198,7 @@ export default function AdminTournamentDetailPage() {
                         </td>
                       )}
                       {form.has_pgs_points && (
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-1 text-right">
                           <input
                             type="number"
                             value={row.pgs}
@@ -2209,7 +2209,7 @@ export default function AdminTournamentDetailPage() {
                         </td>
                       )}
                       {form.has_pgc_points && (
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-1 text-right">
                           <input
                             type="number"
                             value={row.pgc}
@@ -2231,7 +2231,7 @@ export default function AdminTournamentDetailPage() {
               </table>
             </div>
           )}
-          <div className="px-4 py-2.5 border-t border-gray-100">
+          <div className="px-3 py-1.5 border-t border-gray-100">
             <button
               onClick={() => setWwcdRows((rows) => [...rows, { id: '', targetKey: '', prize: '', pgs: '', pgc: '' }])}
               className="text-sm text-yellow-600 hover:text-yellow-700 font-medium"
@@ -2243,8 +2243,8 @@ export default function AdminTournamentDetailPage() {
       </div>
 
       {/* Special Awards */}
-      <div className="mt-8 mb-8">
-        <div className="flex items-center justify-between mb-4">
+      <div className="mt-6 mb-6">
+        <div className="flex items-center justify-between mb-2">
           <div>
             <h2 className="text-lg font-semibold text-gray-800">Special Awards</h2>
             <p className="text-xs text-gray-500 mt-0.5">MVP, Best Fragger, and other individual prizes shown below Final Standings</p>
@@ -2252,7 +2252,7 @@ export default function AdminTournamentDetailPage() {
           <button
             onClick={saveSpecialAwards}
             disabled={savingSpecial}
-            className="text-sm px-4 py-1.5 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
+            className="text-sm px-3 py-1 bg-yellow-400 hover:bg-yellow-300 rounded-lg text-gray-900 font-medium disabled:opacity-50"
           >
             {savingSpecial ? 'Saving...' : 'Save'}
           </button>
@@ -2263,18 +2263,18 @@ export default function AdminTournamentDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
-                    <th className="text-left px-4 py-2">Award Name</th>
-                    <th className="text-left px-4 py-2">Player</th>
-                    {form.has_prize && <th className="text-right px-4 py-2">Prize ({currencySymbol(prizeCurrency)})</th>}
-                    {form.has_pgs_points && <th className="text-right px-4 py-2">PGS</th>}
-                    {form.has_pgc_points && <th className="text-right px-4 py-2">PGC</th>}
+                    <th className="text-left px-3 py-1">Award Name</th>
+                    <th className="text-left px-3 py-1">Player</th>
+                    {form.has_prize && <th className="text-right px-3 py-1">Prize ({currencySymbol(prizeCurrency)})</th>}
+                    {form.has_pgs_points && <th className="text-right px-3 py-1">PGS</th>}
+                    {form.has_pgc_points && <th className="text-right px-3 py-1">PGC</th>}
                     <th className="w-10" />
                   </tr>
                 </thead>
                 <tbody>
                   {specialRows.map((row, i) => (
                     <tr key={i} className="border-b border-gray-50 last:border-0">
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         <input
                           value={row.awardName}
                           onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, awardName: e.target.value } : r))}
@@ -2282,7 +2282,7 @@ export default function AdminTournamentDetailPage() {
                           className="w-36 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                         />
                       </td>
-                      <td className="px-4 py-2">
+                      <td className="px-3 py-1">
                         {row.playerId ? (
                           <div className="flex items-center gap-2">
                             <span className="text-xs text-gray-700 font-medium">{row.playerDisplayName || '?'}</span>
@@ -2305,7 +2305,7 @@ export default function AdminTournamentDetailPage() {
                         )}
                       </td>
                       {form.has_prize && (
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-1 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
@@ -2318,7 +2318,7 @@ export default function AdminTournamentDetailPage() {
                         </td>
                       )}
                       {form.has_pgs_points && (
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-1 text-right">
                           <input
                             type="number"
                             value={row.pgs}
@@ -2329,7 +2329,7 @@ export default function AdminTournamentDetailPage() {
                         </td>
                       )}
                       {form.has_pgc_points && (
-                        <td className="px-4 py-2 text-right">
+                        <td className="px-3 py-1 text-right">
                           <input
                             type="number"
                             value={row.pgc}
@@ -2351,7 +2351,7 @@ export default function AdminTournamentDetailPage() {
               </table>
             </div>
           )}
-          <div className="px-4 py-2.5 border-t border-gray-100">
+          <div className="px-3 py-1.5 border-t border-gray-100">
             <button
               onClick={() => setSpecialRows((rows) => [...rows, { id: '', awardName: '', playerId: null, playerDisplayName: '', teamId: null, teamDisplayName: '', prize: '', pgs: '', pgc: '' }])}
               className="text-sm text-yellow-600 hover:text-yellow-700 font-medium"
