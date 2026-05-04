@@ -96,6 +96,7 @@ export interface CombinedScoreboard {
   tournament_id: string
   name: string
   order_num: number
+  tab_order: number
   created_at: string
 }
 
@@ -104,6 +105,7 @@ export interface Series {
   tournament_id: string
   name: string
   order_num: number
+  tab_order: number
   advance_count: number | null
   eliminate_count: number | null
   created_at: string
@@ -125,6 +127,7 @@ export interface Stage {
   series_id: string | null
   name: string
   order_num: number
+  tab_order: number
   type: StageType
   advance_count: number | null
   eliminate_count: number | null

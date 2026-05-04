@@ -11,11 +11,11 @@ import { formatPrize } from '@/lib/currency'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
 
-interface SeriesItem { id: string; name: string; order_num: number; advance_count: number | null; eliminate_count: number | null }
+interface SeriesItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
 interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
-interface CombinedItem { id: string; name: string; order_num: number; stageIds: string[] }
+interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; stageIds: string[] }
 interface CombinedStanding { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
 
 interface Props {
@@ -253,9 +253,8 @@ export default function TournamentStagesView({
   const selectedSeriesName = series.find(s => s.id === selectedSeriesId)?.name ?? ''
   const selectedCombined = combined.find(c => c.id === selectedCombinedId) ?? null
 
-  // Unified top-level tab ordering: each section sorts by the min order_num of
-  // its constituent stages, so admin can interleave Series-Stage-Stage-Series
-  // just by reordering stages.
+  // Unified top-level tab ordering: each entity carries its own tab_order
+  // and admin can drag a single combined list to reorder the public tabs.
   type TopTab =
     | { kind: 'series'; series: SeriesItem; orderKey: number }
     | { kind: 'stage'; stage: Stage & { matches: Match[] }; orderKey: number }
@@ -263,18 +262,14 @@ export default function TournamentStagesView({
   const topTabs: TopTab[] = useMemo(() => {
     const tabs: TopTab[] = []
     for (const sr of series) {
-      const stagesIn = stages.filter(s => s.series_id === sr.id)
-      const orderKey = stagesIn.length > 0 ? Math.min(...stagesIn.map(s => s.order_num)) : sr.order_num
-      tabs.push({ kind: 'series', series: sr, orderKey })
+      tabs.push({ kind: 'series', series: sr, orderKey: sr.tab_order })
     }
     for (const stage of stages) {
       if (stage.series_id) continue
-      tabs.push({ kind: 'stage', stage, orderKey: stage.order_num })
+      tabs.push({ kind: 'stage', stage, orderKey: stage.tab_order })
     }
     for (const cb of combined) {
-      const stagesIn = stages.filter(s => cb.stageIds.includes(s.id))
-      const orderKey = stagesIn.length > 0 ? Math.min(...stagesIn.map(s => s.order_num)) : cb.order_num
-      tabs.push({ kind: 'combined', combined: cb, orderKey })
+      tabs.push({ kind: 'combined', combined: cb, orderKey: cb.tab_order })
     }
     return tabs.sort((a, b) => a.orderKey - b.orderKey)
   }, [series, stages, combined])

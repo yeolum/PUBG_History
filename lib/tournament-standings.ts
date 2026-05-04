@@ -58,7 +58,7 @@ export const getTournamentFinalStandings = unstable_cache(
       supabase.from('tournament_prize_config').select('rank, prize, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', tournamentId).order('rank'),
       supabase.from('series').select('id').eq('tournament_id', tournamentId),
       supabase.from('tournament_teams').select('team_id, disqualified').eq('tournament_id', tournamentId),
-      supabase.from('combined_scoreboards').select('id').eq('tournament_id', tournamentId),
+      supabase.from('combined_scoreboards').select('id, tab_order').eq('tournament_id', tournamentId),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
     ])
 

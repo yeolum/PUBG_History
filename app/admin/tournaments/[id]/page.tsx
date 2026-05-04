@@ -98,6 +98,17 @@ export default function AdminTournamentDetailPage() {
   const [newCombinedName, setNewCombinedName] = useState('')
   const [savingCombinedId, setSavingCombinedId] = useState<string | null>(null)
 
+  // Unified scoreboard tab order: each entity (series / standalone stage /
+  // combined) carries its own tab_order; admin drags this list to reorder.
+  type TabOrderEntry =
+    | { kind: 'series'; id: string; name: string }
+    | { kind: 'stage'; id: string; name: string }
+    | { kind: 'combined'; id: string; name: string }
+  const [tabOrderList, setTabOrderList] = useState<TabOrderEntry[]>([])
+  const [tabOrderDragId, setTabOrderDragId] = useState<string | null>(null)
+  const [tabOrderDragOverId, setTabOrderDragOverId] = useState<string | null>(null)
+  const [savingTabOrder, setSavingTabOrder] = useState(false)
+
   type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null; disqualified: boolean }
   type RosterPlayer = { player_id: string; nickname: string; team_id: string | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
@@ -276,12 +287,31 @@ export default function AdminTournamentDetailPage() {
       if (!stagesByCombined.has(r.combined_scoreboard_id)) stagesByCombined.set(r.combined_scoreboard_id, new Set())
       stagesByCombined.get(r.combined_scoreboard_id)!.add(r.stage_id)
     }
-    setCombinedList(((combinedData ?? []) as { id: string; name: string; order_num: number }[]).map((c) => ({
+    const combinedListLoaded = ((combinedData ?? []) as { id: string; name: string; order_num: number; tab_order?: number }[]).map((c) => ({
       id: c.id,
       name: c.name,
       order_num: c.order_num,
+      tab_order: c.tab_order ?? 0,
       stageIds: stagesByCombined.get(c.id) ?? new Set(),
-    })))
+    }))
+    setCombinedList(combinedListLoaded)
+
+    // Build unified tab order list: series, standalone stages, combined —
+    // each by their own tab_order. Newly created entities (tab_order = 0)
+    // sort to the top until admin reorders them.
+    const orderEntries: { entry: TabOrderEntry; key: number }[] = []
+    for (const sr of (ser ?? []) as Series[]) {
+      orderEntries.push({ entry: { kind: 'series', id: sr.id, name: sr.name }, key: (sr as Series & { tab_order?: number }).tab_order ?? 0 })
+    }
+    for (const stage of stageData) {
+      if (stage.series_id) continue
+      orderEntries.push({ entry: { kind: 'stage', id: stage.id, name: stage.name }, key: (stage as StageFull & { tab_order?: number }).tab_order ?? 0 })
+    }
+    for (const c of combinedListLoaded) {
+      orderEntries.push({ entry: { kind: 'combined', id: c.id, name: c.name }, key: c.tab_order })
+    }
+    orderEntries.sort((a, b) => a.key - b.key)
+    setTabOrderList(orderEntries.map((e) => e.entry))
 
     setWwcdRows((wwcd ?? []).map((r) => {
       const sid = (r.stage_id as string | null) ?? null
@@ -447,56 +477,19 @@ export default function AdminTournamentDetailPage() {
 
   async function reorderSeries(fromId: string, toId: string) {
     if (fromId === toId) return
-
-    // Public scoreboard interleaves series + standalone stages by min stage.order_num.
-    // Reordering a series chip alone (just series.order_num) wouldn't move it on the
-    // public page — so we also rewrite stages.order_num so the dragged series's
-    // stages take contiguous slots at the new top-level position.
-
-    // Build the current top-level entry list ordered by effective position.
-    type Entry = { type: 'series'; id: string; stageIds: string[] } | { type: 'stage'; id: string }
-    const entries: { entry: Entry; order: number }[] = []
-    for (const sr of seriesList) {
-      const stagesIn = stageList
-        .filter((s) => s.series_id === sr.id)
-        .sort((a, b) => a.order_num - b.order_num)
-      // Place series with no stages at the very end (use a large sentinel).
-      const order = stagesIn.length > 0 ? stagesIn[0].order_num : 1_000_000 + sr.order_num
-      entries.push({ entry: { type: 'series', id: sr.id, stageIds: stagesIn.map((s) => s.id) }, order })
-    }
-    for (const stage of stageList) {
-      if (stage.series_id) continue
-      entries.push({ entry: { type: 'stage', id: stage.id }, order: stage.order_num })
-    }
-    entries.sort((a, b) => a.order - b.order)
-
-    // Move the dragged series chip in this combined order.
-    const fromIdx = entries.findIndex((e) => e.entry.type === 'series' && e.entry.id === fromId)
-    const toIdx = entries.findIndex((e) => e.entry.type === 'series' && e.entry.id === toId)
+    const sorted = [...seriesList].sort((a, b) => a.order_num - b.order_num)
+    const fromIdx = sorted.findIndex(s => s.id === fromId)
+    const toIdx = sorted.findIndex(s => s.id === toId)
     if (fromIdx === -1 || toIdx === -1) return
-    const reordered = [...entries]
+    const reordered = [...sorted]
     const [moved] = reordered.splice(fromIdx, 1)
     reordered.splice(toIdx, 0, moved)
-
-    // Re-assign contiguous stages.order_num based on the new combined order.
-    let next = 1
-    const updates: { id: string; order_num: number }[] = []
-    for (const { entry } of reordered) {
-      if (entry.type === 'series') {
-        for (const sid of entry.stageIds) updates.push({ id: sid, order_num: next++ })
-      } else {
-        updates.push({ id: entry.id, order_num: next++ })
-      }
-    }
-    // Also keep series.order_num in sync with the new visual order (used elsewhere as a tiebreaker / fallback).
-    const seriesOrderUpdates = reordered
-      .map((e, i) => e.entry.type === 'series' ? { id: e.entry.id, order_num: i + 1 } : null)
-      .filter((u): u is { id: string; order_num: number } => !!u)
-
-    await Promise.all([
-      ...updates.map((u) => supabase.from('stages').update({ order_num: u.order_num }).eq('id', u.id)),
-      ...seriesOrderUpdates.map((u) => supabase.from('series').update({ order_num: u.order_num }).eq('id', u.id)),
-    ])
+    // Visual-only reorder for the Series chip list. Public scoreboard tab order
+    // is controlled separately via the Scoreboard Tab Order section, which writes
+    // tab_order across series / stages / combined.
+    await Promise.all(reordered.map((s, i) =>
+      supabase.from('series').update({ order_num: i + 1 }).eq('id', s.id)
+    ))
     reload()
   }
 
@@ -592,6 +585,29 @@ export default function AdminTournamentDetailPage() {
       if (error) { setErr('Save failed: ' + error.message); setSavingStagePrize(false); return }
     }
     setSavingStagePrize(false)
+    reload()
+  }
+
+  async function saveTabOrder(newList: TabOrderEntry[]) {
+    setSavingTabOrder(true)
+    setErr('')
+    const seriesUpdates: { id: string; tab_order: number }[] = []
+    const stageUpdates: { id: string; tab_order: number }[] = []
+    const combinedUpdates: { id: string; tab_order: number }[] = []
+    newList.forEach((entry, i) => {
+      const next = i + 1
+      if (entry.kind === 'series') seriesUpdates.push({ id: entry.id, tab_order: next })
+      else if (entry.kind === 'stage') stageUpdates.push({ id: entry.id, tab_order: next })
+      else combinedUpdates.push({ id: entry.id, tab_order: next })
+    })
+    const errs = await Promise.all([
+      ...seriesUpdates.map((u) => supabase.from('series').update({ tab_order: u.tab_order }).eq('id', u.id)),
+      ...stageUpdates.map((u) => supabase.from('stages').update({ tab_order: u.tab_order }).eq('id', u.id)),
+      ...combinedUpdates.map((u) => supabase.from('combined_scoreboards').update({ tab_order: u.tab_order }).eq('id', u.id)),
+    ])
+    const firstErr = errs.find((r) => r.error)
+    if (firstErr) { setErr('Save failed: ' + firstErr.error?.message); setSavingTabOrder(false); return }
+    setSavingTabOrder(false)
     reload()
   }
 
@@ -1367,6 +1383,63 @@ export default function AdminTournamentDetailPage() {
                 </div>
               )
             })}
+          </div>
+        )}
+      </div>
+
+      {/* Scoreboard Tab Order — unified drag list for the public scoreboard */}
+      <div className="mb-6">
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-lg font-semibold text-gray-800">Scoreboard Tab Order</h2>
+          <span className="text-xs text-gray-400">Drag to set the order of top-level tabs (series / stages / combined) on the public scoreboard.</span>
+        </div>
+        {tabOrderList.length === 0 ? (
+          <p className="text-sm text-gray-400">Add a series, stage, or combined scoreboard first.</p>
+        ) : (
+          <div className="bg-white rounded-xl border border-gray-200 p-3">
+            <div className="flex flex-col gap-1">
+              {tabOrderList.map((entry) => {
+                const key = `${entry.kind}:${entry.id}`
+                const isDragOver = tabOrderDragOverId === key && tabOrderDragId !== key
+                const badgeStyle =
+                  entry.kind === 'series' ? 'bg-blue-50 text-blue-700 border-blue-200'
+                  : entry.kind === 'combined' ? 'bg-yellow-50 text-yellow-700 border-yellow-200'
+                  : 'bg-gray-50 text-gray-600 border-gray-200'
+                const label =
+                  entry.kind === 'series' ? 'Series'
+                  : entry.kind === 'combined' ? 'Combined'
+                  : 'Stage'
+                return (
+                  <div
+                    key={key}
+                    draggable={!savingTabOrder}
+                    onDragStart={() => setTabOrderDragId(key)}
+                    onDragOver={(e) => { e.preventDefault(); setTabOrderDragOverId(key) }}
+                    onDrop={() => {
+                      if (tabOrderDragId && tabOrderDragId !== key) {
+                        const fromIdx = tabOrderList.findIndex((it) => `${it.kind}:${it.id}` === tabOrderDragId)
+                        const toIdx = tabOrderList.findIndex((it) => `${it.kind}:${it.id}` === key)
+                        if (fromIdx !== -1 && toIdx !== -1) {
+                          const next = [...tabOrderList]
+                          const [moved] = next.splice(fromIdx, 1)
+                          next.splice(toIdx, 0, moved)
+                          setTabOrderList(next)
+                          saveTabOrder(next)
+                        }
+                      }
+                      setTabOrderDragId(null); setTabOrderDragOverId(null)
+                    }}
+                    onDragEnd={() => { setTabOrderDragId(null); setTabOrderDragOverId(null) }}
+                    className={`flex items-center gap-2 px-3 py-2 rounded-lg border bg-gray-50 cursor-grab active:cursor-grabbing transition-all ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'} ${savingTabOrder ? 'opacity-60' : ''}`}
+                  >
+                    <span className="text-gray-300 text-xs select-none">⠿</span>
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${badgeStyle}`}>{label}</span>
+                    <span className="text-sm text-gray-800">{entry.name}</span>
+                  </div>
+                )
+              })}
+            </div>
+            {savingTabOrder && <p className="mt-2 text-xs text-gray-400">Saving…</p>}
           </div>
         )}
       </div>

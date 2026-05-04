@@ -74,7 +74,7 @@ const loadTournamentData = unstable_cache(
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
       supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
-      supabase.from('combined_scoreboards').select('id, name, order_num').eq('tournament_id', id).order('order_num'),
+      supabase.from('combined_scoreboards').select('id, name, order_num, tab_order').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
     ])
 
@@ -478,7 +478,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   // Combined scoreboards — view-only aggregations of any subset of stages.
   // Same shape as seriesStandingsMap so rankBoard / scoreboard view can treat them uniformly.
-  type CombinedItem = { id: string; name: string; order_num: number; stageIds: Set<string> }
+  type CombinedItem = { id: string; name: string; order_num: number; tab_order: number; stageIds: Set<string> }
   const combinedStagesByCombined = new Map<string, Set<string>>()
   for (const r of (combinedStageData ?? []) as AnyRow[]) {
     const cid = r.combined_scoreboard_id as string
@@ -489,6 +489,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     id: c.id as string,
     name: c.name as string,
     order_num: c.order_num as number,
+    tab_order: (c.tab_order as number) ?? 0,
     stageIds: combinedStagesByCombined.get(c.id as string) ?? new Set(),
   }))
 
@@ -734,7 +735,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
       <TournamentDetailTabs
         stages={stagesList}
         series={seriesList}
-        combined={combinedList.map((c) => ({ id: c.id, name: c.name, order_num: c.order_num, stageIds: [...c.stageIds] }))}
+        combined={combinedList.map((c) => ({ id: c.id, name: c.name, order_num: c.order_num, tab_order: c.tab_order, stageIds: [...c.stageIds] }))}
         combinedStandings={Object.fromEntries([...combinedStandingsMap.entries()])}
         resultsByMatch={resultsByMatch}
         damageByMatch={damageByMatch}

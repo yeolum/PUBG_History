@@ -511,3 +511,33 @@ CREATE POLICY "combined_scoreboard_stages_auth_write"  ON combined_scoreboard_st
 -- Prize & Points Target can now point to a combined scoreboard's rank.
 ALTER TABLE tournament_prize_config ADD COLUMN IF NOT EXISTS combined_scoreboard_id UUID REFERENCES combined_scoreboards(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_tournament_prize_config_combined ON tournament_prize_config(combined_scoreboard_id);
+
+-- =====================================================
+-- Migration: unified `tab_order` for top-level scoreboard sections.
+-- Series / standalone stage / combined scoreboard each carry their own
+-- tab_order and the public page sorts by it directly. Lets admin drag
+-- a single combined list to reorder the public scoreboard tabs.
+-- =====================================================
+
+ALTER TABLE series ADD COLUMN IF NOT EXISTS tab_order INT NOT NULL DEFAULT 0;
+ALTER TABLE stages ADD COLUMN IF NOT EXISTS tab_order INT NOT NULL DEFAULT 0;
+ALTER TABLE combined_scoreboards ADD COLUMN IF NOT EXISTS tab_order INT NOT NULL DEFAULT 0;
+
+-- Backfill: keep the current effective ordering (min stage.order_num for
+-- series / combined, stage.order_num for standalone stages) so the existing
+-- public layout doesn't shuffle when the migration runs.
+UPDATE series sr
+SET tab_order = COALESCE((
+  SELECT MIN(s.order_num) FROM stages s WHERE s.series_id = sr.id
+), 999999)
+WHERE tab_order = 0;
+
+UPDATE stages SET tab_order = order_num WHERE series_id IS NULL AND tab_order = 0;
+
+UPDATE combined_scoreboards cb
+SET tab_order = COALESCE((
+  SELECT MIN(s.order_num) FROM stages s
+  JOIN combined_scoreboard_stages css ON css.stage_id = s.id
+  WHERE css.combined_scoreboard_id = cb.id
+), 999999)
+WHERE tab_order = 0;
