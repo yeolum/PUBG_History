@@ -44,7 +44,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     matches(id, order_num, map, match_date,
       stages(id, name, type, order_num,
         series(id, name, order_num),
-        tournaments(id, name, short_name, start_date, end_date, type, currency)))
+        tournaments(id, name, short_name, start_date, end_date, type, currency, banner_url)))
   `
 
   // Q1: explicitly linked stats
@@ -73,6 +73,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
   // --- Build tournament map (keyed by tour.id) ---
   type TourEntry = {
     id: string; name: string; short_name: string | null; year: number | null; tourType: string | null
+    bannerUrl: string | null
     currency: string
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
     finalStageId: string | null; finalStageName: string | null
@@ -95,6 +96,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
       tourMap.set(tour.id, {
         id: tour.id, name: tour.name, short_name: tour.short_name,
         year, tourType: tour.type ?? null,
+        bannerUrl: (tour.banner_url as string | null) ?? null,
         currency: (tour.currency as string) ?? 'USD',
         stages: new Map(), finalStageId: null, finalStageName: null,
         finalStageRank: null, finalStagePrize: null, playerTeamId: null,
@@ -192,6 +194,7 @@ export default async function PlayerDetailPage({ params }: { params: Promise<{ i
     short_name: te.short_name,
     year: te.year,
     tourType: te.tourType,
+    bannerUrl: te.bannerUrl,
     finalStageName: te.finalStageName,
     finalStageRank: te.finalStageRank,
     finalStagePrize: te.finalStagePrize,

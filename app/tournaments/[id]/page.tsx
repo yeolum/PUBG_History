@@ -50,6 +50,10 @@ export default async function TournamentDetailPage({ params }: { params: Promise
             <Link href="/tournaments" className="text-sm text-gray-400 hover:text-gray-600">← Tournaments</Link>
           </div>
           <div className="flex items-center gap-3 mb-1">
+            {t.banner_url && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={t.banner_url} alt="" className="w-9 h-9 rounded object-contain border border-gray-200 shrink-0" />
+            )}
             <h1 className="text-2xl font-bold text-gray-900">{t.name}</h1>
             {t.short_name && (
               <span className="text-xs font-mono bg-gray-100 px-2 py-0.5 rounded text-gray-500">{t.short_name}</span>

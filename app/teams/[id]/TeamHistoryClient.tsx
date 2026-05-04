@@ -12,6 +12,7 @@ interface TourEntry {
   short_name: string | null
   year: number | null
   tourType: string | null
+  bannerUrl: string | null
   finalStageName: string | null
   finalStageRank: number | null
   finalStagePrize: number | null
@@ -211,9 +212,13 @@ export default function TeamHistoryClient({
                   const roster = tourRosters[te.id] ?? []
                   return (
                     <div key={te.id} className="bg-white rounded-xl border border-gray-200 p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <Link href={`/tournaments/${te.id}`} className="text-sm font-bold text-gray-900 hover:text-yellow-600 truncate mr-2">
-                          {te.short_name ?? te.name}
+                      <div className="flex items-center justify-between mb-3 gap-2">
+                        <Link href={`/tournaments/${te.id}`} className="flex items-center gap-1.5 text-sm font-bold text-gray-900 hover:text-yellow-600 truncate min-w-0">
+                          {te.bannerUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={te.bannerUrl} alt="" className="w-5 h-5 rounded object-contain border border-gray-100 shrink-0" />
+                          )}
+                          <span className="truncate">{te.short_name ?? te.name}</span>
                         </Link>
                         {te.finalStageRank != null && (
                           <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
@@ -254,14 +259,20 @@ export default function TeamHistoryClient({
             <div className="mb-8">
               <div className="space-y-2">
                 {pagedTours.map((te) => (
-                  <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between">
-                    <div>
-                      <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600">
-                        {te.short_name ?? te.name}
-                      </Link>
-                      {te.finalStageName && (
-                        <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
+                  <div key={te.id} className="bg-white rounded-lg border border-gray-200 px-4 py-3 flex items-center justify-between gap-3">
+                    <div className="min-w-0 flex items-center gap-2">
+                      {te.bannerUrl && (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={te.bannerUrl} alt="" className="w-6 h-6 rounded object-contain border border-gray-100 shrink-0" />
                       )}
+                      <div className="min-w-0">
+                        <Link href={`/tournaments/${te.id}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600 truncate block">
+                          {te.short_name ?? te.name}
+                        </Link>
+                        {te.finalStageName && (
+                          <p className="text-xs text-gray-400 mt-0.5">{te.finalStageName}</p>
+                        )}
+                      </div>
                     </div>
                     {te.finalStageRank != null && (
                       <div className="text-right">

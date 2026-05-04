@@ -91,7 +91,13 @@ function TournamentCard({ t }: { t: Tournament }) {
           <span className="text-xs text-gray-400 font-mono">{t.short_name}</span>
         )}
       </div>
-      <h3 className="font-semibold text-gray-900 text-base leading-tight">{t.name}</h3>
+      <h3 className="font-semibold text-gray-900 text-base leading-tight flex items-center gap-2">
+        {t.banner_url && (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={t.banner_url} alt="" className="w-6 h-6 rounded object-contain border border-gray-100 shrink-0" />
+        )}
+        <span>{t.name}</span>
+      </h3>
       {t.region && <p className="text-sm text-gray-500 mt-1">{t.region}</p>}
       {(t.start_date || t.end_date) && (
         <p className="text-xs text-gray-400 mt-2">

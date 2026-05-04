@@ -57,6 +57,10 @@ export default function TournamentListClient({ tournaments }: { tournaments: Tou
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full whitespace-nowrap ${STATUS_COLOR[t.status]}`}>
                 {STATUS_LABEL[t.status]}
               </span>
+              {t.banner_url && (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={t.banner_url} alt="" className="w-8 h-8 rounded object-contain border border-gray-100 shrink-0" />
+              )}
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-gray-900 truncate">{t.name}</p>
                 {t.region && <p className="text-xs text-gray-500">{t.region}</p>}
