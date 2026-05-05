@@ -541,3 +541,12 @@ SET tab_order = COALESCE((
   WHERE css.combined_scoreboard_id = cb.id
 ), 999999)
 WHERE tab_order = 0;
+
+-- =====================================================
+-- Migration: Advancement Rules on Combined Scoreboards
+-- Mirrors series.advance_count / eliminate_count so the public combined
+-- standings can render the same green ADVANCE / red ELIMINATED dividers.
+-- =====================================================
+
+ALTER TABLE combined_scoreboards ADD COLUMN IF NOT EXISTS advance_count   INT;
+ALTER TABLE combined_scoreboards ADD COLUMN IF NOT EXISTS eliminate_count INT;

@@ -97,6 +97,8 @@ export interface CombinedScoreboard {
   name: string
   order_num: number
   tab_order: number
+  advance_count: number | null
+  eliminate_count: number | null
   created_at: string
 }
 

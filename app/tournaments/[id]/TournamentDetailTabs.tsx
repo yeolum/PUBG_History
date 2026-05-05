@@ -12,7 +12,7 @@ interface SeriesItem { id: string; name: string; order_num: number; tab_order: n
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
 interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
-interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; stageIds: string[] }
+interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null; stageIds: string[] }
 
 interface Props {
   stages: (Stage & { matches: Match[] })[]

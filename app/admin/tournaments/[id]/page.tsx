@@ -94,11 +94,13 @@ export default function AdminTournamentDetailPage() {
   const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
-  type CombinedRow = { id: string; name: string; order_num: number; stageIds: Set<string> }
+  type CombinedRow = { id: string; name: string; order_num: number; advance_count: number | null; eliminate_count: number | null; stageIds: Set<string> }
   const [combinedList, setCombinedList] = useState<CombinedRow[]>([])
   const [addingCombined, setAddingCombined] = useState(false)
   const [newCombinedName, setNewCombinedName] = useState('')
   const [savingCombinedId, setSavingCombinedId] = useState<string | null>(null)
+  const [combinedRulesMap, setCombinedRulesMap] = useState<Record<string, SeriesRulesRow>>({})
+  const [savingCombinedRulesId, setSavingCombinedRulesId] = useState<string | null>(null)
 
   // Unified scoreboard tab order: each entity (series / standalone stage /
   // combined) carries its own tab_order; admin drags this list to reorder.
@@ -173,7 +175,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
-      supabase.from('combined_scoreboards').select('id, name, order_num').eq('tournament_id', id).order('order_num'),
+      supabase.from('combined_scoreboards').select('id, name, order_num, advance_count, eliminate_count').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
@@ -289,14 +291,24 @@ export default function AdminTournamentDetailPage() {
       if (!stagesByCombined.has(r.combined_scoreboard_id)) stagesByCombined.set(r.combined_scoreboard_id, new Set())
       stagesByCombined.get(r.combined_scoreboard_id)!.add(r.stage_id)
     }
-    const combinedListLoaded = ((combinedData ?? []) as { id: string; name: string; order_num: number; tab_order?: number }[]).map((c) => ({
+    const combinedListLoaded = ((combinedData ?? []) as { id: string; name: string; order_num: number; tab_order?: number; advance_count?: number | null; eliminate_count?: number | null }[]).map((c) => ({
       id: c.id,
       name: c.name,
       order_num: c.order_num,
       tab_order: c.tab_order ?? 0,
+      advance_count: c.advance_count ?? null,
+      eliminate_count: c.eliminate_count ?? null,
       stageIds: stagesByCombined.get(c.id) ?? new Set(),
     }))
     setCombinedList(combinedListLoaded)
+    const cbRulesMap: Record<string, SeriesRulesRow> = {}
+    for (const c of combinedListLoaded) {
+      cbRulesMap[c.id] = {
+        advance: c.advance_count?.toString() ?? '',
+        eliminate: c.eliminate_count?.toString() ?? '',
+      }
+    }
+    setCombinedRulesMap(cbRulesMap)
 
     // Build unified tab order list: series, standalone stages, combined —
     // each by their own tab_order. Newly created entities (tab_order = 0)
@@ -694,6 +706,22 @@ export default function AdminTournamentDetailPage() {
       eliminate_count: Number.isFinite(elim) && elim > 0 ? elim : null,
     }).eq('id', seriesId)
     setSavingSeriesRulesId(null)
+    if (error) { setErr('Save failed: ' + error.message); return }
+    reload()
+  }
+
+  async function saveCombinedAdvancement(combinedId: string) {
+    const rules = combinedRulesMap[combinedId]
+    if (!rules) return
+    setSavingCombinedRulesId(combinedId)
+    setErr('')
+    const adv = parseInt(rules.advance, 10)
+    const elim = parseInt(rules.eliminate, 10)
+    const { error } = await supabase.from('combined_scoreboards').update({
+      advance_count: Number.isFinite(adv) && adv > 0 ? adv : null,
+      eliminate_count: Number.isFinite(elim) && elim > 0 ? elim : null,
+    }).eq('id', combinedId)
+    setSavingCombinedRulesId(null)
     if (error) { setErr('Save failed: ' + error.message); return }
     reload()
   }
@@ -1336,6 +1364,10 @@ export default function AdminTournamentDetailPage() {
           <div className="space-y-2">
             {[...combinedList].sort((a, b) => a.order_num - b.order_num).map((c) => {
               const isDragOver = dragOverCombinedId === c.id && dragCombinedId !== c.id
+              const rules = combinedRulesMap[c.id] ?? { advance: '', eliminate: '' }
+              const rulesDirty =
+                (rules.advance || '0') !== (c.advance_count?.toString() ?? '0') ||
+                (rules.eliminate || '0') !== (c.eliminate_count?.toString() ?? '0')
               return (
                 <div
                   key={c.id}
@@ -1360,6 +1392,34 @@ export default function AdminTournamentDetailPage() {
                       className="text-sm font-medium border border-transparent hover:border-gray-200 focus:border-yellow-400 focus:bg-white rounded px-2 py-0.5 focus:outline-none"
                     />
                     <span className="text-xs text-gray-400">{c.stageIds.size} / {stageList.length} stages</span>
+                    <span className="mx-1 h-4 w-px bg-gray-200" />
+                    <span className="text-xs text-green-600 font-medium">▲</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={rules.advance}
+                      onChange={(e) => setCombinedRulesMap((m) => ({ ...m, [c.id]: { ...rules, advance: e.target.value } }))}
+                      placeholder="0"
+                      className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                    />
+                    <span className="text-xs text-red-500 font-medium">▼</span>
+                    <input
+                      type="number"
+                      min={0}
+                      value={rules.eliminate}
+                      onChange={(e) => setCombinedRulesMap((m) => ({ ...m, [c.id]: { ...rules, eliminate: e.target.value } }))}
+                      placeholder="0"
+                      className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                    />
+                    {rulesDirty && (
+                      <button
+                        onClick={() => saveCombinedAdvancement(c.id)}
+                        disabled={savingCombinedRulesId === c.id}
+                        className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-medium px-2 py-0.5 rounded"
+                      >
+                        {savingCombinedRulesId === c.id ? '...' : 'Save'}
+                      </button>
+                    )}
                     <button
                       onClick={() => deleteCombinedScoreboard(c.id, c.name)}
                       className="text-gray-300 hover:text-red-500 text-sm leading-none ml-auto"

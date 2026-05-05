@@ -15,7 +15,7 @@ interface SeriesItem { id: string; name: string; order_num: number; tab_order: n
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
 interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
-interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; stageIds: string[] }
+interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null; stageIds: string[] }
 interface CombinedStanding { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
 
 interface Props {
@@ -535,32 +535,60 @@ export default function TournamentStagesView({
                         </tr>
                       </thead>
                       <tbody>
-                        {(combinedStandings[selectedCombinedId] ?? []).map((s, i) => {
-                          const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
-                          return (
-                            <tr key={`${s.teamId ?? s.teamName}-${i}`} className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
-                              <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
-                              <td className="px-4 py-2 text-xs">
-                                <div className="flex items-center gap-1.5">
-                                  {logo ? (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
-                                  ) : (
-                                    <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
-                                  )}
-                                  {s.teamId ? (
-                                    <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
-                                  ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
-                                </div>
-                              </td>
-                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
-                              <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
-                              <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.killPts}</td>
-                              <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
-                            </tr>
-                          )
-                        })}
+                        {(() => {
+                          const standings = combinedStandings[selectedCombinedId] ?? []
+                          const advCount = selectedCombined?.advance_count ?? 0
+                          const elimCount = selectedCombined?.eliminate_count ?? 0
+                          return standings.map((s, i) => {
+                            const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                            const showAdvLine = advCount > 0 && i === advCount
+                            const showElimLine = elimCount > 0 && i === standings.length - elimCount
+                            return (
+                              <Fragment key={`${s.teamId ?? s.teamName}-${i}`}>
+                                {showAdvLine && (
+                                  <tr>
+                                    <td colSpan={7} className="p-0">
+                                      <div className="flex flex-col items-start">
+                                        <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">▲ ADVANCE</span>
+                                        <div className="border-b-2 border-green-400 w-full mb-1" />
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                {showElimLine && (
+                                  <tr>
+                                    <td colSpan={7} className="p-0">
+                                      <div className="border-t-2 border-red-400 flex items-center mt-1">
+                                        <span className="text-[10px] font-bold text-red-500 px-3 py-0.5 tracking-wide">▼ ELIMINATED</span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                )}
+                                <tr className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                                  <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                                  <td className="px-4 py-2 text-xs">
+                                    <div className="flex items-center gap-1.5">
+                                      {logo ? (
+                                        // eslint-disable-next-line @next/next/no-img-element
+                                        <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                                      ) : (
+                                        <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                      )}
+                                      {s.teamId ? (
+                                        <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
+                                      ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
+                                    </div>
+                                  </td>
+                                  <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
+                                  <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
+                                  <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
+                                  <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.killPts}</td>
+                                  <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
+                                </tr>
+                              </Fragment>
+                            )
+                          })
+                        })()}
                       </tbody>
                     </table>
                   </div>
