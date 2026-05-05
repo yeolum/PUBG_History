@@ -37,7 +37,7 @@ export interface PlayerMatchStat {
 
 type SortKey = 'nickname' | 'teamName' | 'games' | 'kills' | 'kpg' | 'assists' | 'knocks' | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'avgSurvival'
 type StageWithMatches = Stage & { matches: Pick<Match, 'id' | 'status' | 'order_num'>[] }
-interface SeriesItem { id: string; name: string; order_num: number }
+interface SeriesItem { id: string; name: string; order_num: number; tab_order: number }
 
 function formatSurvival(totalSec: number, games: number): string {
   if (games === 0) return '—'
@@ -157,7 +157,17 @@ export default function PlayerStatsTable({
   const matchBtn = (active: boolean) =>
     `min-w-[28px] px-2 py-1 text-xs font-mono rounded border transition-colors ${active ? 'bg-gray-800 border-gray-800 text-white' : 'bg-white border-gray-200 text-gray-600 hover:border-gray-400'}`
 
-  const directStages = stages.filter(s => !s.series_id)
+  // Unified scope-tab order: series + standalone stages interleaved by tab_order.
+  // Combined scoreboards are intentionally excluded from these per-match data tables.
+  const topScopes = useMemo(() => {
+    const items: ({ kind: 'series'; series: SeriesItem; key: number } | { kind: 'stage'; stage: StageWithMatches; key: number })[] = []
+    for (const sr of series) items.push({ kind: 'series', series: sr, key: sr.tab_order })
+    for (const s of stages) {
+      if (s.series_id) continue
+      items.push({ kind: 'stage', stage: s, key: s.tab_order })
+    }
+    return items.sort((a, b) => a.key - b.key)
+  }, [series, stages])
   const currentStage = selectedStageId ? stages.find(s => s.id === selectedStageId) : null
   const currentStageMatches = currentStage
     ? [...currentStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
@@ -174,14 +184,13 @@ export default function PlayerStatsTable({
         <div className="px-4 py-3 bg-gray-50/80 border-b border-gray-200 space-y-2">
           <div className="flex flex-wrap gap-1.5 items-center">
             <button onClick={selectTotal} className={scopeBtn(!selectedSeriesId && !selectedStageId && !selectedMatchId)}>Total</button>
-            {series.map(s => (
-              <button key={s.id} onClick={() => selectSeries(s.id)} className={scopeBtn(selectedSeriesId === s.id && !selectedStageId)}>
-                {s.name}
+            {topScopes.map(item => item.kind === 'series' ? (
+              <button key={`series:${item.series.id}`} onClick={() => selectSeries(item.series.id)} className={scopeBtn(selectedSeriesId === item.series.id && !selectedStageId)}>
+                {item.series.name}
               </button>
-            ))}
-            {directStages.map(s => (
-              <button key={s.id} onClick={() => selectStage(s.id, null)} className={scopeBtn(selectedStageId === s.id)}>
-                {s.name}
+            ) : (
+              <button key={`stage:${item.stage.id}`} onClick={() => selectStage(item.stage.id, null)} className={scopeBtn(selectedStageId === item.stage.id)}>
+                {item.stage.name}
               </button>
             ))}
           </div>
