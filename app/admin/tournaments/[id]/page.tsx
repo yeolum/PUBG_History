@@ -126,10 +126,10 @@ export default function AdminTournamentDetailPage() {
   type WwcdRewardRow = { id: string; targetKey: string; prize: string; pgs: string; pgc: string }
   const [wwcdRows, setWwcdRows] = useState<WwcdRewardRow[]>([])
   const [savingWwcd, setSavingWwcd] = useState(false)
-  type SpecialAwardRow = { id: string; awardName: string; playerId: string | null; playerDisplayName: string; teamId: string | null; teamDisplayName: string; prize: string; pgs: string; pgc: string }
+  type SpecialAwardRow = { id: string; category: string; awardName: string; targetType: 'player' | 'team'; playerId: string | null; playerDisplayName: string; teamId: string | null; teamDisplayName: string; prize: string; pgs: string; pgc: string }
   const [specialRows, setSpecialRows] = useState<SpecialAwardRow[]>([])
   const [savingSpecial, setSavingSpecial] = useState(false)
-  const [awardPlayerLinkIdx, setAwardPlayerLinkIdx] = useState<number | null>(null)
+  const [awardPlayerLinkIdx, setAwardPlayerLinkIdx] = useState<{ idx: number; type: 'player' | 'team' } | null>(null)
 
   // selected match per stage for inline linking UI
   const [selectedMatchByStage, setSelectedMatchByStage] = useState<Record<string, string | null>>({})
@@ -172,7 +172,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
-      supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
+      supabase.from('tournament_special_awards').select('*, teams(id, name)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, advance_count, eliminate_count').eq('tournament_id', id).order('order_num'),
@@ -340,17 +340,25 @@ export default function AdminTournamentDetailPage() {
       }
     }))
 
-    setSpecialRows((special ?? []).map((r) => ({
-      id: r.id as string,
-      awardName: r.award_name as string,
-      playerId: (r.player_id as string | null) ?? null,
-      playerDisplayName: (r.player_display_name as string) ?? '',
-      teamId: (r.team_id as string | null) ?? null,
-      teamDisplayName: (r.team_display_name as string) ?? '',
-      prize: numberToInput(r.prize as number | null),
-      pgs: r.pgs_points?.toString() ?? '',
-      pgc: r.pgc_points?.toString() ?? '',
-    })))
+    setSpecialRows((special ?? []).map((r) => {
+      const teamId = (r.team_id as string | null) ?? null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const teamObj = (r as any).teams as { id: string; name: string } | null | undefined
+      return {
+        id: r.id as string,
+        category: (r.category as string | null) ?? '',
+        awardName: r.award_name as string,
+        // Existing rows with a team_id default to "team" target; otherwise "player".
+        targetType: (teamId ? 'team' : 'player') as 'player' | 'team',
+        playerId: (r.player_id as string | null) ?? null,
+        playerDisplayName: (r.player_display_name as string) ?? '',
+        teamId,
+        teamDisplayName: (r.team_display_name as string) ?? teamObj?.name ?? '',
+        prize: numberToInput(r.prize as number | null),
+        pgs: r.pgs_points?.toString() ?? '',
+        pgc: r.pgc_points?.toString() ?? '',
+      }
+    }))
 
     // Tournament roster
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -824,11 +832,14 @@ export default function AdminTournamentDetailPage() {
       .filter((r) => r.awardName.trim())
       .map((r, i) => ({
         tournament_id: id,
+        category: r.category.trim() || null,
         award_name: r.awardName.trim(),
-        player_id: r.playerId || null,
-        player_display_name: r.playerDisplayName || null,
-        team_id: r.teamId || null,
-        team_display_name: r.teamDisplayName || null,
+        // Only persist the chosen target — clear the other side so re-loading
+        // recovers the correct targetType.
+        player_id: r.targetType === 'player' ? (r.playerId || null) : null,
+        player_display_name: r.targetType === 'player' ? (r.playerDisplayName || null) : null,
+        team_id: r.targetType === 'team' ? (r.teamId || null) : null,
+        team_display_name: r.targetType === 'team' ? (r.teamDisplayName || null) : null,
         prize: parseNumberInput(r.prize),
         pgs_points: r.pgs ? parseFloat(r.pgs) : null,
         pgc_points: r.pgc ? parseFloat(r.pgc) : null,
@@ -2375,8 +2386,10 @@ export default function AdminTournamentDetailPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="text-xs text-gray-400 border-b border-gray-100">
+                    <th className="text-left px-3 py-1">Category</th>
                     <th className="text-left px-3 py-1">Award Name</th>
-                    <th className="text-left px-3 py-1">Player</th>
+                    <th className="text-left px-3 py-1">Type</th>
+                    <th className="text-left px-3 py-1">Recipient</th>
                     {form.has_prize && <th className="text-right px-3 py-1">Prize ({currencySymbol(prizeCurrency)})</th>}
                     {form.has_pgs_points && <th className="text-right px-3 py-1">PGS</th>}
                     {form.has_pgc_points && <th className="text-right px-3 py-1">PGC</th>}
@@ -2388,6 +2401,14 @@ export default function AdminTournamentDetailPage() {
                     <tr key={i} className="border-b border-gray-50 last:border-0">
                       <td className="px-3 py-1">
                         <input
+                          value={row.category}
+                          onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, category: e.target.value } : r))}
+                          placeholder="e.g. Awards"
+                          className="w-32 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                        />
+                      </td>
+                      <td className="px-3 py-1">
+                        <input
                           value={row.awardName}
                           onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, awardName: e.target.value } : r))}
                           placeholder="e.g. MVP"
@@ -2395,25 +2416,58 @@ export default function AdminTournamentDetailPage() {
                         />
                       </td>
                       <td className="px-3 py-1">
-                        {row.playerId ? (
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-gray-700 font-medium">{row.playerDisplayName || '?'}</span>
+                        <select
+                          value={row.targetType}
+                          onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, targetType: e.target.value as 'player' | 'team' } : r))}
+                          className="border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 bg-white"
+                        >
+                          <option value="player">Player</option>
+                          <option value="team">Team</option>
+                        </select>
+                      </td>
+                      <td className="px-3 py-1">
+                        {row.targetType === 'player' ? (
+                          row.playerId ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-700 font-medium">{row.playerDisplayName || '?'}</span>
+                              <button
+                                onClick={() => setAwardPlayerLinkIdx({ idx: i, type: 'player' })}
+                                className="text-xs text-blue-500 hover:text-blue-700"
+                              >Change</button>
+                              <button
+                                onClick={() => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, playerId: null, playerDisplayName: '' } : r))}
+                                className="text-xs text-gray-300 hover:text-red-400"
+                              >✕</button>
+                            </div>
+                          ) : (
                             <button
-                              onClick={() => setAwardPlayerLinkIdx(i)}
-                              className="text-xs text-blue-500 hover:text-blue-700"
-                            >Change</button>
-                            <button
-                              onClick={() => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, playerId: null, playerDisplayName: '' } : r))}
-                              className="text-xs text-gray-300 hover:text-red-400"
-                            >✕</button>
-                          </div>
+                              onClick={() => setAwardPlayerLinkIdx({ idx: i, type: 'player' })}
+                              className="text-xs border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-50"
+                            >
+                              Link Player
+                            </button>
+                          )
                         ) : (
-                          <button
-                            onClick={() => setAwardPlayerLinkIdx(i)}
-                            className="text-xs border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-50"
-                          >
-                            Link Player
-                          </button>
+                          row.teamId ? (
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-700 font-medium">{row.teamDisplayName || '?'}</span>
+                              <button
+                                onClick={() => setAwardPlayerLinkIdx({ idx: i, type: 'team' })}
+                                className="text-xs text-blue-500 hover:text-blue-700"
+                              >Change</button>
+                              <button
+                                onClick={() => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, teamId: null, teamDisplayName: '' } : r))}
+                                className="text-xs text-gray-300 hover:text-red-400"
+                              >✕</button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setAwardPlayerLinkIdx({ idx: i, type: 'team' })}
+                              className="text-xs border border-gray-300 rounded px-2 py-0.5 text-gray-600 hover:bg-gray-50"
+                            >
+                              Link Team
+                            </button>
+                          )
                         )}
                       </td>
                       {form.has_prize && (
@@ -2465,7 +2519,7 @@ export default function AdminTournamentDetailPage() {
           )}
           <div className="px-3 py-1.5 border-t border-gray-100">
             <button
-              onClick={() => setSpecialRows((rows) => [...rows, { id: '', awardName: '', playerId: null, playerDisplayName: '', teamId: null, teamDisplayName: '', prize: '', pgs: '', pgc: '' }])}
+              onClick={() => setSpecialRows((rows) => [...rows, { id: '', category: rows[rows.length - 1]?.category ?? '', awardName: '', targetType: 'player', playerId: null, playerDisplayName: '', teamId: null, teamDisplayName: '', prize: '', pgs: '', pgc: '' }])}
               className="text-sm text-yellow-600 hover:text-yellow-700 font-medium"
             >
               + Add Award
@@ -2520,11 +2574,14 @@ export default function AdminTournamentDetailPage() {
 
       {awardPlayerLinkIdx !== null && (
         <SearchModal
-          type="player"
-          targetName={specialRows[awardPlayerLinkIdx]?.awardName || 'Award'}
-          onConfirm={(playerId, playerName) => {
-            setSpecialRows((rows) => rows.map((r, j) => j === awardPlayerLinkIdx
-              ? { ...r, playerId, playerDisplayName: playerName }
+          type={awardPlayerLinkIdx.type}
+          targetName={specialRows[awardPlayerLinkIdx.idx]?.awardName || 'Award'}
+          onConfirm={(entityId, entityName) => {
+            const { idx, type } = awardPlayerLinkIdx
+            setSpecialRows((rows) => rows.map((r, j) => j === idx
+              ? type === 'player'
+                ? { ...r, playerId: entityId, playerDisplayName: entityName }
+                : { ...r, teamId: entityId, teamDisplayName: entityName }
               : r
             ))
             setAwardPlayerLinkIdx(null)

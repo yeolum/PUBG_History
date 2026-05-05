@@ -11,7 +11,7 @@ type AnyObj = Record<string, any>
 interface SeriesItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
-interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
+interface SpecialAwardItem { id: string; category: string | null; awardName: string; targetType: 'player' | 'team'; playerId: string | null; playerName: string | null; teamId: string | null; teamName: string | null; teamLogoUrl: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
 interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null; stageIds: string[] }
 
 interface Props {

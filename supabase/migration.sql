@@ -560,3 +560,13 @@ ALTER TABLE combined_scoreboards ADD COLUMN IF NOT EXISTS eliminate_count INT;
 -- =====================================================
 
 ALTER TABLE tournament_teams ADD COLUMN IF NOT EXISTS display_name TEXT;
+
+-- =====================================================
+-- Migration: hierarchical Special Awards (category → award name) + team target
+-- Awards previously only supported a free-form name and an optional player.
+-- The new `category` is an optional grouping label (e.g. "MVP Awards") and
+-- the existing team_id column is now exposed in the admin UI so an award
+-- can target a player OR a team.
+-- =====================================================
+
+ALTER TABLE tournament_special_awards ADD COLUMN IF NOT EXISTS category TEXT;

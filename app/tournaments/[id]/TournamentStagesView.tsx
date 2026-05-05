@@ -14,7 +14,7 @@ type AnyObj = Record<string, any>
 interface SeriesItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null }
 interface RankEntry { rank: number; teamId: string | null; teamName: string }
 interface PrizeConfigItem { rank: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }
-interface SpecialAwardItem { id: string; awardName: string; playerId: string | null; playerName: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
+interface SpecialAwardItem { id: string; category: string | null; awardName: string; targetType: 'player' | 'team'; playerId: string | null; playerName: string | null; teamId: string | null; teamName: string | null; teamLogoUrl: string | null; prize: number | null; pgsPoints: number | null; pgcPoints: number | null }
 interface CombinedItem { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null; stageIds: string[] }
 interface CombinedStanding { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
 
@@ -480,36 +480,81 @@ export default function TournamentStagesView({
             </div>
           )}
 
-          {specialAwards.length > 0 && (
-            <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-              <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                <h2 className="text-sm font-semibold text-gray-800">Special Awards</h2>
-              </div>
-              <table className="w-full text-sm">
-                <tbody>
-                  {specialAwards.map((award) => (
-                    <tr key={award.id} className="border-b border-gray-50 last:border-0">
-                      <td className="px-3 py-2.5">
-                        <div className="text-xs font-semibold text-yellow-700">{award.awardName}</div>
-                        {award.playerName && (
-                          <div className="text-xs text-gray-600 mt-0.5">
-                            {award.playerId ? (
-                              <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
-                            ) : award.playerName}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 text-right">
-                        {award.prize != null && <div className="text-xs font-medium text-gray-800">{formatPrize(award.prize, currency)}</div>}
-                        {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
-                        {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
-                      </td>
-                    </tr>
+          {specialAwards.length > 0 && (() => {
+            // Group awards by category (insertion order). Empty category becomes
+            // its own group rendered without a header — matches behavior for
+            // tournaments that don't use categories at all.
+            const groups: { category: string; items: SpecialAwardItem[] }[] = []
+            const groupIdxByKey = new Map<string, number>()
+            for (const a of specialAwards) {
+              const key = a.category ?? ''
+              let idx = groupIdxByKey.get(key)
+              if (idx === undefined) {
+                idx = groups.length
+                groupIdxByKey.set(key, idx)
+                groups.push({ category: key, items: [] })
+              }
+              groups[idx].items.push(a)
+            }
+            return (
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
+                  <h2 className="text-sm font-semibold text-gray-800">Special Awards</h2>
+                </div>
+                <div className="divide-y divide-gray-100">
+                  {groups.map((g) => (
+                    <div key={g.category || '_uncategorized'}>
+                      {g.category && (
+                        <div className="px-4 py-1.5 bg-yellow-50/40 border-b border-yellow-100">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-yellow-700">{g.category}</span>
+                        </div>
+                      )}
+                      <table className="w-full text-sm">
+                        <tbody>
+                          {g.items.map((award) => {
+                            const recipientNode = award.targetType === 'team'
+                              ? (award.teamName ? (
+                                  <div className="flex items-center gap-1.5 mt-0.5">
+                                    {award.teamLogoUrl ? (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={award.teamLogoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
+                                    ) : (
+                                      <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />
+                                    )}
+                                    {award.teamId ? (
+                                      <Link href={`/teams/${award.teamId}`} className="text-xs text-gray-600 hover:text-yellow-600">{award.teamName}</Link>
+                                    ) : <span className="text-xs text-gray-600">{award.teamName}</span>}
+                                  </div>
+                                ) : null)
+                              : (award.playerName ? (
+                                  <div className="text-xs text-gray-600 mt-0.5">
+                                    {award.playerId ? (
+                                      <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
+                                    ) : award.playerName}
+                                  </div>
+                                ) : null)
+                            return (
+                              <tr key={award.id} className="border-b border-gray-50 last:border-0">
+                                <td className="px-3 py-2.5">
+                                  <div className="text-xs font-semibold text-yellow-700">{award.awardName}</div>
+                                  {recipientNode}
+                                </td>
+                                <td className="px-3 py-2.5 text-right">
+                                  {award.prize != null && <div className="text-xs font-medium text-gray-800">{formatPrize(award.prize, currency)}</div>}
+                                  {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
+                                  {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
                   ))}
-                </tbody>
-              </table>
-            </div>
-          )}
+                </div>
+              </div>
+            )
+          })()}
         </div>
       ) : (
         /* Stage/Series/Combined selected: full-width scoreboard, no Final Standings */

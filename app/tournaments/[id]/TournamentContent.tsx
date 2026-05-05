@@ -69,7 +69,7 @@ const loadTournamentData = unstable_cache(
       aliasQueriesPromise,
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_name, points').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
-      supabase.from('tournament_special_awards').select('*, players(id, nickname)').eq('tournament_id', id).order('order_num'),
+      supabase.from('tournament_special_awards').select('*, players(id, nickname), teams(id, name, logo_url)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
@@ -724,18 +724,42 @@ export default async function TournamentContent({ id, tournament }: { id: string
   }
 
   interface SpecialAwardItem {
-    id: string; awardName: string; playerId: string | null; playerName: string | null
-    prize: number | null; pgsPoints: number | null; pgcPoints: number | null
+    id: string
+    category: string | null
+    awardName: string
+    targetType: 'player' | 'team'
+    playerId: string | null
+    playerName: string | null
+    teamId: string | null
+    teamName: string | null
+    teamLogoUrl: string | null
+    prize: number | null
+    pgsPoints: number | null
+    pgcPoints: number | null
   }
-  const specialAwardsList: SpecialAwardItem[] = (specialAwardsData ?? []).map((r: AnyRow) => ({
-    id: r.id as string,
-    awardName: r.award_name as string,
-    playerId: (r.player_id as string | null) ?? null,
-    playerName: (r.player_display_name as string | null) ?? (r.player_id ? (playerIdToNickname.get(r.player_id as string) ?? null) : null) ?? ((r.players as AnyRow)?.nickname as string | null) ?? null,
-    prize: r.prize != null ? Number(r.prize) : null,
-    pgsPoints: r.pgs_points != null ? Number(r.pgs_points) : null,
-    pgcPoints: r.pgc_points != null ? Number(r.pgc_points) : null,
-  }))
+  const specialAwardsList: SpecialAwardItem[] = (specialAwardsData ?? []).map((r: AnyRow) => {
+    const teamId = (r.team_id as string | null) ?? null
+    const teamRel = (r.teams as AnyRow | null) ?? null
+    // tournament_teams.display_name takes precedence, then award's stored
+    // team_display_name, then the team's current global name.
+    const teamName = teamId
+      ? (teamTournamentDisplayName.get(teamId) ?? (r.team_display_name as string | null) ?? (teamRel?.name as string | null) ?? null)
+      : null
+    return {
+      id: r.id as string,
+      category: ((r.category as string | null) ?? null) || null,
+      awardName: r.award_name as string,
+      targetType: (teamId ? 'team' : 'player') as 'player' | 'team',
+      playerId: (r.player_id as string | null) ?? null,
+      playerName: (r.player_display_name as string | null) ?? (r.player_id ? (playerIdToNickname.get(r.player_id as string) ?? null) : null) ?? ((r.players as AnyRow)?.nickname as string | null) ?? null,
+      teamId,
+      teamName,
+      teamLogoUrl: (teamRel?.logo_url as string | null) ?? null,
+      prize: r.prize != null ? Number(r.prize) : null,
+      pgsPoints: r.pgs_points != null ? Number(r.pgs_points) : null,
+      pgcPoints: r.pgc_points != null ? Number(r.pgc_points) : null,
+    }
+  })
 
   if (stagesList.length === 0) {
     return (
