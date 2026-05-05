@@ -605,10 +605,26 @@ export default function AdminTournamentDetailPage() {
       ...stageUpdates.map((u) => supabase.from('stages').update({ tab_order: u.tab_order }).eq('id', u.id)),
       ...combinedUpdates.map((u) => supabase.from('combined_scoreboards').update({ tab_order: u.tab_order }).eq('id', u.id)),
     ])
-    const firstErr = errs.find((r) => r.error)
-    if (firstErr) { setErr('Save failed: ' + firstErr.error?.message); setSavingTabOrder(false); return }
     setSavingTabOrder(false)
-    reload()
+    const firstErr = errs.find((r) => r.error)?.error as { message?: string; code?: string } | undefined
+    if (firstErr) {
+      const msg = firstErr.message ?? 'unknown error'
+      const code = firstErr.code ?? ''
+      const missingCol =
+        code === 'PGRST204' || code === '42703' ||
+        /tab_order/i.test(msg) && /(does not exist|could not find|column)/i.test(msg)
+      const display = missingCol
+        ? 'Save tab order failed: tab_order column is missing. Run the latest supabase/migration.sql in the Supabase SQL editor, then refresh.'
+        : `Save tab order failed: ${msg}`
+      console.error('saveTabOrder failed:', firstErr)
+      setErr(display)
+      alert(display)
+      // Refetch so the UI reflects actual DB state instead of the failed optimistic move.
+      reload()
+      return
+    }
+    // Success: trust the optimistic update — skipping reload() avoids any race
+    // where a stale read snaps the list back to its previous order.
   }
 
   async function addCombinedScoreboard() {
