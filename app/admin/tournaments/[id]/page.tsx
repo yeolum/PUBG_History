@@ -72,6 +72,8 @@ export default function AdminTournamentDetailPage() {
   const [dragOverStageId, setDragOverStageId] = useState<string | null>(null)
   const [dragSeriesId, setDragSeriesId] = useState<string | null>(null)
   const [dragOverSeriesId, setDragOverSeriesId] = useState<string | null>(null)
+  const [dragCombinedId, setDragCombinedId] = useState<string | null>(null)
+  const [dragOverCombinedId, setDragOverCombinedId] = useState<string | null>(null)
 
   // targetKey encoded as '' (none) | 'stage:UUID' | 'series:UUID'
   type PrizeRow = { rank: number; targetKey: string; stageRank: number; prize: string; pgs: string; pgc: string }
@@ -471,6 +473,23 @@ export default function AdminTournamentDetailPage() {
     reordered.splice(toIdx, 0, moved)
     await Promise.all(reordered.map((s, i) =>
       supabase.from('stages').update({ order_num: i + 1 }).eq('id', s.id)
+    ))
+    reload()
+  }
+
+  async function reorderCombined(fromId: string, toId: string) {
+    if (fromId === toId) return
+    const sorted = [...combinedList].sort((a, b) => a.order_num - b.order_num)
+    const fromIdx = sorted.findIndex(c => c.id === fromId)
+    const toIdx = sorted.findIndex(c => c.id === toId)
+    if (fromIdx === -1 || toIdx === -1) return
+    const reordered = [...sorted]
+    const [moved] = reordered.splice(fromIdx, 1)
+    reordered.splice(toIdx, 0, moved)
+    // Visual-only reorder for the Combined Scoreboards list. Public scoreboard
+    // tab order is controlled separately via the Scoreboard Tab Order section.
+    await Promise.all(reordered.map((c, i) =>
+      supabase.from('combined_scoreboards').update({ order_num: i + 1 }).eq('id', c.id)
     ))
     reload()
   }
@@ -1315,12 +1334,23 @@ export default function AdminTournamentDetailPage() {
           <p className="text-sm text-gray-400">No combined scoreboards yet.</p>
         ) : (
           <div className="space-y-2">
-            {combinedList.map((c) => {
-              const isDirty = false  // local edits fire saveCombinedScoreboard inline below
-              void isDirty
+            {[...combinedList].sort((a, b) => a.order_num - b.order_num).map((c) => {
+              const isDragOver = dragOverCombinedId === c.id && dragCombinedId !== c.id
               return (
-                <div key={c.id} className="bg-white border border-gray-200 rounded-lg p-3">
+                <div
+                  key={c.id}
+                  draggable
+                  onDragStart={() => setDragCombinedId(c.id)}
+                  onDragOver={(e) => { e.preventDefault(); setDragOverCombinedId(c.id) }}
+                  onDrop={() => {
+                    if (dragCombinedId && dragCombinedId !== c.id) reorderCombined(dragCombinedId, c.id)
+                    setDragCombinedId(null); setDragOverCombinedId(null)
+                  }}
+                  onDragEnd={() => { setDragCombinedId(null); setDragOverCombinedId(null) }}
+                  className={`bg-white border rounded-lg p-3 cursor-grab active:cursor-grabbing transition-all ${isDragOver ? 'border-yellow-400 ring-1 ring-yellow-400' : 'border-gray-200'}`}
+                >
                   <div className="flex items-center gap-2 mb-2">
+                    <span className="text-gray-300 text-xs select-none">⠿</span>
                     <input
                       defaultValue={c.name}
                       onBlur={(e) => {
