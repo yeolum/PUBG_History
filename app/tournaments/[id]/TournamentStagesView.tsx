@@ -501,54 +501,53 @@ export default function TournamentStagesView({
                 <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
                   <h2 className="text-sm font-semibold text-gray-800">Special Awards</h2>
                 </div>
-                <div className="divide-y divide-gray-100">
+                <div className="p-3 space-y-3">
                   {groups.map((g) => (
                     <div key={g.category || '_uncategorized'}>
                       {g.category && (
-                        <div className="px-4 py-1.5 bg-yellow-50/40 border-b border-yellow-100">
-                          <span className="text-[11px] font-semibold uppercase tracking-wider text-yellow-700">{g.category}</span>
-                        </div>
+                        <p className="text-[11px] font-semibold uppercase tracking-wider text-yellow-700 mb-1.5 px-1">{g.category}</p>
                       )}
-                      <table className="w-full text-sm">
-                        <tbody>
-                          {g.items.map((award) => {
-                            const recipientNode = award.targetType === 'team'
-                              ? (award.teamName ? (
-                                  <div className="flex items-center gap-1.5 mt-0.5">
-                                    {award.teamLogoUrl ? (
-                                      // eslint-disable-next-line @next/next/no-img-element
-                                      <img src={award.teamLogoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
-                                    ) : (
-                                      <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />
-                                    )}
-                                    {award.teamId ? (
-                                      <Link href={`/teams/${award.teamId}`} className="text-xs text-gray-600 hover:text-yellow-600">{award.teamName}</Link>
-                                    ) : <span className="text-xs text-gray-600">{award.teamName}</span>}
-                                  </div>
-                                ) : null)
-                              : (award.playerName ? (
-                                  <div className="text-xs text-gray-600 mt-0.5">
-                                    {award.playerId ? (
-                                      <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
-                                    ) : award.playerName}
-                                  </div>
-                                ) : null)
-                            return (
-                              <tr key={award.id} className="border-b border-gray-50 last:border-0">
-                                <td className="px-3 py-2.5">
-                                  <div className="text-xs font-semibold text-yellow-700">{award.awardName}</div>
-                                  {recipientNode}
-                                </td>
-                                <td className="px-3 py-2.5 text-right">
-                                  {award.prize != null && <div className="text-xs font-medium text-gray-800">{formatPrize(award.prize, currency)}</div>}
-                                  {award.pgsPoints != null && <div className="text-xs text-gray-500">{award.pgsPoints} PGS</div>}
-                                  {award.pgcPoints != null && <div className="text-xs text-gray-500">{award.pgcPoints} PGC</div>}
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {g.items.map((award) => {
+                          const recipientNode = award.targetType === 'team'
+                            ? (award.teamName ? (
+                                <div className="flex items-center gap-1.5 min-w-0">
+                                  {award.teamLogoUrl ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={award.teamLogoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
+                                  ) : (
+                                    <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />
+                                  )}
+                                  {award.teamId ? (
+                                    <Link href={`/teams/${award.teamId}`} className="text-xs text-gray-700 hover:text-yellow-600 truncate">{award.teamName}</Link>
+                                  ) : <span className="text-xs text-gray-700 truncate">{award.teamName}</span>}
+                                </div>
+                              ) : <span className="text-xs text-gray-300">—</span>)
+                            : (award.playerName ? (
+                                <div className="text-xs text-gray-700 truncate">
+                                  {award.playerId ? (
+                                    <Link href={`/players/${award.playerId}`} className="hover:text-yellow-600">{award.playerName}</Link>
+                                  ) : award.playerName}
+                                </div>
+                              ) : <span className="text-xs text-gray-300">—</span>)
+                          return (
+                            <div
+                              key={award.id}
+                              className="bg-white border border-gray-200 rounded-lg px-3 py-2 flex flex-col gap-1 min-w-0"
+                            >
+                              <div className="text-[11px] font-semibold text-yellow-700 truncate" title={award.awardName}>{award.awardName}</div>
+                              {recipientNode}
+                              {(award.prize != null || award.pgsPoints != null || award.pgcPoints != null) && (
+                                <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0 mt-0.5 text-[11px]">
+                                  {award.prize != null && <span className="font-medium text-gray-800">{formatPrize(award.prize, currency)}</span>}
+                                  {award.pgsPoints != null && <span className="text-gray-500">{award.pgsPoints} PGS</span>}
+                                  {award.pgcPoints != null && <span className="text-gray-500">{award.pgcPoints} PGC</span>}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
                     </div>
                   ))}
                 </div>
