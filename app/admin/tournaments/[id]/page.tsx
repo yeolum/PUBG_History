@@ -113,7 +113,7 @@ export default function AdminTournamentDetailPage() {
   const [tabOrderDragOverId, setTabOrderDragOverId] = useState<string | null>(null)
   const [savingTabOrder, setSavingTabOrder] = useState(false)
 
-  type RosterTeam = { team_id: string; name: string; short_name: string | null; logo_url: string | null; disqualified: boolean }
+  type RosterTeam = { team_id: string; name: string; display_name: string | null; short_name: string | null; logo_url: string | null; disqualified: boolean }
   type RosterPlayer = { player_id: string; nickname: string; team_id: string | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
@@ -173,7 +173,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*').eq('tournament_id', id).order('order_num'),
-      supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
+      supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, advance_count, eliminate_count').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
@@ -358,11 +358,12 @@ export default function AdminTournamentDetailPage() {
       .map((r) => ({
         team_id: r.team_id as string,
         name: r.teams?.name ?? '?',
+        display_name: (r.display_name as string | null) ?? null,
         short_name: (r.teams?.short_name as string | null) ?? null,
         logo_url: (r.teams?.logo_url as string | null) ?? null,
         disqualified: !!r.disqualified,
       }))
-      .sort((a, b) => a.name.localeCompare(b.name)))
+      .sort((a, b) => (a.display_name ?? a.name).localeCompare(b.display_name ?? b.name)))
 
     // Build name → distinct player_ids map across all players + aliases
     const nameToPlayerIds = new Map<string, Set<string>>()
@@ -1160,7 +1161,12 @@ export default function AdminTournamentDetailPage() {
                       ) : (
                         <span className="w-4 h-4 rounded-full bg-gray-200 shrink-0" />
                       )}
-                      <span className={`font-medium truncate ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{rt.name}</span>
+                      <span
+                        className={`font-medium truncate ${rt.disqualified ? 'text-gray-400 line-through' : 'text-gray-800'}`}
+                        title={rt.display_name && rt.display_name !== rt.name ? `Tournament label: ${rt.display_name}\nGlobal team name: ${rt.name}` : undefined}
+                      >
+                        {rt.display_name ?? rt.name}
+                      </span>
                       <span className="text-gray-400 ml-auto shrink-0">{teamPlayers.length}</span>
                       {teamHasWarning && <span className="text-amber-600 text-[10px] font-bold shrink-0">⚠</span>}
                     </button>

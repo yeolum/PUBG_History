@@ -72,7 +72,7 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_special_awards').select('*, players(id, nickname)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
-      supabase.from('tournament_teams').select('team_id, disqualified, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
+      supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
@@ -199,7 +199,21 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
   }
 
-  function resolveTeamName(pubgName: string | null, teamsName: string | null, displayName: string | null): string {
+  // Per-tournament display_name override (tournament_teams.display_name) — set
+  // by Bulk Add Teams so the public participants list / scoreboard show the
+  // period-correct label even after the team's global teams.name is renamed.
+  const teamTournamentDisplayName = new Map<string, string>()
+  for (const tt of (rosterTeamsData ?? []) as AnyRow[]) {
+    const tid = tt.team_id as string | null
+    const dn = tt.display_name as string | null
+    if (tid && dn) teamTournamentDisplayName.set(tid, dn)
+  }
+
+  function resolveTeamName(pubgName: string | null, teamsName: string | null, displayName: string | null, teamId: string | null = null): string {
+    if (teamId) {
+      const ttDisplay = teamTournamentDisplayName.get(teamId)
+      if (ttDisplay) return ttDisplay
+    }
     if (displayName) return displayName
     const key = (pubgName ?? '').toLowerCase()
     return aliasTagToName.get(key) ?? teamsName ?? stripTagPrefix(pubgName ?? '?')
@@ -208,7 +222,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
   // Assign _resolvedName on team results (must be before player stats building)
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
-      r._resolvedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
+      r._resolvedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name, r.team_id ?? null)
     }
   }
 
@@ -218,7 +232,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
       if (!effectiveId || !r.pubg_team_name) continue
       const aliasLogo = aliasLogoLookup[`${effectiveId}:${r.pubg_team_name}`]
       if (!aliasLogo) continue
-      const displayedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
+      const displayedName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name, r.team_id ?? null)
       const displayKey = `${effectiveId}:${displayedName}`
       if (!(displayKey in aliasLogoLookup)) aliasLogoLookup[displayKey] = aliasLogo
     }
@@ -298,7 +312,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     for (const r of rows as AnyRow[]) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
       if (!teamStatsMap.has(key)) {
-        const tName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
+        const tName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name, r.team_id ?? null)
         teamStatsMap.set(key, {
           teamId: r.team_id ?? null,
           teamName: tName,
@@ -323,7 +337,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     for (const r of rows as AnyRow[]) {
       const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
       if (!effectiveId || teamRosterMap.has(effectiveId)) continue
-      const displayName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name)
+      const displayName = resolveTeamName(r.pubg_team_name, r.teams?.name ?? null, r.display_name, r.team_id ?? null)
       const resolvedLogo = aliasLogoLookup[`${effectiveId}:${displayName}`] ?? aliasLogoLookup[`${effectiveId}:`] ?? null
       teamRosterMap.set(effectiveId, { name: displayName, logo_url: resolvedLogo, players: new Map() })
     }

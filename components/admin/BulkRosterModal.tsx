@@ -83,6 +83,8 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [pickerForIdx, setPickerForIdx] = useState<number | null>(null)
+  const [aliasPickerForIdx, setAliasPickerForIdx] = useState<number | null>(null)
+  const [registeringIdx, setRegisteringIdx] = useState<number | null>(null)
 
   async function findMatches() {
     const inputs = parseLines(text)
@@ -225,7 +227,10 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
     const idCol = kind === 'team' ? 'team_id' : 'player_id'
     let insertRows: Record<string, string | null>[]
     if (kind === 'team') {
-      insertRows = toSave.map((r) => ({ tournament_id: tournamentId, team_id: r.candidate!.id }))
+      // Freeze the bulk-typed input as the per-tournament display_name so the
+      // participants list keeps showing the period-correct team label even if
+      // the team's global teams.name is later renamed.
+      insertRows = toSave.map((r) => ({ tournament_id: tournamentId, team_id: r.candidate!.id, display_name: r.input }))
     } else {
       // Pin every saved player to the team that opened this picker. If no team
       // was specified (legacy call), fall back to the player's current global
@@ -246,6 +251,80 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
     if (error) { setErr('Save failed: ' + error.message); return }
     onSaved()
     onClose()
+  }
+
+  // Create a brand-new player from an unmatched row's input, then mark the row
+  // matched so saveAll picks it up like a normal match.
+  async function registerUnmatchedPlayer(idx: number) {
+    if (kind !== 'player') return
+    const row = rows[idx]
+    if (!row || row.candidate) return
+    setRegisteringIdx(idx)
+    setErr('')
+    try {
+      const res = await fetch('/api/admin/players', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ nickname: row.input }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setErr(`Register failed for "${row.input}": ${json.error ?? res.status}`)
+        return
+      }
+      const newPlayer = json.data as { id: string; nickname: string; teams?: { name: string | null } | null; nationality_code?: string | null }
+      const newCand: Candidate = {
+        id: newPlayer.id,
+        label: newPlayer.nickname,
+        sublabel: newPlayer.teams?.name ?? null,
+        nationalityCode: newPlayer.nationality_code ?? null,
+        teamId: null,
+      }
+      setRows((rs) => rs.map((r, j) => j === idx
+        ? { ...r, candidate: newCand, status: 'matched', alternatives: [] }
+        : r
+      ))
+    } finally {
+      setRegisteringIdx(null)
+    }
+  }
+
+  // Attach the unmatched input as an alias to an existing player the admin
+  // picks. Useful when a player simply renamed — keep their stats history.
+  async function addAliasToExisting(idx: number, playerId: string, playerName: string) {
+    const row = rows[idx]
+    if (!row) return
+    setBusy(true)
+    setErr('')
+    try {
+      const { error: aliasErr } = await supabase.from('player_aliases').upsert(
+        [{ player_id: playerId, alias: row.input }],
+        { onConflict: 'alias', ignoreDuplicates: true },
+      )
+      if (aliasErr) {
+        setErr(`Alias failed for "${row.input}": ${aliasErr.message}`)
+        return
+      }
+      // Snapshot the picked player's current global team_id so saveAll can pin it.
+      const { data } = await supabase.from('players').select('team_id, teams(name), nationality_code').eq('id', playerId).single()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const teamId = ((data as any)?.team_id as string | null) ?? null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const teamName = ((data as any)?.teams?.name as string | null) ?? null
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const natCode = ((data as any)?.nationality_code as string | null) ?? null
+      setRows((rs) => rs.map((r, j) => j === idx
+        ? {
+            ...r,
+            candidate: { id: playerId, label: playerName, sublabel: teamName, nationalityCode: natCode, teamId },
+            status: 'matched',
+            alternatives: [],
+          }
+        : r
+      ))
+    } finally {
+      setBusy(false)
+    }
   }
 
   const matchedCount = rows.filter((r) => r.candidate && !existingIds.has(r.candidate.id)).length
@@ -328,18 +407,40 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
                             )}
                           </td>
                           <td className="px-2 py-1.5 text-right align-middle">
-                            <button
-                              onClick={() => setPickerForIdx(i)}
-                              className="text-xs text-blue-500 hover:text-blue-700 mr-2"
-                            >
-                              {r.candidate ? 'Change' : 'Pick'}
-                            </button>
-                            <button
-                              onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
-                              className="text-xs text-gray-300 hover:text-red-400"
-                            >
-                              ✕
-                            </button>
+                            <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                              {!r.candidate && kind === 'player' && (
+                                <>
+                                  <button
+                                    onClick={() => registerUnmatchedPlayer(i)}
+                                    disabled={registeringIdx === i || busy}
+                                    title={`Create a new player "${r.input}" and link it to this row`}
+                                    className="text-[11px] bg-yellow-50 text-yellow-700 border border-yellow-200 hover:bg-yellow-100 disabled:opacity-50 rounded px-1.5 py-0.5"
+                                  >
+                                    {registeringIdx === i ? '...' : '+ Register'}
+                                  </button>
+                                  <button
+                                    onClick={() => setAliasPickerForIdx(i)}
+                                    disabled={busy}
+                                    title={`Attach "${r.input}" as an alias to an existing player (renamed nick)`}
+                                    className="text-[11px] bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 disabled:opacity-50 rounded px-1.5 py-0.5"
+                                  >
+                                    ≡ Alias to…
+                                  </button>
+                                </>
+                              )}
+                              <button
+                                onClick={() => setPickerForIdx(i)}
+                                className="text-xs text-blue-500 hover:text-blue-700"
+                              >
+                                {r.candidate ? 'Change' : 'Pick'}
+                              </button>
+                              <button
+                                onClick={() => setRows((rs) => rs.filter((_, j) => j !== i))}
+                                className="text-xs text-gray-300 hover:text-red-400"
+                              >
+                                ✕
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       )
@@ -402,6 +503,18 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
             setPickerForIdx(null)
           }}
           onClose={() => setPickerForIdx(null)}
+        />
+      )}
+      {aliasPickerForIdx !== null && (
+        <SearchModal
+          type="player"
+          targetName={rows[aliasPickerForIdx]?.input ?? ''}
+          onConfirm={async (playerId, playerName) => {
+            const idx = aliasPickerForIdx
+            setAliasPickerForIdx(null)
+            await addAliasToExisting(idx, playerId, playerName)
+          }}
+          onClose={() => setAliasPickerForIdx(null)}
         />
       )}
     </>

@@ -550,3 +550,13 @@ WHERE tab_order = 0;
 
 ALTER TABLE combined_scoreboards ADD COLUMN IF NOT EXISTS advance_count   INT;
 ALTER TABLE combined_scoreboards ADD COLUMN IF NOT EXISTS eliminate_count INT;
+
+-- =====================================================
+-- Migration: Per-tournament team display name
+-- The team's global teams.name may have been renamed since the tournament
+-- (e.g. roster sale, rebrand). tournament_teams.display_name lets each
+-- tournament freeze the name used in its participants list / scoreboard
+-- so admin and public both show the same, period-correct label.
+-- =====================================================
+
+ALTER TABLE tournament_teams ADD COLUMN IF NOT EXISTS display_name TEXT;
