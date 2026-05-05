@@ -29,6 +29,30 @@ function navPrize(e: React.KeyboardEvent, rowIdx: number, colIdx: number) {
   el?.focus()
 }
 
+// Arrow-key cell navigation for any of the secondary tables (stage prizes,
+// WWCD rewards, special awards). Each table tags its inputs with a unique
+// `table` attribute so arrows don't jump between tables. ArrowLeft/Right
+// only steal focus when the caret is at a boundary, so caret movement
+// inside multi-character text inputs still works.
+function navTable(table: string, e: React.KeyboardEvent<HTMLInputElement | HTMLSelectElement>, rowIdx: number, colIdx: number) {
+  const t = e.currentTarget
+  let dx = 0, dy = 0
+  if (e.key === 'ArrowUp') dy = -1
+  else if (e.key === 'ArrowDown') dy = 1
+  else if (e.key === 'ArrowLeft') {
+    if (t instanceof HTMLInputElement && t.selectionStart !== 0) return
+    dx = -1
+  } else if (e.key === 'ArrowRight') {
+    if (t instanceof HTMLInputElement && t.selectionStart !== t.value.length) return
+    dx = 1
+  } else return
+  e.preventDefault()
+  const el = document.querySelector<HTMLElement>(
+    `[data-nav-table="${table}"][data-nav-row="${rowIdx + dy}"][data-nav-col="${colIdx + dx}"]`,
+  )
+  el?.focus()
+}
+
 function numberToInput(stored: number | string | null | undefined): string {
   if (stored == null || stored === '') return ''
   const n = typeof stored === 'number' ? stored : Number(stored)
@@ -2210,6 +2234,8 @@ export default function AdminTournamentDetailPage() {
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
                               value={row.prize}
+                              data-nav-table="stage-prize" data-nav-row={i} data-nav-col={0}
+                              onKeyDown={(e) => navTable('stage-prize', e, i, 0)}
                               onChange={(e) => setStagePrizeMap((m) => ({
                                 ...m,
                                 [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r),
@@ -2225,6 +2251,8 @@ export default function AdminTournamentDetailPage() {
                           <input
                             type="number"
                             value={row.pgs}
+                            data-nav-table="stage-prize" data-nav-row={i} data-nav-col={1}
+                            onKeyDown={(e) => navTable('stage-prize', e, i, 1)}
                             onChange={(e) => setStagePrizeMap((m) => ({
                               ...m,
                               [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, pgs: e.target.value } : r),
@@ -2239,6 +2267,8 @@ export default function AdminTournamentDetailPage() {
                           <input
                             type="number"
                             value={row.pgc}
+                            data-nav-table="stage-prize" data-nav-row={i} data-nav-col={2}
+                            onKeyDown={(e) => navTable('stage-prize', e, i, 2)}
                             onChange={(e) => setStagePrizeMap((m) => ({
                               ...m,
                               [selectedStagePrizeId]: m[selectedStagePrizeId].map((r, j) => j === i ? { ...r, pgc: e.target.value } : r),
@@ -2291,6 +2321,8 @@ export default function AdminTournamentDetailPage() {
                       <td className="px-3 py-1">
                         <select
                           value={row.targetKey}
+                          data-nav-table="wwcd" data-nav-row={i} data-nav-col={0}
+                          onKeyDown={(e) => navTable('wwcd', e, i, 0)}
                           onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, targetKey: e.target.value } : r))}
                           className="w-52 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
                         >
@@ -2313,6 +2345,8 @@ export default function AdminTournamentDetailPage() {
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
                               value={row.prize}
+                              data-nav-table="wwcd" data-nav-row={i} data-nav-col={1}
+                              onKeyDown={(e) => navTable('wwcd', e, i, 1)}
                               onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r))}
                               placeholder="0"
                               className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2325,6 +2359,8 @@ export default function AdminTournamentDetailPage() {
                           <input
                             type="number"
                             value={row.pgs}
+                            data-nav-table="wwcd" data-nav-row={i} data-nav-col={2}
+                            onKeyDown={(e) => navTable('wwcd', e, i, 2)}
                             onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
                             placeholder="0"
                             className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2336,6 +2372,8 @@ export default function AdminTournamentDetailPage() {
                           <input
                             type="number"
                             value={row.pgc}
+                            data-nav-table="wwcd" data-nav-row={i} data-nav-col={3}
+                            onKeyDown={(e) => navTable('wwcd', e, i, 3)}
                             onChange={(e) => setWwcdRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
                             placeholder="0"
                             className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2402,6 +2440,8 @@ export default function AdminTournamentDetailPage() {
                       <td className="px-3 py-1">
                         <input
                           value={row.category}
+                          data-nav-table="special" data-nav-row={i} data-nav-col={0}
+                          onKeyDown={(e) => navTable('special', e, i, 0)}
                           onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, category: e.target.value } : r))}
                           placeholder="e.g. Awards"
                           className="w-32 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2410,6 +2450,8 @@ export default function AdminTournamentDetailPage() {
                       <td className="px-3 py-1">
                         <input
                           value={row.awardName}
+                          data-nav-table="special" data-nav-row={i} data-nav-col={1}
+                          onKeyDown={(e) => navTable('special', e, i, 1)}
                           onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, awardName: e.target.value } : r))}
                           placeholder="e.g. MVP"
                           className="w-36 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2418,6 +2460,8 @@ export default function AdminTournamentDetailPage() {
                       <td className="px-3 py-1">
                         <select
                           value={row.targetType}
+                          data-nav-table="special" data-nav-row={i} data-nav-col={2}
+                          onKeyDown={(e) => navTable('special', e, i, 2)}
                           onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, targetType: e.target.value as 'player' | 'team' } : r))}
                           className="border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 bg-white"
                         >
@@ -2476,6 +2520,8 @@ export default function AdminTournamentDetailPage() {
                             <span className="text-xs text-gray-400">{currencySymbol(prizeCurrency)}</span>
                             <input
                               value={row.prize}
+                              data-nav-table="special" data-nav-row={i} data-nav-col={3}
+                              onKeyDown={(e) => navTable('special', e, i, 3)}
                               onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, prize: fmtNumberInput(e.target.value) } : r))}
                               placeholder="0"
                               className="text-right w-28 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2488,6 +2534,8 @@ export default function AdminTournamentDetailPage() {
                           <input
                             type="number"
                             value={row.pgs}
+                            data-nav-table="special" data-nav-row={i} data-nav-col={4}
+                            onKeyDown={(e) => navTable('special', e, i, 4)}
                             onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, pgs: e.target.value } : r))}
                             placeholder="0"
                             className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2499,6 +2547,8 @@ export default function AdminTournamentDetailPage() {
                           <input
                             type="number"
                             value={row.pgc}
+                            data-nav-table="special" data-nav-row={i} data-nav-col={5}
+                            onKeyDown={(e) => navTable('special', e, i, 5)}
                             onChange={(e) => setSpecialRows((rows) => rows.map((r, j) => j === i ? { ...r, pgc: e.target.value } : r))}
                             placeholder="0"
                             className="text-right w-24 border border-gray-200 rounded px-2 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
@@ -2572,23 +2622,32 @@ export default function AdminTournamentDetailPage() {
         />
       )}
 
-      {awardPlayerLinkIdx !== null && (
-        <SearchModal
-          type={awardPlayerLinkIdx.type}
-          targetName={specialRows[awardPlayerLinkIdx.idx]?.awardName || 'Award'}
-          onConfirm={(entityId, entityName) => {
-            const { idx, type } = awardPlayerLinkIdx
-            setSpecialRows((rows) => rows.map((r, j) => j === idx
-              ? type === 'player'
-                ? { ...r, playerId: entityId, playerDisplayName: entityName }
-                : { ...r, teamId: entityId, teamDisplayName: entityName }
-              : r
-            ))
-            setAwardPlayerLinkIdx(null)
-          }}
-          onClose={() => setAwardPlayerLinkIdx(null)}
-        />
-      )}
+      {awardPlayerLinkIdx !== null && (() => {
+        // Only allow picking from this tournament's pre-registered participants.
+        const teamNameById = new Map(rosterTeams.map((rt) => [rt.team_id, rt.display_name ?? rt.name]))
+        const restrict = awardPlayerLinkIdx.type === 'team'
+          ? rosterTeams.map((rt) => ({ id: rt.team_id, label: rt.display_name ?? rt.name, sublabel: rt.short_name ?? undefined }))
+          : rosterPlayers.map((rp) => ({ id: rp.player_id, label: rp.nickname, sublabel: rp.team_id ? teamNameById.get(rp.team_id) ?? undefined : undefined }))
+        return (
+          <SearchModal
+            type={awardPlayerLinkIdx.type}
+            targetName={specialRows[awardPlayerLinkIdx.idx]?.awardName || 'Award'}
+            subtext="Restricted to this tournament's participants — register more in the Participants section."
+            restrictTo={restrict}
+            onConfirm={(entityId, entityName) => {
+              const { idx, type } = awardPlayerLinkIdx
+              setSpecialRows((rows) => rows.map((r, j) => j === idx
+                ? type === 'player'
+                  ? { ...r, playerId: entityId, playerDisplayName: entityName }
+                  : { ...r, teamId: entityId, teamDisplayName: entityName }
+                : r
+              ))
+              setAwardPlayerLinkIdx(null)
+            }}
+            onClose={() => setAwardPlayerLinkIdx(null)}
+          />
+        )
+      })()}
 
       {linkModal?.phase === 1 && (
         <SearchModal

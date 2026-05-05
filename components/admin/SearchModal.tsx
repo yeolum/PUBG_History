@@ -14,11 +14,14 @@ interface SearchModalProps {
   type: 'team' | 'player'
   targetName: string
   subtext?: string
+  // When provided, the picker only matches against this list (no DB query) —
+  // useful for restricting to the tournament's pre-registered participants.
+  restrictTo?: SearchResult[]
   onConfirm: (id: string, name: string) => void
   onClose: () => void
 }
 
-export default function SearchModal({ type, targetName, subtext, onConfirm, onClose }: SearchModalProps) {
+export default function SearchModal({ type, targetName, subtext, restrictTo, onConfirm, onClose }: SearchModalProps) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
   const [loading, setLoading] = useState(false)
@@ -26,7 +29,31 @@ export default function SearchModal({ type, targetName, subtext, onConfirm, onCl
 
   useEffect(() => {
     const search = async () => {
-      if (query.trim().length < 1) { setResults([]); return }
+      const trimmed = query.trim()
+      // restrictTo mode: pure client-side filter; show full list when empty.
+      if (restrictTo) {
+        const q = trimmed.toLowerCase()
+        const filtered = q
+          ? restrictTo.filter((r) =>
+              r.label.toLowerCase().includes(q) ||
+              (r.sublabel ?? '').toLowerCase().includes(q),
+            )
+          : [...restrictTo]
+        const rank = (label: string) => {
+          if (!q) return 0
+          const l = label.toLowerCase()
+          if (l === q) return 0
+          if (l.startsWith(q)) return 1
+          return 2
+        }
+        filtered.sort((a, b) => {
+          const diff = rank(a.label) - rank(b.label)
+          return diff !== 0 ? diff : a.label.localeCompare(b.label)
+        })
+        setResults(filtered.slice(0, 30))
+        return
+      }
+      if (trimmed.length < 1) { setResults([]); return }
       setLoading(true)
       try {
         let raw: SearchResult[] = []
@@ -68,9 +95,9 @@ export default function SearchModal({ type, targetName, subtext, onConfirm, onCl
         setLoading(false)
       }
     }
-    const t = setTimeout(search, 300)
+    const t = setTimeout(search, restrictTo ? 0 : 300)
     return () => clearTimeout(t)
-  }, [query, type, supabase])
+  }, [query, type, supabase, restrictTo])
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={onClose}>
