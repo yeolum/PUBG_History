@@ -111,6 +111,7 @@ export default function AdminPlayersPage() {
   const [mergeModal, setMergeModal] = useState<{ fromId: string; fromName: string } | null>(null)
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(50)
+  const [syncingTeams, setSyncingTeams] = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -245,6 +246,24 @@ export default function AdminPlayersPage() {
     setTeamModal(null)
   }
 
+  async function syncCurrentTeams() {
+    const year = new Date().getFullYear()
+    if (!confirm(`Look at every ${year} tournament, set each player's current team to the one they used in their most recent ${year} tournament, and clear the team for players with no ${year} participation. Continue?`)) return
+    setSyncingTeams(true)
+    try {
+      const res = await fetch('/api/admin/players/sync-current-teams', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) {
+        alert('Sync failed: ' + (json.error ?? res.status))
+        return
+      }
+      alert(`Synced ${year}: ${json.assigned} reassigned, ${json.cleared} cleared, ${json.unchanged} unchanged (across ${json.tournaments} tournaments).`)
+      load()
+    } finally {
+      setSyncingTeams(false)
+    }
+  }
+
   async function mergePlayer(targetId: string, targetName: string) {
     if (!mergeModal) return
     const fromId = mergeModal.fromId
@@ -283,6 +302,11 @@ export default function AdminPlayersPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">Player Management</h1>
         <div className="flex gap-2">
+          <button onClick={syncCurrentTeams} disabled={syncingTeams}
+            className="border border-gray-300 hover:bg-gray-50 disabled:opacity-50 text-gray-700 font-medium text-sm px-4 py-2 rounded-lg"
+            title={`Set each player's current team from their most recent ${new Date().getFullYear()} tournament participation`}>
+            {syncingTeams ? 'Syncing…' : `Sync Teams from ${new Date().getFullYear()} Tournaments`}
+          </button>
           <button onClick={() => setCsvModal(true)}
             className="border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium text-sm px-4 py-2 rounded-lg">
             CSV Import
