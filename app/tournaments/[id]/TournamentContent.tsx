@@ -256,9 +256,6 @@ export default async function TournamentContent({ id, tournament }: { id: string
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
     damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
 
-    // Skip excluded-from-total stages for the overall player stats aggregation
-    if (excludedFromTotalMatchIds.has(row.match_id as string)) continue
-
     const resolvedPlayerId: string | null =
       row.player_id ??
       nameToPlayerIdLocal.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
@@ -275,24 +272,28 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const logoUrl = row.team_id ? resolveLogoUrl(row.team_id, teamName, aliasLogoLookup) : null
 
     const key = resolvedPlayerId ?? `pubg:${pubgPlayerName}`
-    if (!playerStatsMap.has(key)) {
-      playerStatsMap.set(key, {
-        playerId: resolvedPlayerId,
-        nickname,
-        teamId: row.team_id ?? null,
-        teamName,
-        logoUrl,
-        games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
-      })
+
+    // Only fold into total player stats for ON stages; per-match display always populated
+    if (!excludedFromTotalMatchIds.has(row.match_id as string)) {
+      if (!playerStatsMap.has(key)) {
+        playerStatsMap.set(key, {
+          playerId: resolvedPlayerId,
+          nickname,
+          teamId: row.team_id ?? null,
+          teamName,
+          logoUrl,
+          games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+        })
+      }
+      const e = playerStatsMap.get(key)!
+      e.games++
+      e.kills += row.kills ?? 0
+      e.assists += row.assists ?? 0
+      e.knocks += row.knocks ?? 0
+      e.headshotKills += row.headshot_kills ?? 0
+      e.damage += Number(row.damage_dealt ?? 0)
+      e.survivalTime += row.survival_time ?? 0
     }
-    const e = playerStatsMap.get(key)!
-    e.games++
-    e.kills += row.kills ?? 0
-    e.assists += row.assists ?? 0
-    e.knocks += row.knocks ?? 0
-    e.headshotKills += row.headshot_kills ?? 0
-    e.damage += Number(row.damage_dealt ?? 0)
-    e.survivalTime += row.survival_time ?? 0
 
     if (!seenPerMatch[row.match_id]) seenPerMatch[row.match_id] = new Set()
     if (seenPerMatch[row.match_id].has(key)) continue

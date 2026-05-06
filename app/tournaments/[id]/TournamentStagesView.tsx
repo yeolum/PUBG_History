@@ -96,10 +96,20 @@ export default function TournamentStagesView({
     return map
   }, [stages])
 
+  // Match IDs from stages excluded from totals (include_in_total === false)
+  const excludedMatchIds = useMemo(
+    () => new Set(
+      stages
+        .filter(s => (s as AnyObj).include_in_total === false)
+        .flatMap(s => s.matches.map(m => m.id))
+    ),
+    [stages]
+  )
+
   // Series combined standings (when series selected, no stage drilled)
   const seriesStandings = useMemo(() => {
     if (!selectedSeriesId || selectedStageId) return []
-    const seriesStages = stages.filter(s => s.series_id === selectedSeriesId)
+    const seriesStages = stages.filter(s => s.series_id === selectedSeriesId && (s as AnyObj).include_in_total !== false)
     const seriesMatchIds = new Set(seriesStages.flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id)))
     const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; matches: number; wwcd: number }>()
     for (const [matchId, results] of Object.entries(resultsByMatch)) {
@@ -127,7 +137,7 @@ export default function TournamentStagesView({
       }
     }
     return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
-  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule, stageAdditionalPts])
+  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule, stageAdditionalPts, excludedMatchIds])
 
   // Per-match results for series view
   const seriesMatchResults = useMemo(() => {
@@ -165,10 +175,11 @@ export default function TournamentStagesView({
     [selectedSeriesId, selectedStageId, stages]
   )
 
-  // Tournament-wide team stats for the initial Final Standings view
+  // Tournament-wide team stats for the initial Final Standings view (excludes OFF stages)
   const overallStandingsMap = useMemo(() => {
     const map = new Map<string, { matches: number; wwcd: number; placePts: number; kills: number; totalPts: number }>()
     for (const [matchId, results] of Object.entries(resultsByMatch)) {
+      if (excludedMatchIds.has(matchId)) continue
       const rule = matchToRule.get(matchId)
       if (!rule) continue
       for (const r of results as AnyObj[]) {
@@ -184,7 +195,7 @@ export default function TournamentStagesView({
       }
     }
     return map
-  }, [resultsByMatch, matchToRule])
+  }, [resultsByMatch, matchToRule, excludedMatchIds])
 
   if (stages.length === 0) {
     return (
