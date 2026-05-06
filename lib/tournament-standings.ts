@@ -322,7 +322,15 @@ export const getTournamentFinalStandings = unstable_cache(
         }
       }
     } else {
-      // 'prize' / 'pgs' / 'pgc' — sort all teams by accumulated bonus
+      // 'prize' / 'pgs' / 'pgc' — sort all teams by accumulated bonus.
+      // Tiebreaker order (PGS rules):
+      //   1. total PGS/prize/PGC points  (desc)
+      //   2. total match points (placement + kills, all stages)  (desc)
+      //   3. total placement points only  (desc)
+      //   4. total kills  (desc)
+      //   5. last stage's rank  (asc — lower rank number = better)
+
+      // placement points per team across all stages
       const placePtsByTeamId: Record<string, number> = {}
       for (const standings of stageStandingsMap.values()) {
         for (const e of standings) {
@@ -330,6 +338,35 @@ export const getTournamentFinalStandings = unstable_cache(
           placePtsByTeamId[e.teamId] = (placePtsByTeamId[e.teamId] ?? 0) + e.placePts
         }
       }
+
+      // total match points (placement + kills) per team across all stages
+      const totalMatchPtsByTeamId: Record<string, number> = {}
+      for (const standings of stageStandingsMap.values()) {
+        for (const e of standings) {
+          if (!e.teamId) continue
+          totalMatchPtsByTeamId[e.teamId] = (totalMatchPtsByTeamId[e.teamId] ?? 0) + e.totalPts
+        }
+      }
+
+      // total kills per team from raw match results
+      const totalKillsByTeamId: Record<string, number> = {}
+      for (const r of trData) {
+        if (!r.team_id) continue
+        totalKillsByTeamId[r.team_id as string] = (totalKillsByTeamId[r.team_id as string] ?? 0) + ((r.total_kills as number) ?? 0)
+      }
+
+      // last stage that has at least one imported match (by order_num)
+      const lastStageWithMatches = [...stagesList].reverse().find(
+        (s) => (s.matches ?? []).some((m: AnyRow) => m.status === 'imported')
+      )
+      const lastStageStandings = lastStageWithMatches
+        ? (stageStandingsMap.get(lastStageWithMatches.id as string) ?? [])
+        : []
+      const lastStageRankByTeamId: Record<string, number> = {}
+      lastStageStandings.forEach((e, i) => {
+        if (e.teamId) lastStageRankByTeamId[e.teamId] = i + 1
+      })
+
       // Enumerate every team that ever played
       const teamSet = new Map<string, { teamId: string | null; teamName: string }>()
       for (const rs of resultsByMatch.values()) {
@@ -341,6 +378,7 @@ export const getTournamentFinalStandings = unstable_cache(
           })
         }
       }
+
       const teamList = [...teamSet.values()].map((ts) => {
         const bonus = ts.teamId ? wwcdBonusByTeamId[ts.teamId] ?? null : null
         const total = bonus
@@ -348,12 +386,23 @@ export const getTournamentFinalStandings = unstable_cache(
             : rankMethod === 'pgs' ? bonus.pgs
             : bonus.pgc
           : 0
-        const placePts = ts.teamId ? (placePtsByTeamId[ts.teamId] ?? 0) : 0
-        return { teamId: ts.teamId, total, placePts }
+        const id = ts.teamId
+        return {
+          teamId: id,
+          total,
+          totalMatchPts: id ? (totalMatchPtsByTeamId[id] ?? 0) : 0,
+          placePts:      id ? (placePtsByTeamId[id] ?? 0) : 0,
+          totalKills:    id ? (totalKillsByTeamId[id] ?? 0) : 0,
+          lastStageRank: id ? (lastStageRankByTeamId[id] ?? 999) : 999,
+        }
       })
+
       teamList.sort((a, b) => {
-        if (b.total !== a.total) return b.total - a.total
-        return b.placePts - a.placePts
+        if (b.total !== a.total)            return b.total - a.total             // 1. PGS/prize/PGC
+        if (b.totalMatchPts !== a.totalMatchPts) return b.totalMatchPts - a.totalMatchPts  // 2. total points
+        if (b.placePts !== a.placePts)      return b.placePts - a.placePts       // 3. placement points
+        if (b.totalKills !== a.totalKills)  return b.totalKills - a.totalKills   // 4. kills
+        return a.lastStageRank - b.lastStageRank                                 // 5. last stage rank
       })
       teamList.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId }))
     }
