@@ -436,7 +436,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     .sort((a, b) => a.name.localeCompare(b.name))
 
   // Per-stage standings → rank board (excludes stages with include_in_total === false)
-  type StandingsEntry = { teamId: string | null; teamName: string; placePts: number }
+  type StandingsEntry = { teamId: string | null; teamName: string; totalPts: number; placePts: number }
   const stageStandingsMap = new Map<string, StandingsEntry[]>()
   for (const stage of stagesList) {
     if ((stage as AnyRow).include_in_total === false) continue
@@ -715,17 +715,48 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   // Prize/PGS/PGC ranking — build rankBoard now that wwcdBonusByTeamId is complete
   if (rankMethod !== 'stage') {
-    // Tiebreaker (SUPER v2): sum of placement pts across all stages
+    // Cumulative per-stage point totals for tiebreakers
+    const totalPtsByTeamId: Record<string, number> = {}
     const placePtsByTeamId: Record<string, number> = {}
+    const killPtsByTeamId: Record<string, number> = {}
     for (const standings of stageStandingsMap.values()) {
       for (const e of standings) {
         if (!e.teamId) continue
+        totalPtsByTeamId[e.teamId] = (totalPtsByTeamId[e.teamId] ?? 0) + e.totalPts
         placePtsByTeamId[e.teamId] = (placePtsByTeamId[e.teamId] ?? 0) + e.placePts
+        killPtsByTeamId[e.teamId] = (killPtsByTeamId[e.teamId] ?? 0) + (e.totalPts - e.placePts)
+      }
+    }
+
+    // Find the last imported match across all ON stages (by stage order, then match order)
+    let lastMatchId: string | null = null
+    for (let si = stagesList.length - 1; si >= 0; si--) {
+      const stage = stagesList[si]
+      if ((stage as AnyRow).include_in_total === false) continue
+      const importedMatches = stage.matches
+        .filter(m => m.status === 'imported')
+        .sort((a, b) => b.order_num - a.order_num)
+      if (importedMatches.length > 0) {
+        lastMatchId = importedMatches[0].id
+        break
+      }
+    }
+    const lastMatchTotalPts: Record<string, number> = {}
+    const lastMatchPlacement: Record<string, number> = {}
+    if (lastMatchId) {
+      const rule = matchToRule.get(lastMatchId) ?? ruleFromStage(null)
+      for (const r of (resultsByMatch[lastMatchId] ?? []) as AnyRow[]) {
+        const teamId = r.team_id as string | null
+        if (!teamId) continue
+        const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
+        const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+        lastMatchTotalPts[teamId] = pp + kp
+        lastMatchPlacement[teamId] = r.placement ?? 99
       }
     }
 
     const seen = new Set<string>()
-    const teamList: { teamId: string | null; teamName: string; total: number; placePts: number }[] = []
+    const teamList: { teamId: string | null; teamName: string; total: number }[] = []
     for (const ts of teamStatsMap.values()) {
       const key = ts.teamId ?? `name:${ts.teamName}`
       if (seen.has(key)) continue
@@ -736,12 +767,31 @@ export default async function TournamentContent({ id, tournament }: { id: string
           : rankMethod === 'pgs' ? bonus.pgs
           : bonus.pgc
         : 0
-      const placePts = ts.teamId ? (placePtsByTeamId[ts.teamId] ?? 0) : 0
-      teamList.push({ teamId: ts.teamId, teamName: ts.teamName, total, placePts })
+      teamList.push({ teamId: ts.teamId, teamName: ts.teamName, total })
     }
     teamList.sort((a, b) => {
+      // 1순위: PGS/PGC 포인트 합계
       if (b.total !== a.total) return b.total - a.total
-      return b.placePts - a.placePts  // SUPER v2: placement pts tiebreaker
+      // 2순위: 전체 스테이지 누적 total points
+      const aTotalPts = a.teamId ? (totalPtsByTeamId[a.teamId] ?? 0) : 0
+      const bTotalPts = b.teamId ? (totalPtsByTeamId[b.teamId] ?? 0) : 0
+      if (bTotalPts !== aTotalPts) return bTotalPts - aTotalPts
+      // 3순위: 전체 스테이지 누적 placement points
+      const aPlacePts = a.teamId ? (placePtsByTeamId[a.teamId] ?? 0) : 0
+      const bPlacePts = b.teamId ? (placePtsByTeamId[b.teamId] ?? 0) : 0
+      if (bPlacePts !== aPlacePts) return bPlacePts - aPlacePts
+      // 4순위: 전체 스테이지 누적 kill points
+      const aKillPts = a.teamId ? (killPtsByTeamId[a.teamId] ?? 0) : 0
+      const bKillPts = b.teamId ? (killPtsByTeamId[b.teamId] ?? 0) : 0
+      if (bKillPts !== aKillPts) return bKillPts - aKillPts
+      // 5순위: 마지막 매치 total points
+      const aLastTotal = a.teamId ? (lastMatchTotalPts[a.teamId] ?? 0) : 0
+      const bLastTotal = b.teamId ? (lastMatchTotalPts[b.teamId] ?? 0) : 0
+      if (bLastTotal !== aLastTotal) return bLastTotal - aLastTotal
+      // 6순위: 마지막 매치 생존 순위 (낮은 숫자 = 높은 순위)
+      const aLastPlace = a.teamId ? (lastMatchPlacement[a.teamId] ?? 99) : 99
+      const bLastPlace = b.teamId ? (lastMatchPlacement[b.teamId] ?? 99) : 99
+      return aLastPlace - bLastPlace
     })
     teamList.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
   }
