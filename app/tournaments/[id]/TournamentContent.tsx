@@ -47,7 +47,7 @@ const loadTournamentData = unstable_cache(
     ])
 
     const [{ data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
-      supabase.from('stages').select('*, scoring_rules(*), matches(*)').eq('tournament_id', id).order('order_num'),
+      supabase.from('stages').select('*, include_in_total, scoring_rules(*), matches(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
     ])
@@ -106,6 +106,14 @@ export default async function TournamentContent({ id, tournament }: { id: string
   const stagesList = (stagesData ?? []) as (Stage & { matches: Match[] })[]
   const prizeConfig = (prizeConfigData ?? []) as TournamentPrizeConfig[]
   const seriesList = (seriesData ?? []) as Series[]
+
+  // Match IDs belonging to stages that are excluded from totals (include_in_total === false)
+  const excludedFromTotalMatchIds = new Set<string>()
+  for (const stage of stagesList) {
+    if ((stage as AnyRow).include_in_total === false) {
+      for (const m of stage.matches) excludedFromTotalMatchIds.add(m.id)
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const resultsByMatch: Record<string, any[]> = {}
@@ -248,6 +256,9 @@ export default async function TournamentContent({ id, tournament }: { id: string
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
     damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
 
+    // Skip excluded-from-total stages for the overall player stats aggregation
+    if (excludedFromTotalMatchIds.has(row.match_id as string)) continue
+
     const resolvedPlayerId: string | null =
       row.player_id ??
       nameToPlayerIdLocal.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
@@ -305,9 +316,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
     })
   }
 
-  // Build team stats
+  // Build team stats (total — excludes stages with include_in_total === false)
   const teamStatsMap = new Map<string, TeamStatRow>()
   for (const [matchId, rows] of Object.entries(resultsByMatch)) {
+    if (excludedFromTotalMatchIds.has(matchId)) continue
     const rule = matchToRule.get(matchId) ?? ruleFromStage(null)
     for (const r of rows as AnyRow[]) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
@@ -422,10 +434,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 
-  // Per-stage standings → rank board
+  // Per-stage standings → rank board (excludes stages with include_in_total === false)
   type StandingsEntry = { teamId: string | null; teamName: string; placePts: number }
   const stageStandingsMap = new Map<string, StandingsEntry[]>()
   for (const stage of stagesList) {
+    if ((stage as AnyRow).include_in_total === false) continue
     const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number }>()
     for (const m of stage.matches) {
       if (m.status !== 'imported') continue
@@ -455,7 +468,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
   type SeriesStandingEntry = { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
   const seriesStandingsMap = new Map<string, SeriesStandingEntry[]>()
   for (const sr of seriesList) {
-    const seriesStages = stagesList.filter((s) => s.series_id === sr.id)
+    const seriesStages = stagesList.filter((s) => s.series_id === sr.id && (s as AnyRow).include_in_total !== false)
     if (seriesStages.length === 0) continue
     const ptsMap = new Map<string, SeriesStandingEntry>()
     for (const stage of seriesStages) {
@@ -604,6 +617,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
   const wwcdBonusByTeamId: Record<string, { prize: number; pgs: number; pgc: number }> = {}
   if (wwcdRewards.length > 0) {
     for (const stage of stagesList) {
+      if ((stage as AnyRow).include_in_total === false) continue
       for (const m of stage.matches) {
         if (m.status !== 'imported') continue
         for (const r of (resultsByMatch[m.id] ?? []) as AnyRow[]) {
@@ -641,6 +655,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     })
   }
   for (const stage of stagesList) {
+    if ((stage as AnyRow).include_in_total === false) continue
     const stagePrizes = stagePrizeByStage[stage.id]
     if (!stagePrizes || stagePrizes.length === 0) continue
     const standings = stageStandingsMap.get(stage.id) ?? []

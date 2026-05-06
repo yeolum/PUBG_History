@@ -507,6 +507,12 @@ export default function AdminTournamentDetailPage() {
     reload()
   }
 
+  async function toggleStageInTotal(stageId: string, current: boolean) {
+    await supabase.from('stages').update({ include_in_total: !current }).eq('id', stageId)
+    await revalidatePublic()
+    reload()
+  }
+
   async function reorderStages(fromId: string, toId: string) {
     if (fromId === toId) return
     const sorted = [...stageList].sort((a, b) => a.order_num - b.order_num)
@@ -1720,6 +1726,16 @@ export default function AdminTournamentDetailPage() {
                         <span className="text-xs text-gray-400">{stage.matches.length} matches</span>
                       </div>
                       <div className="flex gap-3 items-center">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); toggleStageInTotal(stage.id, stage.include_in_total ?? true) }}
+                          className={`text-xs px-1.5 py-0.5 rounded font-medium border transition-colors ${
+                            (stage.include_in_total ?? true)
+                              ? 'bg-green-50 text-green-600 border-green-200 hover:bg-green-100'
+                              : 'bg-gray-50 text-gray-400 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {(stage.include_in_total ?? true) ? 'ON' : 'OFF'}
+                        </button>
                         <button
                           onClick={(e) => { e.stopPropagation(); setEditingStageId(stage.id); setEditStageForm({ name: stage.name, type: stage.type, seriesId: stage.series_id ?? '', scoringRuleId: stage.scoring_rule_id ?? '' }) }}
                           className="text-xs text-blue-500 hover:text-blue-700"

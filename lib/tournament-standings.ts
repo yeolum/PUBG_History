@@ -54,7 +54,7 @@ export const getTournamentFinalStandings = unstable_cache(
 
     const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }, { data: ttData }, { data: combinedData }, { data: combinedStageData }] = await Promise.all([
       supabase.from('tournaments').select('id, ranking_method').eq('id', tournamentId).single(),
-      supabase.from('stages').select('id, type, series_id, scoring_rules(*), matches(id, status)').eq('tournament_id', tournamentId).order('order_num'),
+      supabase.from('stages').select('id, type, series_id, include_in_total, scoring_rules(*), matches(id, status)').eq('tournament_id', tournamentId).order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', tournamentId).order('rank'),
       supabase.from('series').select('id').eq('tournament_id', tournamentId),
       supabase.from('tournament_teams').select('team_id, disqualified').eq('tournament_id', tournamentId),
@@ -71,6 +71,7 @@ export const getTournamentFinalStandings = unstable_cache(
 
     const allImportedMatchIds: string[] = []
     for (const stage of stagesList) {
+      if ((stage as AnyRow).include_in_total === false) continue
       for (const m of stage.matches ?? []) {
         if (m.status === 'imported') allImportedMatchIds.push(m.id as string)
       }

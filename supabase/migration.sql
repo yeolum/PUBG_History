@@ -570,3 +570,10 @@ ALTER TABLE tournament_teams ADD COLUMN IF NOT EXISTS display_name TEXT;
 -- =====================================================
 
 ALTER TABLE tournament_special_awards ADD COLUMN IF NOT EXISTS category TEXT;
+
+-- =====================================================
+-- Migration: stage include_in_total flag
+-- When OFF, the stage's data is excluded from Final Standings,
+-- total Player Data, and total Team Data, but per-stage data is still shown.
+-- =====================================================
+ALTER TABLE stages ADD COLUMN IF NOT EXISTS include_in_total BOOLEAN NOT NULL DEFAULT TRUE;

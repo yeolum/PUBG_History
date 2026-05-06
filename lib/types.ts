@@ -131,6 +131,7 @@ export interface Stage {
   order_num: number
   tab_order: number
   type: StageType
+  include_in_total: boolean
   advance_count: number | null
   eliminate_count: number | null
   scoring_rule_id: string | null
