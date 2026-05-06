@@ -173,7 +173,7 @@ export default function PlayerStatsTable({
     ? [...currentStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
     : []
 
-  if (playerStats.length === 0) {
+  if (playerStats.length === 0 && Object.keys(playerStatsByMatch).length === 0) {
     return <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm">No player data available</div>
   }
 
@@ -245,6 +245,9 @@ export default function PlayerStatsTable({
             </tr>
           </thead>
           <tbody>
+            {sorted.length === 0 && (
+              <tr><td colSpan={13} className="px-3 py-10 text-center text-gray-400 text-sm">No data for this scope</td></tr>
+            )}
             {sorted.map((p, i) => (
               <tr key={p.playerId ?? p.nickname} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
                 <td className="px-3 py-2 text-center text-gray-400">{i + 1}</td>
