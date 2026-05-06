@@ -698,6 +698,20 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
   }
 
+  // Special award prizes/points for teams → fold into bonus map
+  for (const r of (specialAwardsData ?? []) as AnyRow[]) {
+    const teamId = r.team_id as string | null
+    if (!teamId) continue
+    const prize = r.prize != null ? Number(r.prize) : 0
+    const pgs = r.pgs_points != null ? Number(r.pgs_points) : 0
+    const pgc = r.pgc_points != null ? Number(r.pgc_points) : 0
+    if (prize === 0 && pgs === 0 && pgc === 0) continue
+    if (!wwcdBonusByTeamId[teamId]) wwcdBonusByTeamId[teamId] = { prize: 0, pgs: 0, pgc: 0 }
+    wwcdBonusByTeamId[teamId].prize += prize
+    wwcdBonusByTeamId[teamId].pgs += pgs
+    wwcdBonusByTeamId[teamId].pgc += pgc
+  }
+
   // Prize/PGS/PGC ranking — build rankBoard now that wwcdBonusByTeamId is complete
   if (rankMethod !== 'stage') {
     // Tiebreaker (SUPER v2): sum of placement pts across all stages

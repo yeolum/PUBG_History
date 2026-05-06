@@ -52,7 +52,7 @@ export const getTournamentFinalStandings = unstable_cache(
   async (tournamentId: string): Promise<Map<string, TournamentFinalStanding>> => {
     const supabase = createPublicClient()
 
-    const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }, { data: ttData }, { data: combinedData }, { data: combinedStageData }] = await Promise.all([
+    const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }, { data: ttData }, { data: combinedData }, { data: combinedStageData }, { data: specialAwardsData }] = await Promise.all([
       supabase.from('tournaments').select('id, ranking_method').eq('id', tournamentId).single(),
       supabase.from('stages').select('id, type, series_id, include_in_total, scoring_rules(*), matches(id, status)').eq('tournament_id', tournamentId).order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', tournamentId).order('rank'),
@@ -60,6 +60,7 @@ export const getTournamentFinalStandings = unstable_cache(
       supabase.from('tournament_teams').select('team_id, disqualified').eq('tournament_id', tournamentId),
       supabase.from('combined_scoreboards').select('id, tab_order').eq('tournament_id', tournamentId),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
+      supabase.from('tournament_special_awards').select('team_id, prize, pgs_points, pgc_points').eq('tournament_id', tournamentId),
     ])
 
     if (!tournament) return new Map()
@@ -293,6 +294,20 @@ export const getTournamentFinalStandings = unstable_cache(
         wwcdBonusByTeamId[entry.teamId].pgs += pc.pgs_points != null ? Number(pc.pgs_points) : 0
         wwcdBonusByTeamId[entry.teamId].pgc += pc.pgc_points != null ? Number(pc.pgc_points) : 0
       }
+    }
+
+    // Special award prizes/points for teams → fold into bonus map
+    for (const r of (specialAwardsData ?? []) as AnyRow[]) {
+      const teamId = r.team_id as string | null
+      if (!teamId) continue
+      const prize = r.prize != null ? Number(r.prize) : 0
+      const pgs = r.pgs_points != null ? Number(r.pgs_points) : 0
+      const pgc = r.pgc_points != null ? Number(r.pgc_points) : 0
+      if (prize === 0 && pgs === 0 && pgc === 0) continue
+      if (!wwcdBonusByTeamId[teamId]) wwcdBonusByTeamId[teamId] = { prize: 0, pgs: 0, pgc: 0 }
+      wwcdBonusByTeamId[teamId].prize += prize
+      wwcdBonusByTeamId[teamId].pgs += pgs
+      wwcdBonusByTeamId[teamId].pgc += pgc
     }
 
     type RankEntry = { rank: number; teamId: string | null }
