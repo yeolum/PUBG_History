@@ -509,7 +509,7 @@ export default function AdminTournamentDetailPage() {
 
   async function toggleStageInTotal(stageId: string, current: boolean) {
     await supabase.from('stages').update({ include_in_total: !current }).eq('id', stageId)
-    await revalidatePublic()
+    await revalidatePublic({ tournamentId: id })
     reload()
   }
 
