@@ -132,12 +132,16 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   // numbers shown here match the scoreboard exactly (including DQ + bonuses).
   await Promise.all(
     [...tourMap.values()].map(async (te) => {
-      const standings = await getTournamentFinalStandings(te.id)
-      const my = standings.get(id)
-      if (!my) return
-      te.finalStageRank = my.rank === 'DQ' ? null : my.rank
-      te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
-      te.finalStagePrize = my.prize
+      try {
+        const standings = await getTournamentFinalStandings(te.id)
+        const my = standings.get(id)
+        if (!my) return
+        te.finalStageRank = my.rank === 'DQ' ? null : my.rank
+        te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
+        te.finalStagePrize = my.prize
+      } catch {
+        // standings unavailable — skip
+      }
     }),
   )
 

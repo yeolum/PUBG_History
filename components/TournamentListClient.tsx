@@ -15,6 +15,7 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function TournamentListClient({ tournaments }: { tournaments: Tournament[] }) {
   const years = [...new Set(tournaments.map(t => t.start_date?.slice(0, 4)).filter(Boolean))].sort().reverse() as string[]
+  const circuitTags = [...new Set(tournaments.map(t => t.tag).filter(Boolean))].sort() as string[]
 
   const [filterYear, setFilterYear] = useState('')
   const [page, setPage] = useState(1)
@@ -35,6 +36,23 @@ export default function TournamentListClient({ tournaments }: { tournaments: Tou
 
   return (
     <>
+      {circuitTags.length > 0 && (
+        <div className="mb-4">
+          <p className="text-xs text-gray-400 mb-2 font-medium uppercase tracking-wide">Circuit</p>
+          <div className="flex flex-wrap gap-2">
+            {circuitTags.map(tag => (
+              <Link
+                key={tag}
+                href={`/tournaments/circuits/${encodeURIComponent(tag)}`}
+                className="px-3 py-1.5 rounded-lg text-sm font-medium border border-gray-200 bg-white text-gray-700 hover:border-yellow-400 hover:text-gray-900 transition-colors font-mono"
+              >
+                {tag}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
+
       {years.length > 1 && (
         <div className="flex flex-wrap gap-2 mb-5">
           <button onClick={() => selectYear('')} className={yearBtnCls(!filterYear)}>전체</button>
