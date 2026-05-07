@@ -139,11 +139,14 @@ export default async function TournamentContent({ id, tournament }: { id: string
     pubgNameToPlayerId.set((row.alias as string).toLowerCase(), row.player_id as string)
   }
 
-  // Build resultsByMatch from team results
+  // Build resultsByMatch from team results + a teamId→global teams.name lookup
+  // used as fallback when looking up stage_additional_points by team name.
+  const teamIdToTeamsName = new Map<string, string>()
   for (const r of trData ?? []) {
     const row = r as AnyRow
     if (!resultsByMatch[row.match_id]) resultsByMatch[row.match_id] = []
     resultsByMatch[row.match_id].push(row)
+    if (row.team_id && row.teams?.name) teamIdToTeamsName.set(row.team_id as string, row.teams.name as string)
   }
 
   // Build pubg_player_name → player_id from stats that ARE linked within this tournament
@@ -463,7 +466,12 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
     const extraForStage = stageAdditionalPts[stage.id] ?? {}
     for (const e of ptsMap.values()) {
-      e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+      let extra = extraForStage[e.teamName.toLowerCase()] ?? 0
+      if (extra === 0 && e.teamId) {
+        const gn = teamIdToTeamsName.get(e.teamId)
+        if (gn) extra = extraForStage[gn.toLowerCase()] ?? 0
+      }
+      e.totalPts += extra
     }
     stageStandingsMap.set(stage.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
   }
@@ -502,7 +510,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
       }
       const extraForStage = stageAdditionalPts[stage.id] ?? {}
       for (const e of ptsMap.values()) {
-        const extra = extraForStage[e.teamName.toLowerCase()] ?? 0
+        let extra = extraForStage[e.teamName.toLowerCase()] ?? 0
+        if (extra === 0 && e.teamId) {
+          const gn = teamIdToTeamsName.get(e.teamId)
+          if (gn) extra = extraForStage[gn.toLowerCase()] ?? 0
+        }
         e.totalPts += extra
       }
     }
@@ -558,7 +570,12 @@ export default async function TournamentContent({ id, tournament }: { id: string
       }
       const extraForStage = stageAdditionalPts[stage.id] ?? {}
       for (const e of ptsMap.values()) {
-        e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+        let extra = extraForStage[e.teamName.toLowerCase()] ?? 0
+        if (extra === 0 && e.teamId) {
+          const gn = teamIdToTeamsName.get(e.teamId)
+          if (gn) extra = extraForStage[gn.toLowerCase()] ?? 0
+        }
+        e.totalPts += extra
       }
     }
     combinedStandingsMap.set(cb.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
