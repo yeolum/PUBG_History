@@ -5,7 +5,6 @@ import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import CircuitContent from './CircuitContent'
-import { getTournamentFinalStandings } from '@/lib/tournament-standings'
 
 export const revalidate = 30
 
@@ -136,20 +135,64 @@ export default async function CircuitPage({ params }: Props) {
     )
   }
 
-  const matches = await fetchInChunked<AnyRow>(
-    (chunk) => supabase.from('matches').select('id, stage_id, status').in('stage_id', chunk).eq('status', 'imported'),
-    stageIds,
-  )
+  const [matches, ttData, prizeConfigData] = await Promise.all([
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('matches').select('id, stage_id, status').in('stage_id', chunk).eq('status', 'imported'),
+      stageIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('tournament_teams').select('tournament_id, team_id, disqualified').in('tournament_id', chunk),
+      tournamentIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('tournament_prize_config').select('tournament_id, rank, stage_id, series_id, combined_scoreboard_id, stage_rank').in('tournament_id', chunk),
+      tournamentIds,
+    ),
+  ])
   const matchIds = matches.map((m) => m.id as string)
 
-  // Build lookup: matchId → tournamentId. (DQ filtering happens inside
-  // getTournamentFinalStandings — it's already factored into rank=1.)
   const stageToTournament = new Map<string, string>()
   for (const s of stages) stageToTournament.set(s.id as string, s.tournament_id as string)
   const matchToTournament = new Map<string, string>()
   for (const m of matches) {
     const tid = stageToTournament.get(m.stage_id as string)
     if (tid) matchToTournament.set(m.id as string, tid)
+  }
+  // Per-tournament: which stage decides the champion. Priority order
+  // mirrors what TournamentContent's Final Standings logic uses for
+  // ranking_method='stage' (the typical PWS / PEC / PGC setup):
+  //   1) prize_config row with rank=1 + stage_rank=1 → its mapped stage
+  //   2) grand_final stage type
+  // No deciding stage → fall back to tournament-wide aggregate.
+  const decidingStageByTournament = new Map<string, string>()
+  // First pass: prize_config rank=1, stage_rank=1 → stage_id (only stage
+  // targets used here; series/combined-scoreboard targets need richer
+  // aggregation that's out of scope for this index).
+  for (const pc of prizeConfigData) {
+    if (pc.rank !== 1 || pc.stage_rank !== 1) continue
+    if (!pc.stage_id) continue
+    const tid = pc.tournament_id as string
+    if (!decidingStageByTournament.has(tid)) decidingStageByTournament.set(tid, pc.stage_id as string)
+  }
+  // Second pass: fall back to grand_final stage type for tournaments not
+  // already decided by prize_config.
+  for (const s of stages) {
+    if (s.type !== 'grand_final') continue
+    const tid = s.tournament_id as string
+    if (!decidingStageByTournament.has(tid)) decidingStageByTournament.set(tid, s.id as string)
+  }
+  const decidingMatchIds = new Set<string>()
+  for (const m of matches) {
+    const sid = m.stage_id as string
+    const tid = stageToTournament.get(sid)
+    if (tid && decidingStageByTournament.get(tid) === sid) decidingMatchIds.add(m.id as string)
+  }
+  const dqByTournament = new Map<string, Set<string>>()
+  for (const r of ttData) {
+    if (!r.disqualified) continue
+    const tid = r.tournament_id as string
+    if (!dqByTournament.has(tid)) dqByTournament.set(tid, new Set())
+    dqByTournament.get(tid)!.add(r.team_id as string)
   }
 
   const [allTeamResults, allPlayerStats] = await Promise.all([
@@ -173,16 +216,17 @@ export default async function CircuitPage({ params }: Props) {
     teamId: string | null; teamName: string; logoUrl: string | null
     matches: number; wins: number; kills: number; damage: number; totalPoints: number
   }
-  // Per-tournament tournament-wide team aggregate — only used to fill the
-  // champions table's stat columns (matches / wins / kills / points) for the
-  // team that getTournamentFinalStandings returns as #1.
+  // Two per-tournament aggregates: one for the deciding stage only (used to
+  // pick the champion) and one tournament-wide (used for the champions
+  // table's stat columns).
+  const decidingMap = new Map<string, Map<string, TeamAgg>>()
   const tournamentTeamMap = new Map<string, Map<string, TeamAgg>>()
-  for (const tid of tournamentIds) tournamentTeamMap.set(tid, new Map())
+  for (const tid of tournamentIds) {
+    decidingMap.set(tid, new Map())
+    tournamentTeamMap.set(tid, new Map())
+  }
 
-  for (const r of allTeamResults) {
-    const tournamentId = matchToTournament.get(r.match_id as string)
-    if (!tournamentId) continue
-    const byTeam = tournamentTeamMap.get(tournamentId)!
+  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow) {
     const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
     const ex = byTeam.get(key) ?? {
       teamId: (r.team_id ?? null) as string | null,
@@ -198,42 +242,40 @@ export default async function CircuitPage({ params }: Props) {
     byTeam.set(key, ex)
   }
 
-  // Pull each tournament's Final Standings via the same helper the public
-  // tournament page uses, so the champion shown here matches the
-  // scoreboard's #1 (honors ranking_method, prize_config, scoring rule, DQ).
-  // Calls run in small batches so big circuits (PWS = 10+ tournaments)
-  // don't burst the Supabase connection budget and 500 the page.
-  const FINAL_STANDINGS_CONCURRENCY = 4
-  const finalStandingsList: { tid: string; map: Map<string, { rank: number | 'DQ'; prize: number | null }> }[] = []
-  for (let i = 0; i < tournaments.length; i += FINAL_STANDINGS_CONCURRENCY) {
-    const slice = tournaments.slice(i, i + FINAL_STANDINGS_CONCURRENCY)
-    const results = await Promise.all(slice.map(async (t) => {
-      try {
-        return { tid: t.id, map: await getTournamentFinalStandings(t.id) }
-      } catch (err) {
-        console.error(`getTournamentFinalStandings failed for ${t.id}:`, err)
-        return { tid: t.id, map: new Map() }
-      }
-    }))
-    finalStandingsList.push(...results)
+  for (const r of allTeamResults) {
+    const tournamentId = matchToTournament.get(r.match_id as string)
+    if (!tournamentId) continue
+    bumpAgg(tournamentTeamMap.get(tournamentId)!, r)
+    if (decidingMatchIds.has(r.match_id as string)) {
+      bumpAgg(decidingMap.get(tournamentId)!, r)
+    }
   }
 
   const champions: CircuitChampion[] = []
-  for (const { tid, map } of finalStandingsList) {
-    let championTeamId: string | null = null
-    for (const [teamId, entry] of map) {
-      if (entry.rank === 1) { championTeamId = teamId; break }
-    }
-    if (!championTeamId) continue
-    const byTeam = tournamentTeamMap.get(tid)
-    if (!byTeam) continue
-    const stat = [...byTeam.values()].find((e) => e.teamId === championTeamId)
-    if (!stat) continue
+  for (const tid of tournamentIds) {
+    const dq = dqByTournament.get(tid) ?? new Set<string>()
+    const isDq = (e: TeamAgg) => !!e.teamId && dq.has(e.teamId)
+    const wide = tournamentTeamMap.get(tid)
+    const deciding = decidingMap.get(tid)
+    // Pick from the deciding stage when present (matches Final Standings
+    // top spot for ranking_method='stage' tournaments, which is the typical
+    // PWS / PEC / PGC layout), otherwise fall back to tournament-wide.
+    const pool = (deciding && deciding.size > 0) ? deciding : wide
+    if (!pool || pool.size === 0) continue
+    const sorted = [...pool.values()]
+      .filter((e) => !isDq(e))
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+    if (sorted.length === 0) continue
+    const c = sorted[0]
+    // Stat columns reflect tournament-wide totals so matches / wins /
+    // kills / points read the same as before.
+    const wideEntry = wide ? [...wide.values()].find((e) => e.teamId === c.teamId) : null
+    const stat = wideEntry ?? c
     champions.push({
       tournamentId: tid,
-      teamId: stat.teamId,
-      teamName: stat.teamName,
-      logoUrl: stat.logoUrl,
+      teamId: c.teamId,
+      teamName: c.teamName,
+      logoUrl: c.logoUrl,
       totalPoints: stat.totalPoints,
       totalKills: stat.kills,
       wins: stat.wins,
