@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import CircuitContent from './CircuitContent'
+import { getTournamentFinalStandings } from '@/lib/tournament-standings'
 
 export const revalidate = 30
 
@@ -21,7 +22,10 @@ function calcPts(placement: number) {
 }
 
 const PAGE_SIZE = 1000
+const ID_CHUNK = 80
 
+// Page through a query in 1000-row windows. Used after the IN list is
+// already constrained to a single chunk by the helpers below.
 async function fetchPaged<T>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   query: any,
@@ -36,6 +40,21 @@ async function fetchPaged<T>(
     page++
   }
   return rows
+}
+
+// Chunk an IN-list filter so the URL stays under PostgREST / proxy limits;
+// big circuits (PWS has 10 phases × ~16 stages × ~10 matches each) used to
+// blow past the URL ceiling and the query silently came back empty.
+async function fetchInChunked<T>(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  build: (chunk: string[]) => any,
+  ids: string[],
+): Promise<T[]> {
+  if (ids.length === 0) return []
+  const chunks: string[][] = []
+  for (let off = 0; off < ids.length; off += ID_CHUNK) chunks.push(ids.slice(off, off + ID_CHUNK))
+  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(build(c))))
+  return out.flat()
 }
 
 export interface CircuitTeamStat {
@@ -93,12 +112,10 @@ export default async function CircuitPage({ params }: Props) {
 
   const tournamentIds = tournaments.map((t) => t.id)
 
-  const { data: stagesData } = await supabase
-    .from('stages')
-    .select('id, tournament_id, order_num, type')
-    .in('tournament_id', tournamentIds)
-
-  const stages = (stagesData ?? []) as AnyRow[]
+  const stages = await fetchInChunked<AnyRow>(
+    (chunk) => supabase.from('stages').select('id, tournament_id, order_num, type').in('tournament_id', chunk),
+    tournamentIds,
+  )
   const stageIds = stages.map((s) => s.id as string)
 
   if (stageIds.length === 0) {
@@ -119,23 +136,14 @@ export default async function CircuitPage({ params }: Props) {
     )
   }
 
-  const [{ data: matchesData }, { data: ttData }] = await Promise.all([
-    supabase
-      .from('matches')
-      .select('id, stage_id, status')
-      .in('stage_id', stageIds)
-      .eq('status', 'imported'),
-    supabase
-      .from('tournament_teams')
-      .select('tournament_id, team_id, disqualified')
-      .in('tournament_id', tournamentIds),
-  ])
-
-  const matches = (matchesData ?? []) as AnyRow[]
+  const matches = await fetchInChunked<AnyRow>(
+    (chunk) => supabase.from('matches').select('id, stage_id, status').in('stage_id', chunk).eq('status', 'imported'),
+    stageIds,
+  )
   const matchIds = matches.map((m) => m.id as string)
 
-  // Build lookup: matchId → tournamentId, plus grand-final stage map for
-  // picking each tournament's champion and DQ map for filtering them out.
+  // Build lookup: matchId → tournamentId. (DQ filtering happens inside
+  // getTournamentFinalStandings — it's already factored into rank=1.)
   const stageToTournament = new Map<string, string>()
   for (const s of stages) stageToTournament.set(s.id as string, s.tournament_id as string)
   const matchToTournament = new Map<string, string>()
@@ -143,38 +151,21 @@ export default async function CircuitPage({ params }: Props) {
     const tid = stageToTournament.get(m.stage_id as string)
     if (tid) matchToTournament.set(m.id as string, tid)
   }
-  const grandFinalStageByTournament = new Map<string, string>()
-  for (const s of stages) {
-    if (s.type === 'grand_final') {
-      grandFinalStageByTournament.set(s.tournament_id as string, s.id as string)
-    }
-  }
-  const grandFinalMatchIds = new Set<string>()
-  for (const m of matches) {
-    const sid = m.stage_id as string
-    const tid = stageToTournament.get(sid)
-    if (tid && grandFinalStageByTournament.get(tid) === sid) grandFinalMatchIds.add(m.id as string)
-  }
-  const dqByTournament = new Map<string, Set<string>>()
-  for (const r of (ttData ?? []) as AnyRow[]) {
-    if (!r.disqualified) continue
-    const tid = r.tournament_id as string
-    if (!dqByTournament.has(tid)) dqByTournament.set(tid, new Set())
-    dqByTournament.get(tid)!.add(r.team_id as string)
-  }
 
   const [allTeamResults, allPlayerStats] = await Promise.all([
-    matchIds.length === 0 ? Promise.resolve([]) : fetchPaged<AnyRow>(
-      supabase
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase
         .from('match_team_results')
         .select('id, match_id, team_id, pubg_team_name, placement, total_kills, total_damage, teams(id, name, logo_url)')
-        .in('match_id', matchIds)
+        .in('match_id', chunk),
+      matchIds,
     ),
-    matchIds.length === 0 ? Promise.resolve([]) : fetchPaged<AnyRow>(
-      supabase
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase
         .from('match_player_stats')
         .select('id, match_id, player_id, team_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, players(id, nickname), teams(id, name, logo_url)')
-        .in('match_id', matchIds)
+        .in('match_id', chunk),
+      matchIds,
     ),
   ])
 
@@ -182,20 +173,16 @@ export default async function CircuitPage({ params }: Props) {
     teamId: string | null; teamName: string; logoUrl: string | null
     matches: number; wins: number; kills: number; damage: number; totalPoints: number
   }
-  // Per-tournament: tournament-wide team aggregate (used as champion fallback
-  // and for the champions table's stat columns).
+  // Per-tournament tournament-wide team aggregate — only used to fill the
+  // champions table's stat columns (matches / wins / kills / points) for the
+  // team that getTournamentFinalStandings returns as #1.
   const tournamentTeamMap = new Map<string, Map<string, TeamAgg>>()
-  // Per-tournament: grand-final-stage-only team aggregate. Most PWS / PEC /
-  // PGS-style circuits decide the champion from the Grand Finals stage, so
-  // when one exists we pick #1 from there; otherwise we fall back to the
-  // tournament-wide aggregate. DQ teams are filtered out of both.
-  const tournamentGFMap = new Map<string, Map<string, TeamAgg>>()
-  for (const tid of tournamentIds) {
-    tournamentTeamMap.set(tid, new Map())
-    tournamentGFMap.set(tid, new Map())
-  }
+  for (const tid of tournamentIds) tournamentTeamMap.set(tid, new Map())
 
-  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow) {
+  for (const r of allTeamResults) {
+    const tournamentId = matchToTournament.get(r.match_id as string)
+    if (!tournamentId) continue
+    const byTeam = tournamentTeamMap.get(tournamentId)!
     const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
     const ex = byTeam.get(key) ?? {
       teamId: (r.team_id ?? null) as string | null,
@@ -211,38 +198,42 @@ export default async function CircuitPage({ params }: Props) {
     byTeam.set(key, ex)
   }
 
-  for (const r of allTeamResults) {
-    const tournamentId = matchToTournament.get(r.match_id as string)
-    if (!tournamentId) continue
-    bumpAgg(tournamentTeamMap.get(tournamentId)!, r)
-    if (grandFinalMatchIds.has(r.match_id as string)) {
-      bumpAgg(tournamentGFMap.get(tournamentId)!, r)
-    }
+  // Pull each tournament's Final Standings via the same helper the public
+  // tournament page uses, so the champion shown here matches the
+  // scoreboard's #1 (honors ranking_method, prize_config, scoring rule, DQ).
+  // Calls run in small batches so big circuits (PWS = 10+ tournaments)
+  // don't burst the Supabase connection budget and 500 the page.
+  const FINAL_STANDINGS_CONCURRENCY = 4
+  const finalStandingsList: { tid: string; map: Map<string, { rank: number | 'DQ'; prize: number | null }> }[] = []
+  for (let i = 0; i < tournaments.length; i += FINAL_STANDINGS_CONCURRENCY) {
+    const slice = tournaments.slice(i, i + FINAL_STANDINGS_CONCURRENCY)
+    const results = await Promise.all(slice.map(async (t) => {
+      try {
+        return { tid: t.id, map: await getTournamentFinalStandings(t.id) }
+      } catch (err) {
+        console.error(`getTournamentFinalStandings failed for ${t.id}:`, err)
+        return { tid: t.id, map: new Map() }
+      }
+    }))
+    finalStandingsList.push(...results)
   }
 
   const champions: CircuitChampion[] = []
-  for (const tid of tournamentIds) {
-    const dq = dqByTournament.get(tid) ?? new Set<string>()
-    const isDq = (e: TeamAgg) => !!e.teamId && dq.has(e.teamId)
-    // Prefer Grand Finals stage when present; fall back to tournament-wide.
-    const gf = tournamentGFMap.get(tid)
-    const wide = tournamentTeamMap.get(tid)
-    const pool = (gf && gf.size > 0) ? gf : wide
-    if (!pool || pool.size === 0) continue
-    const sorted = [...pool.values()]
-      .filter((e) => !isDq(e))
-      .sort((a, b) => b.totalPoints - a.totalPoints)
-    if (sorted.length === 0) continue
-    const c = sorted[0]
-    // Stat columns always reflect tournament-wide totals so the matches /
-    // wins / kills / points columns aren't truncated to just the GF stage.
-    const wideEntry = wide ? [...wide.values()].find((e) => e.teamId === c.teamId) : null
-    const stat = wideEntry ?? c
+  for (const { tid, map } of finalStandingsList) {
+    let championTeamId: string | null = null
+    for (const [teamId, entry] of map) {
+      if (entry.rank === 1) { championTeamId = teamId; break }
+    }
+    if (!championTeamId) continue
+    const byTeam = tournamentTeamMap.get(tid)
+    if (!byTeam) continue
+    const stat = [...byTeam.values()].find((e) => e.teamId === championTeamId)
+    if (!stat) continue
     champions.push({
       tournamentId: tid,
-      teamId: c.teamId,
-      teamName: c.teamName,
-      logoUrl: c.logoUrl,
+      teamId: stat.teamId,
+      teamName: stat.teamName,
+      logoUrl: stat.logoUrl,
       totalPoints: stat.totalPoints,
       totalKills: stat.kills,
       wins: stat.wins,
