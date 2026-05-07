@@ -366,44 +366,26 @@ export default async function CircuitPage({ params }: Props) {
     .map((t) => ({ teamId: t.teamId, teamName: t.teamName, logoUrl: t.logoUrl, tournaments: t.tournamentSet.size, matches: t.matches, wins: t.wins, kills: t.kills, damage: t.damage }))
     .sort((a, b) => b.kills - a.kills)
 
-  // Aggregate global player stats. Tournaments are pre-sorted desc by
-  // start_date, so the entry with the lowest tournament index is the
-  // player's most recent appearance — its team is what we surface.
-  const tournamentIndex = new Map<string, number>()
-  for (let i = 0; i < tournaments.length; i++) tournamentIndex.set(tournaments[i].id, i)
-
+  // Aggregate global player stats. The team column shows the player's
+  // *current* team from the players table (players.team_id), not a team
+  // pulled from match data — admin maintains this via the player profile
+  // / Sync Teams workflow, so it's the canonical answer.
   const globalPlayerMap = new Map<string, {
     playerId: string | null; nickname: string
-    teamId: string | null; teamName: string; logoUrl: string | null
-    bestTournamentIdx: number
     tournamentSet: Set<string>; matches: number; kills: number; assists: number; knocks: number; headshotKills: number; damage: number
   }>()
 
   for (const s of allPlayerStats) {
     const tournamentId = matchToTournament.get(s.match_id as string)
-    const tIdx = tournamentId ? (tournamentIndex.get(tournamentId) ?? Infinity) : Infinity
     const key = (s.player_id ?? s.pubg_player_name ?? '?') as string
     let ex = globalPlayerMap.get(key)
     if (!ex) {
       ex = {
         playerId: (s.player_id ?? null) as string | null,
         nickname: (s.players as AnyRow | null)?.nickname ?? (s.pubg_player_name as string) ?? '?',
-        teamId: null,
-        teamName: '?',
-        logoUrl: null,
-        bestTournamentIdx: Infinity,
         tournamentSet: new Set<string>(), matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0,
       }
       globalPlayerMap.set(key, ex)
-    }
-    // Promote the team snapshot whenever this row comes from a tournament
-    // newer than what we've seen so far for this player. team_id null is
-    // skipped so an unlinked row can't overwrite a real team.
-    if (s.team_id && tIdx < ex.bestTournamentIdx) {
-      ex.bestTournamentIdx = tIdx
-      ex.teamId = s.team_id as string
-      ex.teamName = (s.teams as AnyRow | null)?.name ?? '?'
-      ex.logoUrl = (s.teams as AnyRow | null)?.logo_url ?? null
     }
     if (tournamentId) ex.tournamentSet.add(tournamentId)
     ex.matches++
@@ -414,8 +396,43 @@ export default async function CircuitPage({ params }: Props) {
     ex.damage += (s.damage_dealt as number) ?? 0
   }
 
+  // Pull each linked player's current team from the players table — this
+  // is the canonical "소속팀" admin sets via the player profile, not
+  // anything inferred from match data. Players with team_id = NULL show
+  // as no team.
+  const linkedPlayerIds = [...new Set(
+    [...globalPlayerMap.values()].map((p) => p.playerId).filter((x): x is string => !!x),
+  )]
+  const playerCurrentTeam = new Map<string, { teamId: string | null; teamName: string | null; logoUrl: string | null }>()
+  if (linkedPlayerIds.length > 0) {
+    const rows = await fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('players').select('id, team_id, teams(id, name, logo_url)').in('id', chunk),
+      linkedPlayerIds,
+    )
+    for (const r of rows) {
+      const teamRel = (r.teams as AnyRow | null) ?? null
+      playerCurrentTeam.set(r.id as string, {
+        teamId: (r.team_id as string | null) ?? null,
+        teamName: (teamRel?.name as string | null) ?? null,
+        logoUrl: (teamRel?.logo_url as string | null) ?? null,
+      })
+    }
+  }
+
   const playerStats: CircuitPlayerStat[] = [...globalPlayerMap.values()]
-    .map((p) => ({ playerId: p.playerId, nickname: p.nickname, teamId: p.teamId, teamName: p.teamName, logoUrl: p.logoUrl, tournaments: p.tournamentSet.size, matches: p.matches, kills: p.kills, assists: p.assists, knocks: p.knocks, headshotKills: p.headshotKills, damage: p.damage }))
+    .map((p) => {
+      const current = p.playerId ? playerCurrentTeam.get(p.playerId) : null
+      return {
+        playerId: p.playerId,
+        nickname: p.nickname,
+        teamId: current?.teamId ?? null,
+        teamName: current?.teamName ?? '',
+        logoUrl: current?.logoUrl ?? null,
+        tournaments: p.tournamentSet.size,
+        matches: p.matches,
+        kills: p.kills, assists: p.assists, knocks: p.knocks, headshotKills: p.headshotKills, damage: p.damage,
+      }
+    })
     .sort((a, b) => b.kills - a.kills)
 
   return (

@@ -343,16 +343,16 @@ export default function CircuitContent({
                       )}
                     </td>
                     <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-1.5">
-                        <TeamLogo url={p.logoUrl} name={p.teamName} />
-                        {p.teamId ? (
+                      {p.teamId ? (
+                        <div className="flex items-center gap-1.5">
+                          <TeamLogo url={p.logoUrl} name={p.teamName} />
                           <Link href={`/teams/${p.teamId}`} className="text-gray-600 hover:text-yellow-600 transition-colors">
                             {p.teamName}
                           </Link>
-                        ) : (
-                          <span className="text-gray-600">{p.teamName}</span>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <span className="text-gray-300 text-xs">—</span>
+                      )}
                     </td>
                     <td className="px-3 py-2.5 text-right text-gray-700">{p.tournaments}</td>
                     <td className="px-3 py-2.5 text-right text-gray-700">{p.matches}</td>
