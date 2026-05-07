@@ -214,9 +214,13 @@ export default function StageMatchesPage() {
     if (toInsert.length > 0) {
       await supabase.from('stage_additional_points').insert(toInsert)
     }
-    await reload()
+    // Update state directly from what we just saved so the column closes
+    // with fresh totals immediately, without waiting for a DB round-trip.
+    setAdditionalPoints(toInsert)
     setSavingAddPts(false)
     setAddPtsOpen(false)
+    // Revalidate public cache in the background.
+    reload()
   }
 
   async function saveAdvancementRules() {
