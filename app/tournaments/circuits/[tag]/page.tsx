@@ -366,22 +366,44 @@ export default async function CircuitPage({ params }: Props) {
     .map((t) => ({ teamId: t.teamId, teamName: t.teamName, logoUrl: t.logoUrl, tournaments: t.tournamentSet.size, matches: t.matches, wins: t.wins, kills: t.kills, damage: t.damage }))
     .sort((a, b) => b.kills - a.kills)
 
-  // Aggregate global player stats
+  // Aggregate global player stats. Tournaments are pre-sorted desc by
+  // start_date, so the entry with the lowest tournament index is the
+  // player's most recent appearance — its team is what we surface.
+  const tournamentIndex = new Map<string, number>()
+  for (let i = 0; i < tournaments.length; i++) tournamentIndex.set(tournaments[i].id, i)
+
   const globalPlayerMap = new Map<string, {
-    playerId: string | null; nickname: string; teamId: string | null; teamName: string; logoUrl: string | null
+    playerId: string | null; nickname: string
+    teamId: string | null; teamName: string; logoUrl: string | null
+    bestTournamentIdx: number
     tournamentSet: Set<string>; matches: number; kills: number; assists: number; knocks: number; headshotKills: number; damage: number
   }>()
 
   for (const s of allPlayerStats) {
     const tournamentId = matchToTournament.get(s.match_id as string)
+    const tIdx = tournamentId ? (tournamentIndex.get(tournamentId) ?? Infinity) : Infinity
     const key = (s.player_id ?? s.pubg_player_name ?? '?') as string
-    const ex = globalPlayerMap.get(key) ?? {
-      playerId: (s.player_id ?? null) as string | null,
-      nickname: (s.players as AnyRow | null)?.nickname ?? (s.pubg_player_name as string) ?? '?',
-      teamId: (s.team_id ?? null) as string | null,
-      teamName: (s.teams as AnyRow | null)?.name ?? '?',
-      logoUrl: (s.teams as AnyRow | null)?.logo_url ?? null,
-      tournamentSet: new Set<string>(), matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0,
+    let ex = globalPlayerMap.get(key)
+    if (!ex) {
+      ex = {
+        playerId: (s.player_id ?? null) as string | null,
+        nickname: (s.players as AnyRow | null)?.nickname ?? (s.pubg_player_name as string) ?? '?',
+        teamId: null,
+        teamName: '?',
+        logoUrl: null,
+        bestTournamentIdx: Infinity,
+        tournamentSet: new Set<string>(), matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0,
+      }
+      globalPlayerMap.set(key, ex)
+    }
+    // Promote the team snapshot whenever this row comes from a tournament
+    // newer than what we've seen so far for this player. team_id null is
+    // skipped so an unlinked row can't overwrite a real team.
+    if (s.team_id && tIdx < ex.bestTournamentIdx) {
+      ex.bestTournamentIdx = tIdx
+      ex.teamId = s.team_id as string
+      ex.teamName = (s.teams as AnyRow | null)?.name ?? '?'
+      ex.logoUrl = (s.teams as AnyRow | null)?.logo_url ?? null
     }
     if (tournamentId) ex.tournamentSet.add(tournamentId)
     ex.matches++
@@ -390,7 +412,6 @@ export default async function CircuitPage({ params }: Props) {
     ex.knocks += (s.knocks as number) ?? 0
     ex.headshotKills += (s.headshot_kills as number) ?? 0
     ex.damage += (s.damage_dealt as number) ?? 0
-    globalPlayerMap.set(key, ex)
   }
 
   const playerStats: CircuitPlayerStat[] = [...globalPlayerMap.values()]
