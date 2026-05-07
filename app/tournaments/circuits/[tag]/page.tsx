@@ -5,7 +5,6 @@ import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import CircuitContent from './CircuitContent'
-import { getTournamentFinalStandings } from '@/lib/tournament-standings'
 
 export const revalidate = 30
 
@@ -120,22 +119,48 @@ export default async function CircuitPage({ params }: Props) {
     )
   }
 
-  const { data: matchesData } = await supabase
-    .from('matches')
-    .select('id, stage_id, status')
-    .in('stage_id', stageIds)
-    .eq('status', 'imported')
+  const [{ data: matchesData }, { data: ttData }] = await Promise.all([
+    supabase
+      .from('matches')
+      .select('id, stage_id, status')
+      .in('stage_id', stageIds)
+      .eq('status', 'imported'),
+    supabase
+      .from('tournament_teams')
+      .select('tournament_id, team_id, disqualified')
+      .in('tournament_id', tournamentIds),
+  ])
 
   const matches = (matchesData ?? []) as AnyRow[]
   const matchIds = matches.map((m) => m.id as string)
 
-  // Build lookup: matchId → tournamentId
+  // Build lookup: matchId → tournamentId, plus grand-final stage map for
+  // picking each tournament's champion and DQ map for filtering them out.
   const stageToTournament = new Map<string, string>()
   for (const s of stages) stageToTournament.set(s.id as string, s.tournament_id as string)
   const matchToTournament = new Map<string, string>()
   for (const m of matches) {
     const tid = stageToTournament.get(m.stage_id as string)
     if (tid) matchToTournament.set(m.id as string, tid)
+  }
+  const grandFinalStageByTournament = new Map<string, string>()
+  for (const s of stages) {
+    if (s.type === 'grand_final') {
+      grandFinalStageByTournament.set(s.tournament_id as string, s.id as string)
+    }
+  }
+  const grandFinalMatchIds = new Set<string>()
+  for (const m of matches) {
+    const sid = m.stage_id as string
+    const tid = stageToTournament.get(sid)
+    if (tid && grandFinalStageByTournament.get(tid) === sid) grandFinalMatchIds.add(m.id as string)
+  }
+  const dqByTournament = new Map<string, Set<string>>()
+  for (const r of (ttData ?? []) as AnyRow[]) {
+    if (!r.disqualified) continue
+    const tid = r.tournament_id as string
+    if (!dqByTournament.has(tid)) dqByTournament.set(tid, new Set())
+    dqByTournament.get(tid)!.add(r.team_id as string)
   }
 
   const [allTeamResults, allPlayerStats] = await Promise.all([
@@ -153,17 +178,24 @@ export default async function CircuitPage({ params }: Props) {
     ),
   ])
 
-  // Aggregate per-tournament team stats to determine champion
-  const tournamentTeamMap = new Map<string, Map<string, {
+  type TeamAgg = {
     teamId: string | null; teamName: string; logoUrl: string | null
     matches: number; wins: number; kills: number; damage: number; totalPoints: number
-  }>>()
-  for (const tid of tournamentIds) tournamentTeamMap.set(tid, new Map())
+  }
+  // Per-tournament: tournament-wide team aggregate (used as champion fallback
+  // and for the champions table's stat columns).
+  const tournamentTeamMap = new Map<string, Map<string, TeamAgg>>()
+  // Per-tournament: grand-final-stage-only team aggregate. Most PWS / PEC /
+  // PGS-style circuits decide the champion from the Grand Finals stage, so
+  // when one exists we pick #1 from there; otherwise we fall back to the
+  // tournament-wide aggregate. DQ teams are filtered out of both.
+  const tournamentGFMap = new Map<string, Map<string, TeamAgg>>()
+  for (const tid of tournamentIds) {
+    tournamentTeamMap.set(tid, new Map())
+    tournamentGFMap.set(tid, new Map())
+  }
 
-  for (const r of allTeamResults) {
-    const tournamentId = matchToTournament.get(r.match_id as string)
-    if (!tournamentId) continue
-    const byTeam = tournamentTeamMap.get(tournamentId)!
+  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow) {
     const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
     const ex = byTeam.get(key) ?? {
       teamId: (r.team_id ?? null) as string | null,
@@ -179,36 +211,42 @@ export default async function CircuitPage({ params }: Props) {
     byTeam.set(key, ex)
   }
 
-  // Use the same Final Standings logic the tournament page renders. This
-  // honors ranking_method, prize_config rank mapping, scoring rules per
-  // stage, and DQ — so the champion shown here matches what the public
-  // scoreboard's #1 actually is.
-  const finalStandingsList = await Promise.all(
-    tournaments.map((t) => getTournamentFinalStandings(t.id).then((m) => ({ tid: t.id, map: m }))),
-  )
-  const champions: CircuitChampion[] = []
-  for (const { tid, map } of finalStandingsList) {
-    let championTeamId: string | null = null
-    for (const [teamId, entry] of map) {
-      if (entry.rank === 1) { championTeamId = teamId; break }
+  for (const r of allTeamResults) {
+    const tournamentId = matchToTournament.get(r.match_id as string)
+    if (!tournamentId) continue
+    bumpAgg(tournamentTeamMap.get(tournamentId)!, r)
+    if (grandFinalMatchIds.has(r.match_id as string)) {
+      bumpAgg(tournamentGFMap.get(tournamentId)!, r)
     }
-    if (!championTeamId) continue
-    // Pull match-level totals for that team in this tournament from the
-    // already-aggregated tournamentTeamMap so the champions table can show
-    // the team's matches / wins / kills / points the same way it did before.
-    const byTeam = tournamentTeamMap.get(tid)
-    if (!byTeam) continue
-    const c = [...byTeam.values()].find((e) => e.teamId === championTeamId)
-    if (!c) continue
+  }
+
+  const champions: CircuitChampion[] = []
+  for (const tid of tournamentIds) {
+    const dq = dqByTournament.get(tid) ?? new Set<string>()
+    const isDq = (e: TeamAgg) => !!e.teamId && dq.has(e.teamId)
+    // Prefer Grand Finals stage when present; fall back to tournament-wide.
+    const gf = tournamentGFMap.get(tid)
+    const wide = tournamentTeamMap.get(tid)
+    const pool = (gf && gf.size > 0) ? gf : wide
+    if (!pool || pool.size === 0) continue
+    const sorted = [...pool.values()]
+      .filter((e) => !isDq(e))
+      .sort((a, b) => b.totalPoints - a.totalPoints)
+    if (sorted.length === 0) continue
+    const c = sorted[0]
+    // Stat columns always reflect tournament-wide totals so the matches /
+    // wins / kills / points columns aren't truncated to just the GF stage.
+    const wideEntry = wide ? [...wide.values()].find((e) => e.teamId === c.teamId) : null
+    const stat = wideEntry ?? c
     champions.push({
       tournamentId: tid,
       teamId: c.teamId,
       teamName: c.teamName,
       logoUrl: c.logoUrl,
-      totalPoints: c.totalPoints,
-      totalKills: c.kills,
-      wins: c.wins,
-      matches: c.matches,
+      totalPoints: stat.totalPoints,
+      totalKills: stat.kills,
+      wins: stat.wins,
+      matches: stat.matches,
     })
   }
 
