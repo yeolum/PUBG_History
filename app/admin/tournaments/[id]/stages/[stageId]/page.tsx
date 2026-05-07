@@ -214,9 +214,9 @@ export default function StageMatchesPage() {
     if (toInsert.length > 0) {
       await supabase.from('stage_additional_points').insert(toInsert)
     }
+    await reload()
     setSavingAddPts(false)
     setAddPtsOpen(false)
-    reload()
   }
 
   async function saveAdvancementRules() {
