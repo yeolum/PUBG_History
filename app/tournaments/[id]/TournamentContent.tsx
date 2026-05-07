@@ -1,7 +1,7 @@
 import { unstable_cache } from 'next/cache'
 import { createPublicClient } from '@/lib/supabase/server'
 import type { Tournament, Stage, Match, TournamentPrizeConfig, Series } from '@/lib/types'
-import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage, getNameVariants } from '@/lib/scoring'
 import { stripTagPrefix } from '@/lib/pubg-api'
 import TournamentRoster from './TournamentRoster'
 import TournamentDetailTabs from './TournamentDetailTabs'
@@ -11,7 +11,7 @@ import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
-const PS_SELECT = 'match_id, player_id, team_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
+const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
 const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
 const PAGE = 1000
 
@@ -182,11 +182,16 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
   }
 
-  // Build pubg name → player_id lookup from aliases
+  // Build pubg name → player_id lookup from aliases. Index every variant of
+  // the alias (full + after-first-underscore suffix) so a row whose
+  // pubg_player_name carries a TAG_ prefix still resolves when the alias
+  // table only stores the bare nick.
   const pubgNameToPlayerId = new Map<string, string>()
   for (const a of playerAliasData ?? []) {
     const row = a as AnyRow
-    pubgNameToPlayerId.set((row.alias as string).toLowerCase(), row.player_id as string)
+    for (const v of getNameVariants(row.alias as string)) {
+      if (!pubgNameToPlayerId.has(v)) pubgNameToPlayerId.set(v, row.player_id as string)
+    }
   }
 
   // Build resultsByMatch from team results + a teamId→global teams.name lookup
@@ -199,13 +204,25 @@ export default async function TournamentContent({ id, tournament }: { id: string
     if (row.team_id && row.teams?.name) teamIdToTeamsName.set(row.team_id as string, row.teams.name as string)
   }
 
-  // Build pubg_player_name → player_id from stats that ARE linked within this tournament
+  // Build pubg_player_name → player_id from stats that ARE linked within this
+  // tournament. Index every variant so the same nick across stages with
+  // different team-tag prefixes (TAG1_Nick vs TAG2_Nick after a transfer)
+  // still resolves to the same player.
   const nameToPlayerIdLocal = new Map<string, string>()
+  // Stable account_id → player_id mapping built from any linked row in this
+  // tournament. account_id doesn't change when a player renames or moves
+  // teams, so it catches splits the name lookup misses.
+  const accountIdToPlayerId = new Map<string, string>()
   for (const d of psData ?? []) {
     const row = d as AnyRow
-    if (row.player_id && row.pubg_player_name) {
-      nameToPlayerIdLocal.set((row.pubg_player_name as string).toLowerCase(), row.player_id as string)
+    const pid = row.player_id as string | null
+    if (!pid) continue
+    if (row.pubg_player_name) {
+      for (const v of getNameVariants(row.pubg_player_name as string)) {
+        if (!nameToPlayerIdLocal.has(v)) nameToPlayerIdLocal.set(v, pid)
+      }
     }
+    if (row.pubg_account_id) accountIdToPlayerId.set(row.pubg_account_id as string, pid)
   }
 
   // Build alias logo lookup (must be before player stats for logo resolution)
@@ -309,14 +326,26 @@ export default async function TournamentContent({ id, tournament }: { id: string
     if (!damageByMatch[row.match_id]) damageByMatch[row.match_id] = []
     damageByMatch[row.match_id].push({ placement: row.placement, damage_dealt: Number(row.damage_dealt ?? 0) })
 
-    const resolvedPlayerId: string | null =
-      row.player_id ??
-      nameToPlayerIdLocal.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
-      pubgNameToPlayerId.get((row.pubg_player_name as string | null ?? '').toLowerCase()) ??
-      null
+    // Resolve player_id by every available signal so the same player doesn't
+    // split into two map entries (linked rows under uuid + unlinked rows
+    // under `pubg:Name`). Order: explicit player_id → stable PUBG account
+    // id → exact name in this tournament's linked rows → alias-table match
+    // (full name or after-prefix variant).
+    const accountId = (row.pubg_account_id as string | null) ?? null
+    const pubgName = (row.pubg_player_name as string | null) ?? ''
+    let resolvedPlayerId: string | null = (row.player_id as string | null) ?? null
+    if (!resolvedPlayerId && accountId) {
+      resolvedPlayerId = accountIdToPlayerId.get(accountId) ?? null
+    }
+    if (!resolvedPlayerId && pubgName) {
+      for (const v of getNameVariants(pubgName)) {
+        const hit = nameToPlayerIdLocal.get(v) ?? pubgNameToPlayerId.get(v) ?? null
+        if (hit) { resolvedPlayerId = hit; break }
+      }
+    }
 
     const nickname = row.display_name ?? row.players?.nickname ?? row.pubg_player_name ?? '?'
-    const pubgPlayerName: string = row.pubg_player_name ?? ''
+    const pubgPlayerName: string = pubgName
     // Resolve team name from match_team_results (same as participant display) instead of current DB name
     const matchTeamResult = row.team_id
       ? (resultsByMatch[row.match_id] ?? []).find((r: AnyRow) => r.team_id === row.team_id)
@@ -324,7 +353,9 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const teamName = matchTeamResult?._resolvedName ?? row.teams?.name ?? stripTagPrefix(row.pubg_player_name?.split('_')[0] ?? '?')
     const logoUrl = row.team_id ? resolveLogoUrl(row.team_id, teamName, aliasLogoLookup) : null
 
-    const key = resolvedPlayerId ?? `pubg:${pubgPlayerName}`
+    // Even when player_id resolution fails, fall back to the stable
+    // pubg_account_id so renamed-but-same-account rows stay in one bucket.
+    const key = resolvedPlayerId ?? (accountId ? `pubg-acct:${accountId}` : `pubg:${pubgPlayerName.toLowerCase()}`)
 
     // Only fold into total player stats for ON stages; per-match display always populated
     if (!excludedFromTotalMatchIds.has(row.match_id as string)) {
