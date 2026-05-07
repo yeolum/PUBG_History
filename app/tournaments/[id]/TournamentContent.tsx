@@ -17,19 +17,31 @@ const PAGE = 1000
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAllPages(supabase: ReturnType<typeof createPublicClient>, table: string, select: string, matchIds: string[]): Promise<AnyRow[]> {
+  // Chunk match_ids so the .in() list doesn't overflow PostgREST / proxy URL
+  // limits on tournaments with lots of matches (multi-stage / multi-series).
+  // A long list silently came back as null before, which made player data
+  // disappear entirely on big tournaments.
+  const ID_CHUNK = 80
   const rows: AnyRow[] = []
-  let page = 0
-  while (true) {
-    const { data: batch } = await supabase
-      .from(table)
-      .select(select)
-      .in('match_id', matchIds)
-      .order('id')
-      .range(page * PAGE, (page + 1) * PAGE - 1)
-    if (!batch || batch.length === 0) break
-    rows.push(...(batch as AnyRow[]))
-    if (batch.length < PAGE) break
-    page++
+  for (let off = 0; off < matchIds.length; off += ID_CHUNK) {
+    const ids = matchIds.slice(off, off + ID_CHUNK)
+    let page = 0
+    while (true) {
+      const { data: batch, error } = await supabase
+        .from(table)
+        .select(select)
+        .in('match_id', ids)
+        .order('id')
+        .range(page * PAGE, (page + 1) * PAGE - 1)
+      if (error) {
+        console.error(`fetchAllPages(${table}) chunk ${off}-${off + ids.length} page ${page} failed:`, error.message)
+        break
+      }
+      if (!batch || batch.length === 0) break
+      rows.push(...(batch as AnyRow[]))
+      if (batch.length < PAGE) break
+      page++
+    }
   }
   return rows
 }
