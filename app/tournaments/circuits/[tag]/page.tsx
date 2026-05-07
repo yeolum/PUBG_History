@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import CircuitContent from './CircuitContent'
+import { getTournamentFinalStandings } from '@/lib/tournament-standings'
 
 export const revalidate = 30
 
@@ -178,13 +179,37 @@ export default async function CircuitPage({ params }: Props) {
     byTeam.set(key, ex)
   }
 
+  // Use the same Final Standings logic the tournament page renders. This
+  // honors ranking_method, prize_config rank mapping, scoring rules per
+  // stage, and DQ — so the champion shown here matches what the public
+  // scoreboard's #1 actually is.
+  const finalStandingsList = await Promise.all(
+    tournaments.map((t) => getTournamentFinalStandings(t.id).then((m) => ({ tid: t.id, map: m }))),
+  )
   const champions: CircuitChampion[] = []
-  for (const [tid, byTeam] of tournamentTeamMap) {
-    const sorted = [...byTeam.values()].sort((a, b) => b.totalPoints - a.totalPoints)
-    if (sorted.length > 0) {
-      const c = sorted[0]
-      champions.push({ tournamentId: tid, teamId: c.teamId, teamName: c.teamName, logoUrl: c.logoUrl, totalPoints: c.totalPoints, totalKills: c.kills, wins: c.wins, matches: c.matches })
+  for (const { tid, map } of finalStandingsList) {
+    let championTeamId: string | null = null
+    for (const [teamId, entry] of map) {
+      if (entry.rank === 1) { championTeamId = teamId; break }
     }
+    if (!championTeamId) continue
+    // Pull match-level totals for that team in this tournament from the
+    // already-aggregated tournamentTeamMap so the champions table can show
+    // the team's matches / wins / kills / points the same way it did before.
+    const byTeam = tournamentTeamMap.get(tid)
+    if (!byTeam) continue
+    const c = [...byTeam.values()].find((e) => e.teamId === championTeamId)
+    if (!c) continue
+    champions.push({
+      tournamentId: tid,
+      teamId: c.teamId,
+      teamName: c.teamName,
+      logoUrl: c.logoUrl,
+      totalPoints: c.totalPoints,
+      totalKills: c.kills,
+      wins: c.wins,
+      matches: c.matches,
+    })
   }
 
   // Aggregate global team stats
