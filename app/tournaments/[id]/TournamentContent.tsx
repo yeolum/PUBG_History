@@ -395,6 +395,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
       })
     }
   }
+  // Only seed zero-stat entries when there is already ON-stage player data.
+  // If playerStatsMap is still empty here, all imported matches are either
+  // excluded (include_in_total=false) or not yet imported — seeding zeros
+  // would fill the Total view with misleading all-zero rows.
+  const hasOnStagePlayerStats = playerStatsMap.size > 0
   for (const r of (rosterPlayersData ?? []) as AnyRow[]) {
     const p = r.players as AnyRow | null
     if (!p?.id) continue
@@ -412,7 +417,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         team.players.set(playerId, { id: playerId, nickname, nationality })
       }
     }
-    if (!playerStatsMap.has(playerId)) {
+    if (hasOnStagePlayerStats && !playerStatsMap.has(playerId)) {
       const team = tournamentTeamId ? teamStatsMap.get(tournamentTeamId) : null
       playerStatsMap.set(playerId, {
         playerId,
