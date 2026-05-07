@@ -46,7 +46,7 @@ interface AdditionalPoint {
   points: number
 }
 
-function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig = DEFAULT_RULE, extraPts: Record<string, number> = {}): ComputedStanding[] {
+function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig = DEFAULT_RULE, extraPts: Record<string, number> = {}, teamDisplayNames: Map<string, string> = new Map()): ComputedStanding[] {
   const imported = matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
   const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }>()
   for (const match of imported) {
@@ -59,7 +59,9 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
         .filter(ps => (ps.placement ?? -1) === (r.placement ?? -2))
         .reduce((s, ps) => s + Number(ps.damage_dealt ?? 0), 0)
       if (!statMap.has(key)) {
-        statMap.set(key, { key, teamId: r.team_id ?? null, teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?', matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0, firstChickenOrder: Infinity })
+        const rawName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
+        const teamName = r.team_id ? (teamDisplayNames.get(r.team_id) ?? rawName) : rawName
+        statMap.set(key, { key, teamId: r.team_id ?? null, teamName, matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0, firstChickenOrder: Infinity })
       }
       const stat = statMap.get(key)!
       stat.matchesPlayed++
@@ -128,12 +130,14 @@ export default function StageMatchesPage() {
   const [addPtsOpen, setAddPtsOpen] = useState(false)
   const [addPtsRows, setAddPtsRows] = useState<{ teamName: string; points: string }[]>([])
   const [savingAddPts, setSavingAddPts] = useState(false)
+  const [teamDisplayNames, setTeamDisplayNames] = useState<Map<string, string>>(new Map())
 
   const load = useCallback(async () => {
-    const [{ data: s }, { data: m }, { data: ap }] = await Promise.all([
+    const [{ data: s }, { data: m }, { data: ap }, { data: ttData }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
       supabase.from('stage_additional_points').select('stage_id, team_name, points').eq('stage_id', stageId),
+      supabase.from('tournament_teams').select('team_id, display_name').eq('tournament_id', tournamentId),
     ])
     const stageData = s as Stage
     setStage(stageData)
@@ -141,7 +145,12 @@ export default function StageMatchesPage() {
     setEliminateCount(stageData.eliminate_count ?? 0)
     setMatches((m ?? []) as MatchWithResults[])
     setAdditionalPoints((ap ?? []) as AdditionalPoint[])
-  }, [stageId, supabase])
+    const dnMap = new Map<string, string>()
+    for (const tt of (ttData ?? []) as { team_id: string; display_name: string | null }[]) {
+      if (tt.team_id && tt.display_name) dnMap.set(tt.team_id, tt.display_name)
+    }
+    setTeamDisplayNames(dnMap)
+  }, [stageId, tournamentId, supabase])
 
   useEffect(() => { load() }, [load])
 
@@ -159,7 +168,7 @@ export default function StageMatchesPage() {
     for (const ap of additionalPoints) m[ap.team_name.toLowerCase()] = ap.points
     return m
   }, [additionalPoints])
-  const computedStandings = useMemo(() => computeStandings(matches, stageRule, extraPtsMap), [matches, stageRule, extraPtsMap])
+  const computedStandings = useMemo(() => computeStandings(matches, stageRule, extraPtsMap, teamDisplayNames), [matches, stageRule, extraPtsMap, teamDisplayNames])
 
   function handleMatchIdPaste(e: React.ClipboardEvent<HTMLInputElement>, rowId: string) {
     const text = e.clipboardData.getData('text')
