@@ -74,7 +74,7 @@ const loadTournamentData = unstable_cache(
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
-      supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count').eq('tournament_id', id).order('order_num'),
+      supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count, scoring_rule_id, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
     ])
 
@@ -502,7 +502,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
   // Series cumulative standings — built early so rank-board mapping below can
   // reference series_id targets, and the WWCD / series-prize folds further
   // down can reuse the same map.
-  type SeriesStandingEntry = { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }
+  type SeriesStandingEntry = { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number; lastMatchKills: number; lastMatchPlacement: number }
   const seriesStandingsMap = new Map<string, SeriesStandingEntry[]>()
   for (const sr of seriesList) {
     const seriesStages = stagesList.filter((s) => s.series_id === sr.id && (s as AnyRow).include_in_total !== false)
@@ -518,7 +518,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
             ptsMap.set(key, {
               teamId: r.team_id ?? null,
               teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'),
-              matches: 0, wwcd: 0, placePts: 0, killPts: 0, totalPts: 0,
+              matches: 0, wwcd: 0, placePts: 0, killPts: 0, totalPts: 0, lastMatchKills: 0, lastMatchPlacement: 99,
             })
           }
           const e = ptsMap.get(key)!
@@ -546,7 +546,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   // Combined scoreboards — view-only aggregations of any subset of stages.
   // Same shape as seriesStandingsMap so rankBoard / scoreboard view can treat them uniformly.
-  type CombinedItem = { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null; stageIds: Set<string> }
+  type CombinedItem = { id: string; name: string; order_num: number; tab_order: number; advance_count: number | null; eliminate_count: number | null; stageIds: Set<string>; scoringRuleConfig: ReturnType<typeof ruleFromStage> | null }
   const combinedStagesByCombined = new Map<string, Set<string>>()
   for (const r of (combinedStageData ?? []) as AnyRow[]) {
     const cid = r.combined_scoreboard_id as string
@@ -561,15 +561,32 @@ export default async function TournamentContent({ id, tournament }: { id: string
     advance_count: (c.advance_count as number | null) ?? null,
     eliminate_count: (c.eliminate_count as number | null) ?? null,
     stageIds: combinedStagesByCombined.get(c.id as string) ?? new Set(),
+    scoringRuleConfig: c.scoring_rules ? ruleFromStage(c.scoring_rules as AnyRow) : null,
   }))
 
   const combinedStandingsMap = new Map<string, SeriesStandingEntry[]>()
   for (const cb of combinedList) {
     if (cb.stageIds.size === 0) continue
+    const cbRule = cb.scoringRuleConfig
+    // Find last imported match across all combined stages (for tiebreakers)
+    let lastCbMatchId: string | null = null
+    let lastCbStageOrder = -Infinity
+    let lastCbMatchOrder = -Infinity
+    for (const stage of stagesList) {
+      if (!cb.stageIds.has(stage.id)) continue
+      for (const m of stage.matches) {
+        if (m.status !== 'imported') continue
+        if (stage.order_num > lastCbStageOrder || (stage.order_num === lastCbStageOrder && m.order_num > lastCbMatchOrder)) {
+          lastCbStageOrder = stage.order_num
+          lastCbMatchOrder = m.order_num
+          lastCbMatchId = m.id
+        }
+      }
+    }
     const ptsMap = new Map<string, SeriesStandingEntry>()
     for (const stage of stagesList) {
       if (!cb.stageIds.has(stage.id)) continue
-      const rule = ruleFromStage(stage.scoring_rules)
+      const rule = cbRule ?? ruleFromStage(stage.scoring_rules)
       for (const m of stage.matches) {
         if (m.status !== 'imported') continue
         for (const r of (resultsByMatch[m.id] ?? []) as AnyRow[]) {
@@ -578,7 +595,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
             ptsMap.set(key, {
               teamId: r.team_id ?? null,
               teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'),
-              matches: 0, wwcd: 0, placePts: 0, killPts: 0, totalPts: 0,
+              matches: 0, wwcd: 0, placePts: 0, killPts: 0, totalPts: 0, lastMatchKills: 0, lastMatchPlacement: 99,
             })
           }
           const e = ptsMap.get(key)!
@@ -589,6 +606,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
           e.totalPts += pp + kp
           e.matches++
           if ((r.placement ?? 99) === 1) e.wwcd++
+          if (m.id === lastCbMatchId) {
+            e.lastMatchKills = r.total_kills ?? 0
+            e.lastMatchPlacement = r.placement ?? 99
+          }
         }
       }
       const extraForStage = stageAdditionalPts[stage.id] ?? {}
@@ -601,7 +622,25 @@ export default async function TournamentContent({ id, tournament }: { id: string
         e.totalPts += extra
       }
     }
-    combinedStandingsMap.set(cb.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
+    const cbEntries = [...ptsMap.values()]
+    const cbRuleType = cbRule?.type ?? 'super'
+    if (cbRuleType === 'chicken_v2') {
+      cbEntries.sort((a, b) => {
+        if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+        if (b.killPts !== a.killPts) return b.killPts - a.killPts
+        if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+        return a.lastMatchPlacement - b.lastMatchPlacement
+      })
+    } else if (cbRuleType === 'chicken') {
+      cbEntries.sort((a, b) => {
+        if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+        if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+        return b.placePts - a.placePts
+      })
+    } else {
+      cbEntries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
+    }
+    combinedStandingsMap.set(cb.id, cbEntries)
   }
 
   type RankEntry = { teamId: string | null; teamName: string; rank: number }
@@ -919,7 +958,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         teamStats={teamStats}
         dropLocations={dropLocations}
         mapKeys={mapKeys}
-        dqTeamIds={dqTeamIds}
+        dqTeamIds={[...dqTeamIds]}
       />
     </>
   )

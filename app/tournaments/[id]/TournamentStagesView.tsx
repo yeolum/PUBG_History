@@ -35,7 +35,7 @@ interface Props {
   stageAdditionalPts?: Record<string, Record<string, number>>
   wwcdBonusByTeamId?: Record<string, { prize: number; pgs: number; pgc: number }>
   specialAwards?: SpecialAwardItem[]
-  dqTeamIds?: Set<string>
+  dqTeamIds?: string[]
 }
 
 const rankStyle = (rank: number) =>
@@ -57,7 +57,7 @@ export default function TournamentStagesView({
   stages, series, combined = [], combinedStandings = {},
   resultsByMatch, damageByMatch, rankBoard, prizeConfig,
   hasPrize, hasPgsPoints, hasPgcPoints, currency, aliasLogoLookup, stageAdditionalPts = {},
-  wwcdBonusByTeamId = {}, specialAwards = [], dqTeamIds = new Set(),
+  wwcdBonusByTeamId = {}, specialAwards = [], dqTeamIds = [],
 }: Props) {
   // All hooks must be before early return
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null)
@@ -95,6 +95,8 @@ export default function TournamentStagesView({
     }
     return map
   }, [stages])
+
+  const dqTeamIdsSet = useMemo(() => new Set(dqTeamIds), [dqTeamIds])
 
   // Match IDs from stages excluded from totals (include_in_total === false)
   const excludedMatchIds = useMemo(
@@ -411,8 +413,8 @@ export default function TournamentStagesView({
                     {(() => {
                       // Disqualified teams are pulled out of the active ranking, listed at the
                       // bottom of the table marked DQ, with all stat columns hidden.
-                      const activeRows = rankBoard.filter(r => !r.teamId || !dqTeamIds.has(r.teamId))
-                      const dqRows = rankBoard.filter(r => r.teamId && dqTeamIds.has(r.teamId))
+                      const activeRows = rankBoard.filter(r => !r.teamId || !dqTeamIdsSet.has(r.teamId))
+                      const dqRows = rankBoard.filter(r => r.teamId && dqTeamIdsSet.has(r.teamId))
                       // Re-rank actives so removed DQ slots don't leave gaps
                       const renumbered = activeRows.map((r, i) => ({ ...r, displayRank: i + 1 }))
                       const totalCols = 7 + (hasPrize ? 1 : 0) + (hasPgsPoints ? 1 : 0) + (hasPgcPoints ? 1 : 0)
@@ -591,58 +593,95 @@ export default function TournamentStagesView({
                       </thead>
                       <tbody>
                         {(() => {
-                          const standings = combinedStandings[selectedCombinedId] ?? []
+                          const allStandings = combinedStandings[selectedCombinedId] ?? []
+                          const activeStandings = allStandings.filter(s => !s.teamId || !dqTeamIdsSet.has(s.teamId))
+                          const dqStandings = allStandings.filter(s => s.teamId && dqTeamIdsSet.has(s.teamId))
                           const advCount = selectedCombined?.advance_count ?? 0
                           const elimCount = selectedCombined?.eliminate_count ?? 0
-                          return standings.map((s, i) => {
-                            const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
-                            const showAdvLine = advCount > 0 && i === advCount
-                            const showElimLine = elimCount > 0 && i === standings.length - elimCount
-                            return (
-                              <Fragment key={`${s.teamId ?? s.teamName}-${i}`}>
-                                {showAdvLine && (
-                                  <tr>
-                                    <td colSpan={7} className="p-0">
-                                      <div className="flex flex-col items-start">
-                                        <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">▲ ADVANCE</span>
-                                        <div className="border-b-2 border-green-400 w-full mb-1" />
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                                {showElimLine && (
-                                  <tr>
-                                    <td colSpan={7} className="p-0">
-                                      <div className="border-t-2 border-red-400 flex items-center mt-1">
-                                        <span className="text-[10px] font-bold text-red-500 px-3 py-0.5 tracking-wide">▼ ELIMINATED</span>
-                                      </div>
-                                    </td>
-                                  </tr>
-                                )}
-                                <tr className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
-                                  <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
-                                  <td className="px-4 py-2 text-xs">
-                                    <div className="flex items-center gap-1.5">
-                                      {logo ? (
-                                        // eslint-disable-next-line @next/next/no-img-element
-                                        <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
-                                      ) : (
-                                        <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
-                                      )}
-                                      {s.teamId ? (
-                                        <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
-                                      ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
-                                    </div>
+                          return (
+                            <>
+                              {activeStandings.map((s, i) => {
+                                const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                                const showAdvLine = advCount > 0 && i === advCount
+                                const showElimLine = elimCount > 0 && i === activeStandings.length - elimCount
+                                return (
+                                  <Fragment key={`${s.teamId ?? s.teamName}-${i}`}>
+                                    {showAdvLine && (
+                                      <tr>
+                                        <td colSpan={7} className="p-0">
+                                          <div className="flex flex-col items-start">
+                                            <span className="text-[10px] font-bold text-green-600 px-3 py-0.5 tracking-wide">▲ ADVANCE</span>
+                                            <div className="border-b-2 border-green-400 w-full mb-1" />
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    {showElimLine && (
+                                      <tr>
+                                        <td colSpan={7} className="p-0">
+                                          <div className="border-t-2 border-red-400 flex items-center mt-1">
+                                            <span className="text-[10px] font-bold text-red-500 px-3 py-0.5 tracking-wide">▼ ELIMINATED</span>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    )}
+                                    <tr className={`border-b border-gray-50 last:border-0 ${i < 3 ? 'bg-amber-50/20' : ''}`}>
+                                      <td className={`px-4 py-2 font-mono text-xs ${rankStyle(i + 1)}`}>{i + 1}</td>
+                                      <td className="px-4 py-2 text-xs">
+                                        <div className="flex items-center gap-1.5">
+                                          {logo ? (
+                                            // eslint-disable-next-line @next/next/no-img-element
+                                            <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100" />
+                                          ) : (
+                                            <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                          )}
+                                          {s.teamId ? (
+                                            <Link href={`/teams/${s.teamId}`} className="font-medium text-gray-800 hover:text-yellow-600">{s.teamName}</Link>
+                                          ) : <span className="font-medium text-gray-800">{s.teamName}</span>}
+                                        </div>
+                                      </td>
+                                      <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
+                                      <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
+                                      <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
+                                      <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.killPts}</td>
+                                      <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
+                                    </tr>
+                                  </Fragment>
+                                )
+                              })}
+                              {dqStandings.length > 0 && (
+                                <tr>
+                                  <td colSpan={7} className="border-t-2 border-red-300 px-3 py-1.5 bg-red-50/40 text-[10px] font-bold text-red-500 tracking-wide">
+                                    ✕ DISQUALIFIED
                                   </td>
-                                  <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
-                                  <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
-                                  <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
-                                  <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.killPts}</td>
-                                  <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
                                 </tr>
-                              </Fragment>
-                            )
-                          })
+                              )}
+                              {dqStandings.map(s => {
+                                const logo = resolveLogoUrl(s.teamId, s.teamName, aliasLogoLookup)
+                                return (
+                                  <tr key={`dq-${s.teamId ?? s.teamName}`} className="border-b border-gray-50 last:border-0 bg-red-50/20">
+                                    <td className="px-4 py-2 font-mono text-xs font-bold text-red-500">DQ</td>
+                                    <td className="px-4 py-2 text-xs">
+                                      <div className="flex items-center gap-1.5">
+                                        {logo ? (
+                                          // eslint-disable-next-line @next/next/no-img-element
+                                          <img src={logo} alt="" className="w-4 h-4 rounded object-contain shrink-0 border border-gray-100 opacity-60" />
+                                        ) : (
+                                          <span className="w-4 h-4 rounded-full bg-gray-100 shrink-0" />
+                                        )}
+                                        <span className="font-medium text-gray-500 line-through">
+                                          {s.teamId ? (
+                                            <Link href={`/teams/${s.teamId}`} className="hover:text-yellow-600">{s.teamName}</Link>
+                                          ) : s.teamName}
+                                        </span>
+                                      </div>
+                                    </td>
+                                    <td colSpan={5} className="px-4 py-2 text-right text-[10px] text-red-500 italic">disqualified</td>
+                                  </tr>
+                                )
+                              })}
+                            </>
+                          )
                         })()}
                       </tbody>
                     </table>

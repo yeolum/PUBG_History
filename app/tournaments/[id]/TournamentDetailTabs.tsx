@@ -36,7 +36,7 @@ interface Props {
   teamStats: TeamStatRow[]
   dropLocations: DropLocationRow[]
   mapKeys: string[]
-  dqTeamIds: Set<string>
+  dqTeamIds: string[]
 }
 
 type Tab = 'scoreboard' | 'players' | 'teams'

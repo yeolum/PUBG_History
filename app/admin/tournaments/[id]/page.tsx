@@ -118,12 +118,13 @@ export default function AdminTournamentDetailPage() {
   const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
-  type CombinedRow = { id: string; name: string; order_num: number; advance_count: number | null; eliminate_count: number | null; stageIds: Set<string> }
+  type CombinedRow = { id: string; name: string; order_num: number; advance_count: number | null; eliminate_count: number | null; scoringRuleId: string | null; stageIds: Set<string> }
+  type CombinedRulesRow = { advance: string; eliminate: string; scoringRuleId: string }
   const [combinedList, setCombinedList] = useState<CombinedRow[]>([])
   const [addingCombined, setAddingCombined] = useState(false)
   const [newCombinedName, setNewCombinedName] = useState('')
   const [savingCombinedId, setSavingCombinedId] = useState<string | null>(null)
-  const [combinedRulesMap, setCombinedRulesMap] = useState<Record<string, SeriesRulesRow>>({})
+  const [combinedRulesMap, setCombinedRulesMap] = useState<Record<string, CombinedRulesRow>>({})
   const [savingCombinedRulesId, setSavingCombinedRulesId] = useState<string | null>(null)
 
   // Unified scoreboard tab order: each entity (series / standalone stage /
@@ -199,7 +200,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_special_awards').select('*, teams(id, name)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
-      supabase.from('combined_scoreboards').select('id, name, order_num, advance_count, eliminate_count').eq('tournament_id', id).order('order_num'),
+      supabase.from('combined_scoreboards').select('id, name, order_num, advance_count, eliminate_count, scoring_rule_id').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
@@ -315,21 +316,23 @@ export default function AdminTournamentDetailPage() {
       if (!stagesByCombined.has(r.combined_scoreboard_id)) stagesByCombined.set(r.combined_scoreboard_id, new Set())
       stagesByCombined.get(r.combined_scoreboard_id)!.add(r.stage_id)
     }
-    const combinedListLoaded = ((combinedData ?? []) as { id: string; name: string; order_num: number; tab_order?: number; advance_count?: number | null; eliminate_count?: number | null }[]).map((c) => ({
+    const combinedListLoaded = ((combinedData ?? []) as { id: string; name: string; order_num: number; tab_order?: number; advance_count?: number | null; eliminate_count?: number | null; scoring_rule_id?: string | null }[]).map((c) => ({
       id: c.id,
       name: c.name,
       order_num: c.order_num,
       tab_order: c.tab_order ?? 0,
       advance_count: c.advance_count ?? null,
       eliminate_count: c.eliminate_count ?? null,
+      scoringRuleId: c.scoring_rule_id ?? null,
       stageIds: stagesByCombined.get(c.id) ?? new Set(),
     }))
     setCombinedList(combinedListLoaded)
-    const cbRulesMap: Record<string, SeriesRulesRow> = {}
+    const cbRulesMap: Record<string, CombinedRulesRow> = {}
     for (const c of combinedListLoaded) {
       cbRulesMap[c.id] = {
         advance: c.advance_count?.toString() ?? '',
         eliminate: c.eliminate_count?.toString() ?? '',
+        scoringRuleId: c.scoringRuleId ?? '',
       }
     }
     setCombinedRulesMap(cbRulesMap)
@@ -759,6 +762,7 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('combined_scoreboards').update({
       advance_count: Number.isFinite(adv) && adv > 0 ? adv : null,
       eliminate_count: Number.isFinite(elim) && elim > 0 ? elim : null,
+      scoring_rule_id: rules.scoringRuleId || null,
     }).eq('id', combinedId)
     setSavingCombinedRulesId(null)
     if (error) { setErr('Save failed: ' + error.message); return }
@@ -1414,7 +1418,8 @@ export default function AdminTournamentDetailPage() {
               const rules = combinedRulesMap[c.id] ?? { advance: '', eliminate: '' }
               const rulesDirty =
                 (rules.advance || '0') !== (c.advance_count?.toString() ?? '0') ||
-                (rules.eliminate || '0') !== (c.eliminate_count?.toString() ?? '0')
+                (rules.eliminate || '0') !== (c.eliminate_count?.toString() ?? '0') ||
+                (rules.scoringRuleId || null) !== (c.scoringRuleId ?? null)
               return (
                 <div
                   key={c.id}
@@ -1458,6 +1463,16 @@ export default function AdminTournamentDetailPage() {
                       placeholder="0"
                       className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
                     />
+                    <select
+                      value={rules.scoringRuleId}
+                      onChange={(e) => setCombinedRulesMap((m) => ({ ...m, [c.id]: { ...(m[c.id] ?? rules), scoringRuleId: e.target.value } }))}
+                      className="border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                    >
+                      <option value="">스테이지 룰 사용</option>
+                      {scoringRules.map((rule) => (
+                        <option key={rule.id} value={rule.id}>{rule.name}</option>
+                      ))}
+                    </select>
                     {rulesDirty && (
                       <button
                         onClick={() => saveCombinedAdvancement(c.id)}
