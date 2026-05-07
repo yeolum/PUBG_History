@@ -444,24 +444,36 @@ export default async function TournamentContent({ id, tournament }: { id: string
     .sort((a, b) => a.name.localeCompare(b.name))
 
   // Per-stage standings → rank board (excludes stages with include_in_total === false)
-  type StandingsEntry = { teamId: string | null; teamName: string; totalPts: number; placePts: number }
+  type StandingsEntry = { teamId: string | null; teamName: string; totalPts: number; placePts: number; killPts: number; wwcd: number; lastMatchKills: number; lastMatchPlacement: number }
   const stageStandingsMap = new Map<string, StandingsEntry[]>()
   for (const stage of stagesList) {
     if ((stage as AnyRow).include_in_total === false) continue
-    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number }>()
+    const stageRule = ruleFromStage(stage.scoring_rules)
+    const lastImportedMatchId = stage.matches
+      .filter(m => m.status === 'imported')
+      .sort((a, b) => a.order_num - b.order_num)
+      .at(-1)?.id ?? null
+    const ptsMap = new Map<string, StandingsEntry>()
     for (const m of stage.matches) {
       if (m.status !== 'imported') continue
       for (const r of resultsByMatch[m.id] ?? []) {
         const row = r as AnyRow
         const key = row.team_id ?? `pubg:${row.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
-          ptsMap.set(key, { teamId: row.team_id ?? null, teamName: resolveTeamName(row.pubg_team_name, row.teams?.name ?? null, row.display_name), totalPts: 0, placePts: 0 })
+          ptsMap.set(key, { teamId: row.team_id ?? null, teamName: resolveTeamName(row.pubg_team_name, row.teams?.name ?? null, row.display_name), totalPts: 0, placePts: 0, killPts: 0, wwcd: 0, lastMatchKills: 0, lastMatchPlacement: 99 })
         }
         const e = ptsMap.get(key)!
         const matchRule = matchToRule.get(m.id) ?? ruleFromStage(null)
         const pp = calcPlacementPtsWithRule(row.placement ?? 99, matchRule)
-        e.totalPts += pp + Math.round((row.total_kills ?? 0) * matchRule.kill_pts)
+        const kp = Math.round((row.total_kills ?? 0) * matchRule.kill_pts)
+        e.totalPts += pp + kp
         e.placePts += pp
+        e.killPts += kp
+        if ((row.placement ?? 99) === 1) e.wwcd++
+        if (m.id === lastImportedMatchId) {
+          e.lastMatchKills = row.total_kills ?? 0
+          e.lastMatchPlacement = row.placement ?? 99
+        }
       }
     }
     const extraForStage = stageAdditionalPts[stage.id] ?? {}
@@ -473,7 +485,18 @@ export default async function TournamentContent({ id, tournament }: { id: string
       }
       e.totalPts += extra
     }
-    stageStandingsMap.set(stage.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
+    const entries = [...ptsMap.values()]
+    if (stageRule.type === 'chicken_v2') {
+      entries.sort((a, b) => {
+        if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+        if (b.killPts !== a.killPts) return b.killPts - a.killPts
+        if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+        return a.lastMatchPlacement - b.lastMatchPlacement
+      })
+    } else {
+      entries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
+    }
+    stageStandingsMap.set(stage.id, entries)
   }
 
   // Series cumulative standings — built early so rank-board mapping below can

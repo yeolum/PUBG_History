@@ -1,7 +1,7 @@
 export const PLACEMENT_PTS = [10, 6, 5, 4, 3, 2, 1, 1]
 
 export interface ScoringRuleConfig {
-  type?: 'super' | 'super_v1' | 'chicken'
+  type?: 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
   placement_pts: number[]
   kill_pts: number
 }
@@ -24,7 +24,7 @@ export function calcPlacementPtsWithRule(placement: number, rule: ScoringRuleCon
 export function ruleFromStage(scoring_rules: { placement_pts: number[]; kill_pts: number; type: string } | null | undefined): ScoringRuleConfig {
   if (!scoring_rules) return DEFAULT_RULE
   return {
-    type: (scoring_rules.type as 'super' | 'super_v1' | 'chicken') ?? 'super',
+    type: (scoring_rules.type as 'super' | 'super_v1' | 'chicken' | 'chicken_v2') ?? 'super',
     placement_pts: scoring_rules.placement_pts,
     kill_pts: scoring_rules.kill_pts,
   }

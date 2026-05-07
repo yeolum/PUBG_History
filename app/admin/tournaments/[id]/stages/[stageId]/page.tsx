@@ -26,8 +26,10 @@ interface ComputedStanding {
   wwcd: number
   totalPts: number
   totalPlacementPts: number
+  totalKillPts: number
   lastMatchPts: number
   lastMatchPlacement: number
+  lastMatchKills: number
   lastMatchDamage: number
 }
 
@@ -61,7 +63,7 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
       if (!statMap.has(key)) {
         const rawName = r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '?'
         const teamName = r.team_id ? (teamDisplayNames.get(r.team_id) ?? rawName) : rawName
-        statMap.set(key, { key, teamId: r.team_id ?? null, teamName, matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchDamage: 0, firstChickenOrder: Infinity })
+        statMap.set(key, { key, teamId: r.team_id ?? null, teamName, matchesPlayed: 0, wwcd: 0, totalPts: 0, totalPlacementPts: 0, totalKillPts: 0, lastMatchOrder: -Infinity, lastMatchPts: 0, lastMatchPlacement: 99, lastMatchKills: 0, lastMatchDamage: 0, firstChickenOrder: Infinity })
       }
       const stat = statMap.get(key)!
       stat.matchesPlayed++
@@ -71,10 +73,12 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
       }
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
+      stat.totalKillPts += killPts
       if (match.order_num > stat.lastMatchOrder) {
         stat.lastMatchOrder = match.order_num
         stat.lastMatchPts = matchPts
         stat.lastMatchPlacement = r.placement ?? 99
+        stat.lastMatchKills = r.total_kills ?? 0
         stat.lastMatchDamage = matchDamage
       }
     }
@@ -91,6 +95,14 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
       if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
       if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
       return b.lastMatchDamage - a.lastMatchDamage
+    })
+  }
+  if (rule.type === 'chicken_v2') {
+    return results.sort((a, b) => {
+      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+      if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
+      if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+      return a.lastMatchPlacement - b.lastMatchPlacement
     })
   }
   return results.sort((a, b) => {

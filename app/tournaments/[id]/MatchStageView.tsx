@@ -19,8 +19,10 @@ interface ComputedStanding {
   wwcd: number
   totalPts: number
   totalPlacementPts: number
+  totalKillPts: number
   lastMatchPts: number
   lastMatchPlacement: number
+  lastMatchKills: number
   lastMatchDamage: number
 }
 
@@ -81,9 +83,11 @@ function computeStandings(
           wwcd: 0,
           totalPts: 0,
           totalPlacementPts: 0,
+          totalKillPts: 0,
           lastMatchOrder: -Infinity,
           lastMatchPts: 0,
           lastMatchPlacement: 99,
+          lastMatchKills: 0,
           lastMatchDamage: 0,
           firstChickenOrder: Infinity,
         })
@@ -97,11 +101,13 @@ function computeStandings(
       }
       stat.totalPts += matchPts
       stat.totalPlacementPts += placementPts
+      stat.totalKillPts += killPts
 
       if (match.order_num > stat.lastMatchOrder) {
         stat.lastMatchOrder = match.order_num
         stat.lastMatchPts = matchPts
         stat.lastMatchPlacement = placement
+        stat.lastMatchKills = r.total_kills ?? 0
         stat.lastMatchDamage = matchDamage
       }
     }
@@ -119,6 +125,14 @@ function computeStandings(
       if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
       if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
       return b.lastMatchDamage - a.lastMatchDamage
+    })
+  }
+  if (rule.type === 'chicken_v2') {
+    return results.sort((a, b) => {
+      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+      if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
+      if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+      return a.lastMatchPlacement - b.lastMatchPlacement
     })
   }
   return results.sort((a, b) => {

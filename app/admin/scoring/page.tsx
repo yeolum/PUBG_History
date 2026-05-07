@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type RuleType = 'super' | 'super_v1' | 'chicken'
+type RuleType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
 
 interface ScoringRule {
   id: string
@@ -21,12 +21,14 @@ const RULE_TYPE_LABELS: Record<RuleType, string> = {
   super: 'SUPER v2',
   super_v1: 'SUPER v1',
   chicken: 'Chicken',
+  chicken_v2: 'Chicken v2',
 }
 
 const RULE_TYPE_DESCS: Record<RuleType, string> = {
   super: '순위점수 + 킬점수 합산, 동점 시 순위점수 우선',
   super_v1: '킬점수 + 순위점수 합산, 동점 시 킬점수 우선',
   chicken: '치킨 먹은 횟수 우선, 동수이면 아래 순위점수 기준으로 정렬',
+  chicken_v2: '치킨 먹은 횟수 우선 → 동수이면 총 킬점수 → 마지막 매치 킬수 → 마지막 매치 생존순위',
 }
 
 function PlacementPtsDisplay({ pts }: { pts: number[] }) {
@@ -126,7 +128,7 @@ export default function ScoringPage() {
         {(Object.keys(RULE_TYPE_LABELS) as RuleType[]).map((t) => (
           <div key={t} className="bg-white border border-gray-200 rounded-xl p-4">
             <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t === 'chicken' || t === 'chicken_v2' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                 {RULE_TYPE_LABELS[t]}
               </span>
             </div>
@@ -159,6 +161,7 @@ export default function ScoringPage() {
                 <option value="super">SUPER v2 (동점 시 순위점수 우선)</option>
                 <option value="super_v1">SUPER v1 (동점 시 킬점수 우선)</option>
                 <option value="chicken">Chicken (치킨 우선)</option>
+                <option value="chicken_v2">Chicken v2 (치킨→킬점수→마지막매치킬→생존순위)</option>
               </select>
             </div>
           </div>
@@ -275,7 +278,7 @@ export default function ScoringPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="font-semibold text-gray-900 text-sm">{rule.name}</span>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${rule.type === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${rule.type === 'chicken' || rule.type === 'chicken_v2' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                       {RULE_TYPE_LABELS[rule.type]}
                     </span>
                   </div>
@@ -289,6 +292,11 @@ export default function ScoringPage() {
                   {rule.type === 'chicken' && (
                     <p className="text-[11px] text-blue-500 mt-1.5">
                       치킨 먹은 팀을 치킨 획득 매치 수 기준으로 상위 배치 → 미획득 팀은 위 순위점수 기준 정렬
+                    </p>
+                  )}
+                  {rule.type === 'chicken_v2' && (
+                    <p className="text-[11px] text-blue-500 mt-1.5">
+                      치킨 횟수 → 총 킬점수 → 마지막 매치 킬수 → 마지막 매치 생존순위
                     </p>
                   )}
                 </div>
