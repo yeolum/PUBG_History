@@ -59,19 +59,57 @@ const loadTournamentData = unstable_cache(
     ])
 
     const [{ data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
-      supabase.from('stages').select('*, include_in_total, scoring_rules(*), matches(*)').eq('tournament_id', id).order('order_num'),
+      // Matches are fetched separately and attached below — relying on the
+      // embedded `matches(*)` would let PostgREST's row cap silently truncate
+      // a big multi-stage tournament's match list, blanking the player data.
+      supabase.from('stages').select('*, include_in_total, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', id).order('rank'),
       supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
     ])
 
-    const allImportedMatchIds: string[] = []
-    for (const stage of (stagesData ?? []) as AnyRow[]) {
-      for (const m of (stage.matches ?? []) as AnyRow[]) {
-        if (m.status === 'imported') allImportedMatchIds.push(m.id as string)
+    const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
+
+    // Fetch matches with explicit 1000-row pagination so even tournaments
+    // with thousands of matches across many stages get the full set.
+    const allMatches: AnyRow[] = []
+    if (stageIds.length > 0) {
+      const STAGE_CHUNK = 80
+      for (let off = 0; off < stageIds.length; off += STAGE_CHUNK) {
+        const chunk = stageIds.slice(off, off + STAGE_CHUNK)
+        let mp = 0
+        while (true) {
+          const { data: batch, error } = await supabase
+            .from('matches')
+            .select('*')
+            .in('stage_id', chunk)
+            .order('id')
+            .range(mp * PAGE, (mp + 1) * PAGE - 1)
+          if (error) {
+            console.error(`matches page ${mp} (stage chunk ${off}-${off + chunk.length}) failed:`, error.message)
+            break
+          }
+          if (!batch || batch.length === 0) break
+          allMatches.push(...(batch as AnyRow[]))
+          if (batch.length < PAGE) break
+          mp++
+        }
       }
     }
+    // Re-attach matches to their stages so downstream code keeps the same shape.
+    const matchesByStage = new Map<string, AnyRow[]>()
+    for (const m of allMatches) {
+      const sid = m.stage_id as string
+      if (!matchesByStage.has(sid)) matchesByStage.set(sid, [])
+      matchesByStage.get(sid)!.push(m)
+    }
+    for (const stage of (stagesData ?? []) as AnyRow[]) {
+      stage.matches = matchesByStage.get(stage.id as string) ?? []
+    }
 
-    const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
+    const allImportedMatchIds: string[] = []
+    for (const m of allMatches) {
+      if (m.status === 'imported') allImportedMatchIds.push(m.id as string)
+    }
 
     const seriesIds = (seriesData ?? []).map((sr: AnyRow) => sr.id as string)
 
