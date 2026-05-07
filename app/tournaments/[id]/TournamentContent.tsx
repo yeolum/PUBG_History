@@ -561,7 +561,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     advance_count: (c.advance_count as number | null) ?? null,
     eliminate_count: (c.eliminate_count as number | null) ?? null,
     stageIds: combinedStagesByCombined.get(c.id as string) ?? new Set(),
-    scoringRuleConfig: c.scoring_rules ? ruleFromStage(c.scoring_rules as AnyRow) : null,
+    scoringRuleConfig: c.scoring_rules ? ruleFromStage(c.scoring_rules as { placement_pts: number[]; kill_pts: number; type: string }) : null,
   }))
 
   const combinedStandingsMap = new Map<string, SeriesStandingEntry[]>()
