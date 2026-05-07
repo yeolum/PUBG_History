@@ -31,21 +31,30 @@ async function fetchAllTeamResults(
   matchIds: string[],
 ): Promise<AnyRow[]> {
   if (matchIds.length === 0) return []
-  const rows: AnyRow[] = []
-  let page = 0
-  while (true) {
-    const { data: batch } = await supabase
-      .from('match_team_results')
-      .select('match_id, team_id, pubg_team_name, placement, total_kills')
-      .in('match_id', matchIds)
-      .order('id')
-      .range(page * PAGE, (page + 1) * PAGE - 1)
-    if (!batch || batch.length === 0) break
-    rows.push(...(batch as AnyRow[]))
-    if (batch.length < PAGE) break
-    page++
+  // Chunk match_ids for URL-length safety, run chunks in parallel for speed.
+  const ID_CHUNK = 80
+  const chunks: string[][] = []
+  for (let off = 0; off < matchIds.length; off += ID_CHUNK) {
+    chunks.push(matchIds.slice(off, off + ID_CHUNK))
   }
-  return rows
+  const perChunk = await Promise.all(chunks.map(async (ids) => {
+    const out: AnyRow[] = []
+    let page = 0
+    while (true) {
+      const { data: batch } = await supabase
+        .from('match_team_results')
+        .select('match_id, team_id, pubg_team_name, placement, total_kills')
+        .in('match_id', ids)
+        .order('id')
+        .range(page * PAGE, (page + 1) * PAGE - 1)
+      if (!batch || batch.length === 0) break
+      out.push(...(batch as AnyRow[]))
+      if (batch.length < PAGE) break
+      page++
+    }
+    return out
+  }))
+  return perChunk.flat()
 }
 
 export const getTournamentFinalStandings = unstable_cache(

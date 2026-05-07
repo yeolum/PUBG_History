@@ -19,12 +19,16 @@ const PAGE = 1000
 async function fetchAllPages(supabase: ReturnType<typeof createPublicClient>, table: string, select: string, matchIds: string[]): Promise<AnyRow[]> {
   // Chunk match_ids so the .in() list doesn't overflow PostgREST / proxy URL
   // limits on tournaments with lots of matches (multi-stage / multi-series).
-  // A long list silently came back as null before, which made player data
-  // disappear entirely on big tournaments.
+  // Pages within a chunk must run sequentially (we don't know the total up
+  // front); chunks themselves are independent so we run them in parallel for
+  // big tournaments — this used to be the dominant load-time cost.
   const ID_CHUNK = 80
-  const rows: AnyRow[] = []
+  const chunks: string[][] = []
   for (let off = 0; off < matchIds.length; off += ID_CHUNK) {
-    const ids = matchIds.slice(off, off + ID_CHUNK)
+    chunks.push(matchIds.slice(off, off + ID_CHUNK))
+  }
+  const perChunk = await Promise.all(chunks.map(async (ids, ci) => {
+    const out: AnyRow[] = []
     let page = 0
     while (true) {
       const { data: batch, error } = await supabase
@@ -34,16 +38,17 @@ async function fetchAllPages(supabase: ReturnType<typeof createPublicClient>, ta
         .order('id')
         .range(page * PAGE, (page + 1) * PAGE - 1)
       if (error) {
-        console.error(`fetchAllPages(${table}) chunk ${off}-${off + ids.length} page ${page} failed:`, error.message)
+        console.error(`fetchAllPages(${table}) chunk ${ci} page ${page} failed:`, error.message)
         break
       }
       if (!batch || batch.length === 0) break
-      rows.push(...(batch as AnyRow[]))
+      out.push(...(batch as AnyRow[]))
       if (batch.length < PAGE) break
       page++
     }
-  }
-  return rows
+    return out
+  }))
+  return perChunk.flat()
 }
 
 // Caches all heavy DB fetching in Node.js process memory (dev + prod).
@@ -68,14 +73,20 @@ const loadTournamentData = unstable_cache(
     ])
 
     const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
+    const seriesIds = (seriesData ?? []).map((sr: AnyRow) => sr.id as string)
 
-    // Fetch matches with explicit 1000-row pagination so even tournaments
-    // with thousands of matches across many stages get the full set.
-    const allMatches: AnyRow[] = []
-    if (stageIds.length > 0) {
+    // Kick off matches fetch + every non-matchId query in parallel. Matches
+    // are needed before the trData / psData fetches start, so we only await
+    // them here — the side queries keep running and are joined later.
+    const matchesPromise = (async (): Promise<AnyRow[]> => {
+      if (stageIds.length === 0) return []
       const STAGE_CHUNK = 80
+      const chunks: string[][] = []
       for (let off = 0; off < stageIds.length; off += STAGE_CHUNK) {
-        const chunk = stageIds.slice(off, off + STAGE_CHUNK)
+        chunks.push(stageIds.slice(off, off + STAGE_CHUNK))
+      }
+      const perChunk = await Promise.all(chunks.map(async (chunk, ci) => {
+        const out: AnyRow[] = []
         let mp = 0
         while (true) {
           const { data: batch, error } = await supabase
@@ -85,37 +96,22 @@ const loadTournamentData = unstable_cache(
             .order('id')
             .range(mp * PAGE, (mp + 1) * PAGE - 1)
           if (error) {
-            console.error(`matches page ${mp} (stage chunk ${off}-${off + chunk.length}) failed:`, error.message)
+            console.error(`matches chunk ${ci} page ${mp} failed:`, error.message)
             break
           }
           if (!batch || batch.length === 0) break
-          allMatches.push(...(batch as AnyRow[]))
+          out.push(...(batch as AnyRow[]))
           if (batch.length < PAGE) break
           mp++
         }
-      }
-    }
-    // Re-attach matches to their stages so downstream code keeps the same shape.
-    const matchesByStage = new Map<string, AnyRow[]>()
-    for (const m of allMatches) {
-      const sid = m.stage_id as string
-      if (!matchesByStage.has(sid)) matchesByStage.set(sid, [])
-      matchesByStage.get(sid)!.push(m)
-    }
-    for (const stage of (stagesData ?? []) as AnyRow[]) {
-      stage.matches = matchesByStage.get(stage.id as string) ?? []
-    }
+        return out
+      }))
+      return perChunk.flat()
+    })()
 
-    const allImportedMatchIds: string[] = []
-    for (const m of allMatches) {
-      if (m.status === 'imported') allImportedMatchIds.push(m.id as string)
-    }
-
-    const seriesIds = (seriesData ?? []).map((sr: AnyRow) => sr.id as string)
-
-    const [trData, psData, [{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }] = await Promise.all([
-      allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
-      allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
+    // Side queries that don't depend on matchIds — start them now so they
+    // run alongside the matches + trData + psData fetches.
+    const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_name, points').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
@@ -126,6 +122,30 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count, scoring_rule_id, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
+    ])
+
+    const allMatches = await matchesPromise
+    // Re-attach matches to their stages so downstream code keeps the same shape.
+    const matchesByStage = new Map<string, AnyRow[]>()
+    for (const m of allMatches) {
+      const sid = m.stage_id as string
+      if (!matchesByStage.has(sid)) matchesByStage.set(sid, [])
+      matchesByStage.get(sid)!.push(m)
+    }
+    for (const stage of (stagesData ?? []) as AnyRow[]) {
+      stage.matches = matchesByStage.get(stage.id as string) ?? []
+    }
+    const allImportedMatchIds: string[] = []
+    for (const m of allMatches) {
+      if (m.status === 'imported') allImportedMatchIds.push(m.id as string)
+    }
+
+    // Now run the matchId-dependent fetches, which can also overlap with the
+    // tail of any still-in-flight side queries.
+    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }]] = await Promise.all([
+      allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
+      allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
+      sideQueriesPromise,
     ])
 
     return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData }
