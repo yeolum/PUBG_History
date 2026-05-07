@@ -200,7 +200,25 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_special_awards').select('*, teams(id, name)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
-      supabase.from('combined_scoreboards').select('id, name, order_num, advance_count, eliminate_count, scoring_rule_id').eq('tournament_id', id).order('order_num'),
+      // Try the full select first; if scoring_rule_id column hasn't been
+      // migrated yet, fall back so the page still loads. Without this,
+      // reload after addCombinedScoreboard came back with combinedData =
+      // null and the list re-rendered empty — looking like the insert
+      // silently dropped. Surface the cause so admin knows to migrate.
+      (async () => {
+        const full = await supabase.from('combined_scoreboards')
+          .select('id, name, order_num, advance_count, eliminate_count, scoring_rule_id')
+          .eq('tournament_id', id).order('order_num')
+        if (!full.error) return full
+        const code = (full.error as { code?: string } | null)?.code
+        const msg = full.error.message
+        const missingCol = code === 'PGRST204' || code === '42703' || /scoring_rule_id/i.test(msg)
+        if (!missingCol) return full
+        setErr('combined_scoreboards.scoring_rule_id column missing — run the latest supabase/migration.sql to enable scoring rule overrides on combined scoreboards.')
+        return await supabase.from('combined_scoreboards')
+          .select('id, name, order_num, advance_count, eliminate_count')
+          .eq('tournament_id', id).order('order_num')
+      })(),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
       // Global collision map: a registered player whose nickname (or alias) is
       // shared with another player gets flagged so admin can re-pick if needed.
@@ -705,8 +723,25 @@ export default function AdminTournamentDetailPage() {
     if (!name) return
     setErr('')
     const maxOrder = combinedList.length > 0 ? Math.max(...combinedList.map((c) => c.order_num)) + 1 : 0
-    const { error } = await supabase.from('combined_scoreboards').insert([{ tournament_id: id, name, order_num: maxOrder }])
-    if (error) { setErr('Add combined scoreboard failed: ' + error.message); return }
+    // Use .select() so we can confirm the row actually came back. RLS or
+    // missing-column errors can otherwise leave the response empty without
+    // surfacing a useful error.
+    const { data, error } = await supabase
+      .from('combined_scoreboards')
+      .insert([{ tournament_id: id, name, order_num: maxOrder }])
+      .select('id')
+    if (error) {
+      const msg = 'Add combined scoreboard failed: ' + error.message
+      setErr(msg)
+      alert(msg)
+      return
+    }
+    if (!data || data.length === 0) {
+      const msg = 'Insert returned no row — likely an RLS write policy is missing on combined_scoreboards. Check supabase/migration.sql ran fully.'
+      setErr(msg)
+      alert(msg)
+      return
+    }
     setNewCombinedName('')
     setAddingCombined(false)
     reload()
