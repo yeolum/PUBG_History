@@ -141,7 +141,7 @@ export default async function CircuitPage({ params }: Props) {
       stageIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => supabase.from('tournament_teams').select('tournament_id, team_id, disqualified').in('tournament_id', chunk),
+      (chunk) => supabase.from('tournament_teams').select('tournament_id, team_id, disqualified, display_name').in('tournament_id', chunk),
       tournamentIds,
     ),
     fetchInChunked<AnyRow>(
@@ -149,6 +149,15 @@ export default async function CircuitPage({ params }: Props) {
       tournamentIds,
     ),
   ])
+  // Per-tournament team label override (rebrands / roster sales). Falls
+  // back to the team's current global name when no override is set.
+  const teamDisplayNameByTournament = new Map<string, string>() // key: `${tournamentId}:${teamId}`
+  for (const r of ttData) {
+    const tid = r.tournament_id as string
+    const teamId = r.team_id as string | null
+    const dn = r.display_name as string | null
+    if (teamId && dn) teamDisplayNameByTournament.set(`${tid}:${teamId}`, dn)
+  }
   const matchIds = matches.map((m) => m.id as string)
 
   const stageToTournament = new Map<string, string>()
@@ -252,6 +261,9 @@ export default async function CircuitPage({ params }: Props) {
   }
 
   const champions: CircuitChampion[] = []
+  // Track each champion's PUBG tag at the time so we can resolve the
+  // period-correct logo from team_aliases below.
+  const championPubgTagByTournament = new Map<string, string>()
   for (const tid of tournamentIds) {
     const dq = dqByTournament.get(tid) ?? new Set<string>()
     const isDq = (e: TeamAgg) => !!e.teamId && dq.has(e.teamId)
@@ -271,6 +283,18 @@ export default async function CircuitPage({ params }: Props) {
     // kills / points read the same as before.
     const wideEntry = wide ? [...wide.values()].find((e) => e.teamId === c.teamId) : null
     const stat = wideEntry ?? c
+    // Snapshot the team's in-game tag from one of their match results in
+    // this tournament — used to look up the period logo from team_aliases.
+    if (c.teamId) {
+      for (const r of allTeamResults) {
+        if (matchToTournament.get(r.match_id as string) !== tid) continue
+        if (r.team_id !== c.teamId) continue
+        if (r.pubg_team_name) {
+          championPubgTagByTournament.set(tid, r.pubg_team_name as string)
+          break
+        }
+      }
+    }
     champions.push({
       tournamentId: tid,
       teamId: c.teamId,
@@ -281,6 +305,38 @@ export default async function CircuitPage({ params }: Props) {
       wins: stat.wins,
       matches: stat.matches,
     })
+  }
+
+  // Period-correct name + logo override for each champion. The match data
+  // joined to teams.name / teams.logo_url returns the team's *current*
+  // identity, so a team that's since rebranded (KWANGDONG FREECS →
+  // DN SOOPers) would otherwise show its new name on a 2-year-old win.
+  // tournament_teams.display_name is the per-tournament label admin
+  // entered when bulk-adding the team; team_aliases.logo_url is the
+  // historical logo keyed by the tag the team used in-game that period.
+  const championTeamIds = [...new Set(champions.map((c) => c.teamId).filter((x): x is string => !!x))]
+  if (championTeamIds.length > 0) {
+    const aliasRows = await fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('team_aliases').select('team_id, alias, logo_url').in('team_id', chunk),
+      championTeamIds,
+    )
+    const aliasLogo = new Map<string, string>() // key: `${teamId}:${aliasLower}`
+    for (const a of aliasRows) {
+      const teamId = a.team_id as string
+      const alias = (a.alias as string).toLowerCase()
+      const logo = a.logo_url as string | null
+      if (logo) aliasLogo.set(`${teamId}:${alias}`, logo)
+    }
+    for (const c of champions) {
+      if (!c.teamId) continue
+      const dn = teamDisplayNameByTournament.get(`${c.tournamentId}:${c.teamId}`)
+      if (dn) c.teamName = dn
+      const tag = championPubgTagByTournament.get(c.tournamentId)
+      if (tag) {
+        const periodLogo = aliasLogo.get(`${c.teamId}:${tag.toLowerCase()}`)
+        if (periodLogo) c.logoUrl = periodLogo
+      }
+    }
   }
 
   // Aggregate global team stats
