@@ -427,6 +427,18 @@ export const getTournamentFinalStandings = unstable_cache(
     const dqTeamIds = new Set<string>(
       ((ttData ?? []) as AnyRow[]).filter((r) => r.disqualified).map((r) => r.team_id as string),
     )
+    // Make sure every DQ team is represented in rankBoard so out gets the
+    // 'DQ' rank — without this, a DQ team that didn't accumulate stats (or
+    // whose stage_rank wasn't mapped) would silently fall out of the
+    // profile-page final-standing lookup.
+    {
+      const present = new Set(rankBoard.filter((r) => r.teamId).map((r) => r.teamId as string))
+      let synthRank = (rankBoard.length > 0 ? Math.max(...rankBoard.map((r) => r.rank)) : 0) + 1
+      for (const tid of dqTeamIds) {
+        if (present.has(tid)) continue
+        rankBoard.push({ rank: synthRank++, teamId: tid })
+      }
+    }
     const active = rankBoard.filter((r) => !r.teamId || !dqTeamIds.has(r.teamId))
     const dq = rankBoard.filter((r) => r.teamId && dqTeamIds.has(r.teamId))
 

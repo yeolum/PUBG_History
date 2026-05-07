@@ -930,6 +930,21 @@ export default async function TournamentContent({ id, tournament }: { id: string
     teamList.forEach((e, i) => rankBoard.push({ rank: i + 1, teamId: e.teamId, teamName: e.teamName }))
   }
 
+  // Make sure every DQ team appears in rankBoard so the UI's DQ section
+  // renders them — even when stage_rank mapping skipped their position
+  // or they got disqualified before accumulating any stats.
+  {
+    const presentTeamIds = new Set(rankBoard.filter((r) => r.teamId).map((r) => r.teamId as string))
+    let synthRank = (rankBoard.length > 0 ? Math.max(...rankBoard.map((r) => r.rank)) : 0) + 1
+    for (const r of (rosterTeamsData ?? []) as AnyRow[]) {
+      if (!r.disqualified) continue
+      const teamId = ((r.teams as AnyRow | null)?.id as string | null) ?? null
+      if (!teamId || presentTeamIds.has(teamId)) continue
+      const teamName = ((r.display_name as string | null) ?? ((r.teams as AnyRow | null)?.name as string | null)) ?? '?'
+      rankBoard.push({ rank: synthRank++, teamId, teamName })
+    }
+  }
+
   // Special awards
   const playerIdToNickname = new Map<string, string>()
   for (const d of psData ?? []) {
