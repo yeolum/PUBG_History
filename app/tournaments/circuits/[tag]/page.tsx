@@ -307,33 +307,59 @@ export default async function CircuitPage({ params }: Props) {
     })
   }
 
-  // Period-correct name + logo override for each champion. The match data
-  // joined to teams.name / teams.logo_url returns the team's *current*
-  // identity, so a team that's since rebranded (KWANGDONG FREECS →
-  // DN SOOPers) would otherwise show its new name on a 2-year-old win.
-  // tournament_teams.display_name is the per-tournament label admin
-  // entered when bulk-adding the team; team_aliases.logo_url is the
-  // historical logo keyed by the tag the team used in-game that period.
+  // Period-correct name + logo override for each champion. Same priority
+  // the public tournament page uses in resolveTeamName / resolveLogoUrl:
+  //   name:  tournament_teams.display_name
+  //          → team_aliases (\"TAG - Name\" entry → name part) keyed by
+  //            the in-game pubg_team_name the team used that tournament
+  //          → fallback to global teams.name
+  //   logo:  team_aliases.logo_url keyed by the in-game tag (full alias
+  //          OR the tag part of a \"TAG - Name\" entry)
+  //          → fallback to global teams.logo_url
   const championTeamIds = [...new Set(champions.map((c) => c.teamId).filter((x): x is string => !!x))]
   if (championTeamIds.length > 0) {
     const aliasRows = await fetchInChunked<AnyRow>(
       (chunk) => supabase.from('team_aliases').select('team_id, alias, logo_url').in('team_id', chunk),
       championTeamIds,
     )
-    const aliasLogo = new Map<string, string>() // key: `${teamId}:${aliasLower}`
+    const aliasLogo = new Map<string, string>()       // key: `${teamId}:${aliasOrTagLower}` → logo_url
+    const aliasTagToName = new Map<string, string>()  // key: `${teamId}:${tagLower}`        → name part
     for (const a of aliasRows) {
       const teamId = a.team_id as string
-      const alias = (a.alias as string).toLowerCase()
+      const alias = a.alias as string
       const logo = a.logo_url as string | null
-      if (logo) aliasLogo.set(`${teamId}:${alias}`, logo)
+      const aliasLower = alias.toLowerCase()
+      if (logo) aliasLogo.set(`${teamId}:${aliasLower}`, logo)
+      // "TAG - Name" entries: extract the tag (logo / tag→name lookup)
+      // and the name (tag→name fallback).
+      const dashIdx = alias.indexOf(' - ')
+      if (dashIdx !== -1) {
+        const tagPart = alias.slice(0, dashIdx).trim()
+        const namePart = alias.slice(dashIdx + 3).trim()
+        const tagLower = tagPart.toLowerCase()
+        if (tagPart && logo) {
+          const tagKey = `${teamId}:${tagLower}`
+          if (!aliasLogo.has(tagKey)) aliasLogo.set(tagKey, logo)
+        }
+        if (tagPart && namePart) {
+          const k = `${teamId}:${tagLower}`
+          if (!aliasTagToName.has(k)) aliasTagToName.set(k, namePart)
+        }
+      }
     }
     for (const c of champions) {
       if (!c.teamId) continue
+      const tag = championPubgTagByTournament.get(c.tournamentId) ?? null
+      const tagLower = tag?.toLowerCase() ?? ''
+      // Name override: tournament-scoped first, then alias-derived name
+      // mapped from the team's pubg tag that period.
       const dn = teamDisplayNameByTournament.get(`${c.tournamentId}:${c.teamId}`)
+      const aliasName = tagLower ? aliasTagToName.get(`${c.teamId}:${tagLower}`) : undefined
       if (dn) c.teamName = dn
-      const tag = championPubgTagByTournament.get(c.tournamentId)
-      if (tag) {
-        const periodLogo = aliasLogo.get(`${c.teamId}:${tag.toLowerCase()}`)
+      else if (aliasName) c.teamName = aliasName
+      // Logo override.
+      if (tagLower) {
+        const periodLogo = aliasLogo.get(`${c.teamId}:${tagLower}`)
         if (periodLogo) c.logoUrl = periodLogo
       }
     }
