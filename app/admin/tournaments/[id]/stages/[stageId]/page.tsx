@@ -393,26 +393,39 @@ export default function StageMatchesPage() {
 
       {/* Cumulative Standings */}
       {computedStandings.length > 0 && (
-        <div className="bg-white rounded-xl border border-gray-200 mb-8 overflow-hidden">
-          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between">
+        <div className={`bg-white rounded-xl border mb-8 overflow-hidden ${addPtsOpen ? 'border-yellow-300' : 'border-gray-200'}`}>
+          <div className="px-5 py-3 bg-gray-50 border-b border-gray-200 flex items-center justify-between gap-3 flex-wrap">
             <div>
               <h2 className="font-semibold text-gray-800">Standings (Cumulative)</h2>
               <p className="text-xs text-gray-400 mt-0.5">
                 {stageRule.placement_pts.map((p, i) => `${i + 1}위:${p}`).join(' · ')} | Kill×{stageRule.kill_pts}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               {stage.scoring_rules && (
                 <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${stageRule.type === 'chicken' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                   {stage.scoring_rules.name}
                 </span>
               )}
-              <button
-                onClick={openAddPtsPanel}
-                className={`text-xs border rounded-lg px-2.5 py-1 transition-colors ${additionalPoints.length > 0 ? 'border-yellow-400 text-yellow-700 bg-yellow-50' : 'border-gray-200 text-gray-500 hover:border-yellow-300 hover:text-gray-700'}`}
-              >
-                {additionalPoints.length > 0 ? `+ Additional Pts (${additionalPoints.length})` : '+ Additional Pts'}
-              </button>
+              {addPtsOpen ? (
+                <>
+                  <button
+                    onClick={saveAdditionalPoints}
+                    disabled={savingAddPts}
+                    className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-semibold px-3 py-1 rounded-lg"
+                  >
+                    {savingAddPts ? 'Saving...' : 'Save'}
+                  </button>
+                  <button onClick={() => setAddPtsOpen(false)} className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-1">Cancel</button>
+                </>
+              ) : (
+                <button
+                  onClick={openAddPtsPanel}
+                  className={`text-xs border rounded-lg px-2.5 py-1 transition-colors ${additionalPoints.length > 0 ? 'border-yellow-400 text-yellow-700 bg-yellow-50' : 'border-gray-200 text-gray-500 hover:border-yellow-300 hover:text-gray-700'}`}
+                >
+                  {additionalPoints.length > 0 ? `+ Additional Pts (${additionalPoints.length})` : '+ Additional Pts'}
+                </button>
+              )}
             </div>
           </div>
           <div className="overflow-x-auto">
@@ -425,79 +438,48 @@ export default function StageMatchesPage() {
                   <th className="text-right px-5 py-2">WWCD</th>
                   <th className="text-right px-5 py-2">Plc Pts</th>
                   <th className="text-right px-5 py-2">Kill Pts</th>
+                  {addPtsOpen && <th className="text-right px-3 py-2 text-yellow-600">Addl Pts</th>}
                   <th className="text-right px-5 py-2 font-bold text-gray-600">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {computedStandings.map((s, i) => (
-                  <tr key={s.key} className="border-b border-gray-50 last:border-0">
-                    <td className="px-5 py-2 text-gray-400 font-mono text-xs">{i + 1}</td>
-                    <td className="px-5 py-2 font-medium text-gray-800">
-                      {s.teamName}
-                      {!s.teamId && <span className="ml-1.5 text-xs text-orange-400 font-normal">(unlinked)</span>}
-                    </td>
-                    <td className="px-5 py-2 text-right text-gray-500">{s.matchesPlayed}</td>
-                    <td className="px-5 py-2 text-right text-gray-500">{s.wwcd}</td>
-                    <td className="px-5 py-2 text-right text-gray-500">{s.totalPlacementPts}</td>
-                    <td className="px-5 py-2 text-right text-gray-500">{s.totalPts - s.totalPlacementPts}</td>
-                    <td className="px-5 py-2 text-right font-bold text-gray-900">{s.totalPts}</td>
-                  </tr>
-                ))}
+                {computedStandings.map((s, i) => {
+                  const savedAddl = extraPtsMap[s.teamName.toLowerCase()] ?? 0
+                  const pureKillPts = s.totalPts - s.totalPlacementPts - savedAddl
+                  const editedAddlStr = addPtsRows.find(r => r.teamName.toLowerCase() === s.teamName.toLowerCase())?.points ?? String(savedAddl)
+                  const editedAddl = Number(editedAddlStr) || 0
+                  const liveTotal = s.totalPlacementPts + pureKillPts + editedAddl
+                  return (
+                    <tr key={s.key} className="border-b border-gray-50 last:border-0">
+                      <td className="px-5 py-2 text-gray-400 font-mono text-xs">{i + 1}</td>
+                      <td className="px-5 py-2 font-medium text-gray-800">
+                        {s.teamName}
+                        {!s.teamId && <span className="ml-1.5 text-xs text-orange-400 font-normal">(unlinked)</span>}
+                      </td>
+                      <td className="px-5 py-2 text-right text-gray-500">{s.matchesPlayed}</td>
+                      <td className="px-5 py-2 text-right text-gray-500">{s.wwcd}</td>
+                      <td className="px-5 py-2 text-right text-gray-500">{s.totalPlacementPts}</td>
+                      <td className="px-5 py-2 text-right text-gray-500">{pureKillPts}</td>
+                      {addPtsOpen && (
+                        <td className="px-3 py-1.5 text-right">
+                          <input
+                            type="number"
+                            value={editedAddlStr}
+                            onChange={e => setAddPtsRows(rows => {
+                              const idx = rows.findIndex(r => r.teamName.toLowerCase() === s.teamName.toLowerCase())
+                              if (idx !== -1) return rows.map((r, j) => j === idx ? { ...r, points: e.target.value } : r)
+                              return [...rows, { teamName: s.teamName, points: e.target.value }]
+                            })}
+                            className="w-20 border border-yellow-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-yellow-400 bg-yellow-50"
+                          />
+                        </td>
+                      )}
+                      <td className="px-5 py-2 text-right font-bold text-gray-900">{addPtsOpen ? liveTotal : s.totalPts}</td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* Additional Points Panel */}
-      {addPtsOpen && (
-        <div className="bg-white rounded-xl border border-yellow-200 p-5 mb-8">
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h2 className="font-semibold text-gray-800">Additional Points</h2>
-              <p className="text-xs text-gray-400 mt-0.5">매치 점수 외 추가 부여 점수 — Total Points에만 반영됩니다</p>
-            </div>
-            <button onClick={() => setAddPtsOpen(false)} className="text-gray-300 hover:text-gray-500 text-xl leading-none">×</button>
-          </div>
-
-          <div className="space-y-2 mb-4 max-h-96 overflow-y-auto pr-1">
-            {addPtsRows.map((row, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <input
-                  value={row.teamName}
-                  onChange={e => setAddPtsRows(rows => rows.map((r, j) => j === i ? { ...r, teamName: e.target.value } : r))}
-                  placeholder="Team name / tag"
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                />
-                <input
-                  type="number"
-                  value={row.points}
-                  onChange={e => setAddPtsRows(rows => rows.map((r, j) => j === i ? { ...r, points: e.target.value } : r))}
-                  className="w-24 border border-gray-300 rounded-lg px-2 py-1.5 text-sm text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
-                />
-                <button
-                  onClick={() => setAddPtsRows(rows => rows.filter((_, j) => j !== i))}
-                  className="text-gray-300 hover:text-red-500 text-lg leading-none px-1 shrink-0"
-                >×</button>
-              </div>
-            ))}
-          </div>
-
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setAddPtsRows(rows => [...rows, { teamName: '', points: '0' }])}
-              className="text-xs border border-dashed border-gray-300 text-gray-400 hover:border-yellow-400 hover:text-yellow-600 px-2.5 py-1.5 rounded-lg"
-            >
-              + Add Team
-            </button>
-            <button
-              onClick={saveAdditionalPoints}
-              disabled={savingAddPts}
-              className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-semibold px-4 py-1.5 rounded-lg"
-            >
-              {savingAddPts ? 'Saving...' : 'Save'}
-            </button>
-            <button onClick={() => setAddPtsOpen(false)} className="text-xs text-gray-400 hover:text-gray-600">Cancel</button>
           </div>
         </div>
       )}
