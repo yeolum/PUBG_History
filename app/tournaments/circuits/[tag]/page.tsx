@@ -5,6 +5,7 @@ import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import CircuitContent from './CircuitContent'
+import { ruleFromStage, calcPlacementPtsWithRule, DEFAULT_RULE, type ScoringRuleConfig } from '@/lib/scoring'
 
 export const revalidate = 30
 
@@ -15,10 +16,6 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return { title: `${tag} History` }
 }
 
-const PLACEMENT_PTS = [10, 6, 5, 4, 3, 2, 1, 1]
-function calcPts(placement: number) {
-  return placement >= 1 && placement <= 8 ? PLACEMENT_PTS[placement - 1] : 0
-}
 
 const PAGE_SIZE = 1000
 const ID_CHUNK = 80
@@ -134,7 +131,7 @@ export default async function CircuitPage({ params }: Props) {
   const tournamentIds = tournaments.map((t) => t.id)
 
   const stages = await fetchInChunked<AnyRow>(
-    (chunk) => supabase.from('stages').select('id, tournament_id, order_num, type').in('tournament_id', chunk),
+    (chunk) => supabase.from('stages').select('id, tournament_id, order_num, type, scoring_rules(*)').in('tournament_id', chunk),
     tournamentIds,
   )
   const stageIds = stages.map((s) => s.id as string)
@@ -212,6 +209,13 @@ export default async function CircuitPage({ params }: Props) {
     const tid = s.tournament_id as string
     if (!decidingStageByTournament.has(tid)) decidingStageByTournament.set(tid, s.id as string)
   }
+  const decidingStageRuleByTournament = new Map<string, ScoringRuleConfig>()
+  for (const s of stages) {
+    const tid = s.tournament_id as string
+    if (decidingStageByTournament.get(tid) === (s.id as string)) {
+      decidingStageRuleByTournament.set(tid, ruleFromStage(s.scoring_rules))
+    }
+  }
   const decidingMatchIds = new Set<string>()
   for (const m of matches) {
     const sid = m.stage_id as string
@@ -258,7 +262,8 @@ export default async function CircuitPage({ params }: Props) {
     tournamentTeamMap.set(tid, new Map())
   }
 
-  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow) {
+  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow, rule?: ScoringRuleConfig) {
+    const effectiveRule = rule ?? DEFAULT_RULE
     const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
     const ex = byTeam.get(key) ?? {
       teamId: (r.team_id ?? null) as string | null,
@@ -269,7 +274,7 @@ export default async function CircuitPage({ params }: Props) {
     ex.matches++
     ex.kills += (r.total_kills as number) ?? 0
     ex.damage += (r.total_damage as number) ?? 0
-    ex.totalPoints += calcPts((r.placement as number) ?? 99) + ((r.total_kills as number) ?? 0)
+    ex.totalPoints += calcPlacementPtsWithRule((r.placement as number) ?? 99, effectiveRule) + Math.round(((r.total_kills as number) ?? 0) * effectiveRule.kill_pts)
     if (r.placement === 1) ex.wins++
     byTeam.set(key, ex)
   }
@@ -279,7 +284,7 @@ export default async function CircuitPage({ params }: Props) {
     if (!tournamentId) continue
     bumpAgg(tournamentTeamMap.get(tournamentId)!, r)
     if (decidingMatchIds.has(r.match_id as string)) {
-      bumpAgg(decidingMap.get(tournamentId)!, r)
+      bumpAgg(decidingMap.get(tournamentId)!, r, decidingStageRuleByTournament.get(tournamentId))
     }
   }
 
