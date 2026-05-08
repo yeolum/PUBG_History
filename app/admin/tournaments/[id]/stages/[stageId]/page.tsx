@@ -238,6 +238,7 @@ export default function StageMatchesPage() {
     const rows = addPtsRows
       .filter(r => r.teamName.trim())
       .map(r => ({ teamName: r.teamName.trim(), points: Number(r.points) || 0 }))
+    let savedCount = 0
     try {
       const res = await fetch('/api/admin/stage-additional-points', {
         method: 'POST',
@@ -250,14 +251,22 @@ export default function StageMatchesPage() {
         setSavingAddPts(false)
         return
       }
+      savedCount = json.saved ?? 0
     } catch (e) {
       setAddPtsErr(e instanceof Error ? e.message : 'Network error')
       setSavingAddPts(false)
       return
     }
+    // Immediately update additionalPoints state from what we just saved
+    const newAdditionalPoints: AdditionalPoint[] = rows
+      .filter(r => r.points !== 0)
+      .map(r => ({ stage_id: stageId, team_name: r.teamName, points: r.points }))
+    setAdditionalPoints(newAdditionalPoints)
     setSavingAddPts(false)
-    setAddPtsOpen(false)
+    setAddPtsErr(`✓ Saved (${savedCount} entries)`)
     await Promise.all([load(), revalidatePublic({ tournamentId })])
+    setAddPtsOpen(false)
+    setAddPtsErr(null)
   }
 
   async function saveAdvancementRules() {
@@ -454,7 +463,7 @@ export default function StageMatchesPage() {
               )}
               {addPtsOpen ? (
                 <>
-                  {addPtsErr && <span className="text-xs text-red-500">{addPtsErr}</span>}
+                  {addPtsErr && <span className={`text-xs ${addPtsErr.startsWith('✓') ? 'text-green-600' : 'text-red-500'}`}>{addPtsErr}</span>}
                   <button
                     onClick={saveAdditionalPoints}
                     disabled={savingAddPts}

@@ -61,5 +61,5 @@ export async function POST(req: NextRequest) {
   }
 
   revalidateTag('tournament-data', 'default')
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, saved: toInsert.length })
 }
