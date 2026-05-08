@@ -135,7 +135,8 @@ export default function TournamentStagesView({
     const seriesStageIds = seriesStages.map(s => s.id)
     for (const e of ptsMap.values()) {
       for (const stageId of seriesStageIds) {
-        e.totalPts += stageAdditionalPts[stageId]?.[e.teamName.toLowerCase()] ?? 0
+        const extra = stageAdditionalPts[stageId]
+        if (extra) e.totalPts += (e.teamId ? extra[e.teamId] : undefined) ?? extra[e.teamName.toLowerCase()] ?? 0
       }
     }
     return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)

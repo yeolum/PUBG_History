@@ -44,6 +44,7 @@ interface ImportRow {
 
 interface AdditionalPoint {
   stage_id: string
+  team_id: string | null
   team_name: string
   points: number
 }
@@ -84,7 +85,7 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
     }
   }
   for (const stat of statMap.values()) {
-    stat.totalPts += extraPts[stat.teamName.toLowerCase()] ?? 0
+    stat.totalPts += (stat.teamId ? extraPts[stat.teamId] : undefined) ?? extraPts[stat.teamName.toLowerCase()] ?? 0
   }
 
   const results = [...statMap.values()]
@@ -140,7 +141,7 @@ export default function StageMatchesPage() {
 
   const [additionalPoints, setAdditionalPoints] = useState<AdditionalPoint[]>([])
   const [addPtsOpen, setAddPtsOpen] = useState(false)
-  const [addPtsRows, setAddPtsRows] = useState<{ teamName: string; points: string }[]>([])
+  const [addPtsRows, setAddPtsRows] = useState<{ teamName: string; teamId: string | null; points: string }[]>([])
   const [savingAddPts, setSavingAddPts] = useState(false)
   const [addPtsErr, setAddPtsErr] = useState<string | null>(null)
   const [teamDisplayNames, setTeamDisplayNames] = useState<Map<string, string>>(new Map())
@@ -163,7 +164,7 @@ export default function StageMatchesPage() {
     const [{ data: s }, { data: m }, { data: ap }, { data: ttData }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
-      supabase.from('stage_additional_points').select('stage_id, team_name, points').eq('stage_id', stageId),
+      supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').eq('stage_id', stageId),
       supabase.from('tournament_teams').select('team_id, display_name').eq('tournament_id', tournamentId),
     ])
     const stageData = s as Stage
@@ -192,7 +193,10 @@ export default function StageMatchesPage() {
   const stageRule = useMemo(() => ruleFromStage(stage?.scoring_rules), [stage])
   const extraPtsMap = useMemo(() => {
     const m: Record<string, number> = {}
-    for (const ap of additionalPoints) m[ap.team_name.toLowerCase()] = ap.points
+    for (const ap of additionalPoints) {
+      if (ap.team_id) m[ap.team_id] = ap.points
+      m[ap.team_name.toLowerCase()] = ap.points
+    }
     return m
   }, [additionalPoints])
   const computedStandings = useMemo(() => computeStandings(matches, stageRule, extraPtsMap, teamDisplayNames), [matches, stageRule, extraPtsMap, teamDisplayNames])
@@ -217,15 +221,17 @@ export default function StageMatchesPage() {
   }
 
   function openAddPtsPanel() {
-    const existing = new Map(additionalPoints.map(ap => [ap.team_name.toLowerCase(), ap.points]))
+    const existing = new Map(additionalPoints.map(ap => [ap.team_id ?? ap.team_name.toLowerCase(), ap.points]))
     const rows = computedStandings.map(s => ({
       teamName: s.teamName,
-      points: String(existing.get(s.teamName.toLowerCase()) ?? 0),
+      teamId: s.teamId,
+      points: String(existing.get(s.teamId ?? s.teamName.toLowerCase()) ?? 0),
     }))
     // Append saved teams not currently in standings
     for (const ap of additionalPoints) {
-      if (!rows.find(r => r.teamName.toLowerCase() === ap.team_name.toLowerCase())) {
-        rows.push({ teamName: ap.team_name, points: String(ap.points) })
+      const apKey = ap.team_id ?? ap.team_name.toLowerCase()
+      if (!rows.find(r => (r.teamId ?? r.teamName.toLowerCase()) === apKey)) {
+        rows.push({ teamName: ap.team_name, teamId: ap.team_id ?? null, points: String(ap.points) })
       }
     }
     setAddPtsRows(rows)
@@ -237,7 +243,7 @@ export default function StageMatchesPage() {
     setAddPtsErr(null)
     const rows = addPtsRows
       .filter(r => r.teamName.trim())
-      .map(r => ({ teamName: r.teamName.trim(), points: Number(r.points) || 0 }))
+      .map(r => ({ teamName: r.teamName.trim(), teamId: r.teamId ?? null, points: Number(r.points) || 0 }))
     let savedCount = 0
     try {
       const res = await fetch('/api/admin/stage-additional-points', {
@@ -260,7 +266,7 @@ export default function StageMatchesPage() {
     // Immediately update additionalPoints state from what we just saved
     const newAdditionalPoints: AdditionalPoint[] = rows
       .filter(r => r.points !== 0)
-      .map(r => ({ stage_id: stageId, team_name: r.teamName, points: r.points }))
+      .map(r => ({ stage_id: stageId, team_id: r.teamId ?? null, team_name: r.teamName, points: r.points }))
     setAdditionalPoints(newAdditionalPoints)
     setSavingAddPts(false)
     setAddPtsErr(`✓ Saved (${savedCount} entries)`)
@@ -499,9 +505,9 @@ export default function StageMatchesPage() {
               </thead>
               <tbody>
                 {computedStandings.map((s, i) => {
-                  const savedAddl = extraPtsMap[s.teamName.toLowerCase()] ?? 0
+                  const savedAddl = (s.teamId ? extraPtsMap[s.teamId] : undefined) ?? extraPtsMap[s.teamName.toLowerCase()] ?? 0
                   const pureKillPts = s.totalPts - s.totalPlacementPts - savedAddl
-                  const editedAddlStr = addPtsRows.find(r => r.teamName.toLowerCase() === s.teamName.toLowerCase())?.points ?? String(savedAddl)
+                  const editedAddlStr = addPtsRows.find(r => (r.teamId && r.teamId === s.teamId) || r.teamName.toLowerCase() === s.teamName.toLowerCase())?.points ?? String(savedAddl)
                   const editedAddl = Number(editedAddlStr) || 0
                   const liveTotal = s.totalPlacementPts + pureKillPts + editedAddl
                   return (
@@ -521,9 +527,9 @@ export default function StageMatchesPage() {
                             type="number"
                             value={editedAddlStr}
                             onChange={e => setAddPtsRows(rows => {
-                              const idx = rows.findIndex(r => r.teamName.toLowerCase() === s.teamName.toLowerCase())
+                              const idx = rows.findIndex(r => (r.teamId && r.teamId === s.teamId) || r.teamName.toLowerCase() === s.teamName.toLowerCase())
                               if (idx !== -1) return rows.map((r, j) => j === idx ? { ...r, points: e.target.value } : r)
-                              return [...rows, { teamName: s.teamName, points: e.target.value }]
+                              return [...rows, { teamName: s.teamName, teamId: s.teamId, points: e.target.value }]
                             })}
                             className="w-20 border border-yellow-300 rounded px-2 py-1 text-sm text-right focus:outline-none focus:ring-1 focus:ring-yellow-400 bg-yellow-50"
                           />

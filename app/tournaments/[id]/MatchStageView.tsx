@@ -114,7 +114,7 @@ function computeStandings(
   }
 
   for (const stat of statMap.values()) {
-    stat.totalPts += extraPts[stat.teamName.toLowerCase()] ?? 0
+    stat.totalPts += (stat.teamId ? extraPts[stat.teamId] : undefined) ?? extraPts[stat.teamName.toLowerCase()] ?? 0
   }
 
   const results = [...statMap.values()]

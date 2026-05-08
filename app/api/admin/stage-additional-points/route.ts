@@ -32,7 +32,7 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
 
-  let body: { stageId?: string; rows?: { teamName: string; points: number }[] }
+  let body: { stageId?: string; rows?: { teamName: string; teamId?: string | null; points: number }[] }
   try {
     body = await req.json()
   } catch {
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
 
   const toInsert = (rows ?? [])
     .filter(r => r.teamName.trim() && r.points !== 0)
-    .map(r => ({ stage_id: stageId, team_name: r.teamName.trim(), points: r.points }))
+    .map(r => ({ stage_id: stageId, team_id: r.teamId ?? null, team_name: r.teamName.trim(), points: r.points }))
 
   if (toInsert.length > 0) {
     const { error: insErr } = await db.from('stage_additional_points').insert(toInsert)

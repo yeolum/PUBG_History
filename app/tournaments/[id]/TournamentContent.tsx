@@ -113,7 +113,7 @@ const loadTournamentData = unstable_cache(
     // run alongside the matches + trData + psData fetches.
     const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
-      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_name, points').in('stage_id', stageIds),
+      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, players(id, nickname), teams(id, name, logo_url)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
@@ -168,10 +168,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
 
   const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData } = await loadTournamentData(id)
 
-  // stageId → { teamNameLower → extraPts }
+  // stageId → { teamId|teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
   for (const ap of (additionalPtsData ?? []) as AnyRow[]) {
     if (!stageAdditionalPts[ap.stage_id]) stageAdditionalPts[ap.stage_id] = {}
+    if (ap.team_id) stageAdditionalPts[ap.stage_id][ap.team_id as string] = Number(ap.points)
     stageAdditionalPts[ap.stage_id][(ap.team_name as string).toLowerCase()] = Number(ap.points)
   }
 
@@ -713,12 +714,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
       }
       const extraForStage = stageAdditionalPts[stage.id] ?? {}
       for (const e of ptsMap.values()) {
-        let extra = extraForStage[e.teamName.toLowerCase()] ?? 0
-        if (extra === 0 && e.teamId) {
-          const gn = teamIdToTeamsName.get(e.teamId)
-          if (gn) extra = extraForStage[gn.toLowerCase()] ?? 0
-        }
-        e.totalPts += extra
+        e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
       }
     }
     const cbEntries = [...ptsMap.values()]

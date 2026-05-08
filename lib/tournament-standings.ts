@@ -94,7 +94,7 @@ export const getTournamentFinalStandings = unstable_cache(
       fetchAllTeamResults(supabase, allImportedMatchIds),
       stageIds.length === 0
         ? Promise.resolve({ data: [] })
-        : supabase.from('stage_additional_points').select('stage_id, team_name, points').in('stage_id', stageIds),
+        : supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('stage_id, series_id, prize, pgs_points, pgc_points').eq('tournament_id', tournamentId),
       stageIds.length === 0
         ? Promise.resolve({ data: [] })
@@ -119,10 +119,11 @@ export const getTournamentFinalStandings = unstable_cache(
       for (const m of stage.matches ?? []) matchToRule.set(m.id as string, rule)
     }
 
-    // stageId → { teamNameLower → extraPts }
+    // stageId → { teamId|teamNameLower → extraPts }
     const stageAdditionalPts: Record<string, Record<string, number>> = {}
     for (const ap of (additionalPtsData ?? []) as AnyRow[]) {
       if (!stageAdditionalPts[ap.stage_id]) stageAdditionalPts[ap.stage_id] = {}
+      if (ap.team_id) stageAdditionalPts[ap.stage_id][ap.team_id as string] = Number(ap.points)
       stageAdditionalPts[ap.stage_id][(ap.team_name as string).toLowerCase()] = Number(ap.points)
     }
 
@@ -150,7 +151,7 @@ export const getTournamentFinalStandings = unstable_cache(
       }
       const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
       for (const e of ptsMap.values()) {
-        e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+        e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
       }
       stageStandingsMap.set(stage.id as string, [...ptsMap.values()].sort((a, b) =>
         b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
@@ -184,7 +185,7 @@ export const getTournamentFinalStandings = unstable_cache(
         }
         const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
         for (const e of ptsMap.values()) {
-          e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+          e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
         }
       }
       seriesStandingsMap.set(sr.id as string, [...ptsMap.values()].sort((a, b) =>
