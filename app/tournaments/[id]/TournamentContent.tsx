@@ -589,15 +589,9 @@ export default async function TournamentContent({ id, tournament }: { id: string
         }
       }
     }
-    const extraForStage = stageAdditionalPts[stage.id] ?? {}
-    for (const e of ptsMap.values()) {
-      let extra = extraForStage[e.teamName.toLowerCase()] ?? 0
-      if (extra === 0 && e.teamId) {
-        const gn = teamIdToTeamsName.get(e.teamId)
-        if (gn) extra = extraForStage[gn.toLowerCase()] ?? 0
-      }
-      e.totalPts += extra
-    }
+    // Additional pts are intentionally excluded here — they show in the stage
+    // scoreboard Total column (via MatchStageView) but must not affect
+    // Final Standings ordering or stage-prize assignment.
     const entries = [...ptsMap.values()]
     if (stageRule.type === 'chicken_v2') {
       entries.sort((a, b) => {
@@ -644,15 +638,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
           if ((r.placement ?? 99) === 1) e.wwcd++
         }
       }
-      const extraForStage = stageAdditionalPts[stage.id] ?? {}
-      for (const e of ptsMap.values()) {
-        let extra = extraForStage[e.teamName.toLowerCase()] ?? 0
-        if (extra === 0 && e.teamId) {
-          const gn = teamIdToTeamsName.get(e.teamId)
-          if (gn) extra = extraForStage[gn.toLowerCase()] ?? 0
-        }
-        e.totalPts += extra
-      }
+      // Additional pts excluded — same reasoning as stageStandingsMap above.
     }
     seriesStandingsMap.set(sr.id, [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts))
   }

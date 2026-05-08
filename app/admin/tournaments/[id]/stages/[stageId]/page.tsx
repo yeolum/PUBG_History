@@ -142,6 +142,7 @@ export default function StageMatchesPage() {
   const [addPtsOpen, setAddPtsOpen] = useState(false)
   const [addPtsRows, setAddPtsRows] = useState<{ teamName: string; points: string }[]>([])
   const [savingAddPts, setSavingAddPts] = useState(false)
+  const [addPtsErr, setAddPtsErr] = useState<string | null>(null)
   const [teamDisplayNames, setTeamDisplayNames] = useState<Map<string, string>>(new Map())
   const [recomputingStats, setRecomputingStats] = useState(false)
 
@@ -233,12 +234,26 @@ export default function StageMatchesPage() {
 
   async function saveAdditionalPoints() {
     setSavingAddPts(true)
-    await supabase.from('stage_additional_points').delete().eq('stage_id', stageId)
-    const toInsert = addPtsRows
-      .filter(r => r.teamName.trim() && Number(r.points) !== 0)
-      .map(r => ({ stage_id: stageId, team_name: r.teamName.trim(), points: Number(r.points) }))
-    if (toInsert.length > 0) {
-      await supabase.from('stage_additional_points').insert(toInsert)
+    setAddPtsErr(null)
+    const rows = addPtsRows
+      .filter(r => r.teamName.trim())
+      .map(r => ({ teamName: r.teamName.trim(), points: Number(r.points) || 0 }))
+    try {
+      const res = await fetch('/api/admin/stage-additional-points', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stageId, rows }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        setAddPtsErr(json.error ?? 'Save failed')
+        setSavingAddPts(false)
+        return
+      }
+    } catch (e) {
+      setAddPtsErr(e instanceof Error ? e.message : 'Network error')
+      setSavingAddPts(false)
+      return
     }
     setSavingAddPts(false)
     setAddPtsOpen(false)
@@ -439,6 +454,7 @@ export default function StageMatchesPage() {
               )}
               {addPtsOpen ? (
                 <>
+                  {addPtsErr && <span className="text-xs text-red-500">{addPtsErr}</span>}
                   <button
                     onClick={saveAdditionalPoints}
                     disabled={savingAddPts}
@@ -446,7 +462,7 @@ export default function StageMatchesPage() {
                   >
                     {savingAddPts ? 'Saving...' : 'Save'}
                   </button>
-                  <button onClick={() => setAddPtsOpen(false)} className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-1">Cancel</button>
+                  <button onClick={() => { setAddPtsOpen(false); setAddPtsErr(null) }} className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-1">Cancel</button>
                 </>
               ) : (
                 <button
