@@ -38,7 +38,7 @@ export function createPublicClient() {
       auth: { persistSession: false },
       global: {
         fetch: (input: RequestInfo | URL, init?: RequestInit) =>
-          fetch(input, { ...init, next: { revalidate: 30 } } as RequestInit),
+          fetch(input, { ...init, next: { revalidate: 30, tags: ['tournament-data'] } } as RequestInit),
       },
     }
   )

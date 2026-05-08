@@ -142,13 +142,15 @@ const loadTournamentData = unstable_cache(
 
     // Now run the matchId-dependent fetches, which can also overlap with the
     // tail of any still-in-flight side queries.
-    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }]] = await Promise.all([
+    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }], { data: tpsData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       sideQueriesPromise,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any).from('tournament_player_stats').select('*').eq('tournament_id', id),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData }
   },
   ['tournament-data'],
   // Tag lets admin saves call revalidateTag('tournament-data') for an
@@ -164,7 +166,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData } = await loadTournamentData(id)
 
   // stageId → { teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -499,20 +501,33 @@ export default async function TournamentContent({ id, tournament }: { id: string
       })
     }
   }
-  // Only seed zero-stat entries when there is already ON-stage player data.
-  // If playerStatsMap is still empty here, all imported matches are either
-  // excluded (include_in_total=false) or not yet imported — seeding zeros
-  // would fill the Total view with misleading all-zero rows.
-  const hasOnStagePlayerStats = playerStatsMap.size > 0
+
+  // Build playerStats from pre-computed tournament_player_stats table.
+  // Falls back gracefully (empty array) if not yet populated.
+  const tpsRows = (tpsData ?? []) as AnyRow[]
+  const tpsPlayerIds = new Set(tpsRows.map((r) => r.player_id as string | null).filter((id): id is string => !!id))
+  const playerStats: PlayerStatRow[] = tpsRows.map((r) => ({
+    playerId: (r.player_id ?? null) as string | null,
+    nickname: r.nickname as string,
+    teamId: (r.team_id ?? null) as string | null,
+    teamName: r.team_name as string,
+    logoUrl: (r.logo_url ?? null) as string | null,
+    games: (r.games as number) ?? 0,
+    kills: (r.kills as number) ?? 0,
+    assists: (r.assists as number) ?? 0,
+    knocks: (r.knocks as number) ?? 0,
+    headshotKills: (r.headshot_kills as number) ?? 0,
+    damage: Number(r.damage ?? 0),
+    survivalTime: 0,
+  }))
+
+  // Seed roster display + 0-stat entries for registered players not in pre-computed table.
   for (const r of (rosterPlayersData ?? []) as AnyRow[]) {
     const p = r.players as AnyRow | null
     if (!p?.id) continue
     const playerId = p.id as string
     const nickname = (p.nickname as string) ?? '?'
     const nationality = (p.nationality_code as string | null) ?? null
-    // Use the tournament-scoped team, NOT the player's global team_id, so a player
-    // who was registered as DN here doesn't get cross-listed under GEN just because
-    // their global profile says GEN.
     const tournamentTeamId = (r.team_id as string | null) ?? null
 
     if (tournamentTeamId) {
@@ -521,21 +536,18 @@ export default async function TournamentContent({ id, tournament }: { id: string
         team.players.set(playerId, { id: playerId, nickname, nationality })
       }
     }
-    if (hasOnStagePlayerStats && !playerStatsMap.has(playerId)) {
+    if (tpsRows.length > 0 && !tpsPlayerIds.has(playerId)) {
       const team = tournamentTeamId ? teamStatsMap.get(tournamentTeamId) : null
-      playerStatsMap.set(playerId, {
-        playerId,
-        nickname,
-        teamId: tournamentTeamId,
-        teamName: team?.teamName ?? '',
+      playerStats.push({
+        playerId, nickname, teamId: tournamentTeamId, teamName: team?.teamName ?? '',
         logoUrl: team?.logoUrl ?? null,
         games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
       })
     }
   }
+  playerStats.sort((a, b) => b.kills - a.kills)
 
   const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)
-  const playerStats: PlayerStatRow[] = [...playerStatsMap.values()].sort((a, b) => b.kills - a.kills)
 
   const roster = [...teamRosterMap.entries()]
     .map(([teamId, team]) => ({

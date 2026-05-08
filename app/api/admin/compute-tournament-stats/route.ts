@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createServerClient } from '@supabase/ssr'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+import { revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { computeTournamentStats } from '@/lib/compute-stats'
 
@@ -39,6 +40,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await computeTournamentStats(tournamentId, serviceClient())
+    revalidateTag('tournament-data')
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[compute-tournament-stats]', err)
