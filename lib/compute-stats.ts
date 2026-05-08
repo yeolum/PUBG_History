@@ -89,7 +89,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       (chunk) =>
         db
           .from('match_player_stats')
-          .select('match_id, player_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, players(id, nickname), teams(id, name, logo_url)')
+          .select('match_id, player_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, players(id, nickname), teams(id, name, logo_url)')
           .in('match_id', chunk),
       importedMatchIds,
     ),
@@ -115,21 +115,37 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     teamStatsMap.set(key, ex)
   }
 
+  // account_id → player_id from any linked row (stable across renames/tag changes)
+  const accountIdToPlayerId = new Map<string, string>()
+  for (const d of psData) {
+    if (d.player_id && d.pubg_account_id) {
+      accountIdToPlayerId.set(d.pubg_account_id as string, d.player_id as string)
+    }
+  }
+
   // Compute player stats
   const playerStatsMap = new Map<string, {
     player_id: string | null; nickname: string
     team_id: string | null; team_name: string; logo_url: string | null
-    games: number; kills: number; assists: number; knocks: number; headshot_kills: number; damage: number
+    games: number; kills: number; assists: number; knocks: number; headshot_kills: number; damage: number; survival_time: number
   }>()
   for (const d of psData) {
-    const key = (d.player_id ?? `pubg:${(d.pubg_player_name as string ?? '').toLowerCase()}`) as string
+    // Resolve player_id via account_id if not directly linked
+    let resolvedPlayerId = (d.player_id ?? null) as string | null
+    if (!resolvedPlayerId && d.pubg_account_id) {
+      resolvedPlayerId = accountIdToPlayerId.get(d.pubg_account_id as string) ?? null
+    }
+
+    const key = resolvedPlayerId ?? `pubg:${(d.pubg_player_name as string ?? '').toLowerCase()}`
+    const teamName = (d.team_id ? (displayNameByTeam.get(d.team_id as string) ?? null) : null)
+      ?? ((d.teams as AnyRow | null)?.name ?? '') as string
     const ex = playerStatsMap.get(key) ?? {
-      player_id: (d.player_id ?? null) as string | null,
+      player_id: resolvedPlayerId,
       nickname: ((d.players as AnyRow | null)?.nickname ?? d.pubg_player_name ?? '?') as string,
       team_id: (d.team_id ?? null) as string | null,
-      team_name: ((d.teams as AnyRow | null)?.name ?? '') as string,
+      team_name: teamName,
       logo_url: ((d.teams as AnyRow | null)?.logo_url ?? null) as string | null,
-      games: 0, kills: 0, assists: 0, knocks: 0, headshot_kills: 0, damage: 0,
+      games: 0, kills: 0, assists: 0, knocks: 0, headshot_kills: 0, damage: 0, survival_time: 0,
     }
     ex.games++
     ex.kills += (d.kills as number) ?? 0
@@ -137,6 +153,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     ex.knocks += (d.knocks as number) ?? 0
     ex.headshot_kills += (d.headshot_kills as number) ?? 0
     ex.damage += Number(d.damage_dealt ?? 0)
+    ex.survival_time += Number(d.survival_time ?? 0)
     playerStatsMap.set(key, ex)
   }
 

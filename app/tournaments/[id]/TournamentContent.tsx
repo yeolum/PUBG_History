@@ -518,7 +518,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
     knocks: (r.knocks as number) ?? 0,
     headshotKills: (r.headshot_kills as number) ?? 0,
     damage: Number(r.damage ?? 0),
-    survivalTime: 0,
+    survivalTime: Number(r.survival_time ?? 0),
   }))
 
   // Seed roster display + 0-stat entries for registered players not in pre-computed table.
