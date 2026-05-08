@@ -11,7 +11,7 @@ import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
-const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, display_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
+const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
 const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
 const PAGE = 1000
 
