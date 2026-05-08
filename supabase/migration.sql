@@ -577,3 +577,68 @@ ALTER TABLE tournament_special_awards ADD COLUMN IF NOT EXISTS category TEXT;
 -- total Player Data, and total Team Data, but per-stage data is still shown.
 -- =====================================================
 ALTER TABLE stages ADD COLUMN IF NOT EXISTS include_in_total BOOLEAN NOT NULL DEFAULT TRUE;
+
+-- =====================================================
+-- Migration: stage additional points (extra pts added to team totals on a per-stage basis)
+-- =====================================================
+CREATE TABLE IF NOT EXISTS stage_additional_points (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stage_id   UUID NOT NULL REFERENCES stages(id) ON DELETE CASCADE,
+  team_name  TEXT NOT NULL,
+  points     INT NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_stage_additional_points_stage ON stage_additional_points(stage_id);
+ALTER TABLE stage_additional_points ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "stage_additional_points_public_read" ON stage_additional_points;
+DROP POLICY IF EXISTS "stage_additional_points_auth_write"  ON stage_additional_points;
+CREATE POLICY "stage_additional_points_public_read" ON stage_additional_points FOR SELECT USING (true);
+CREATE POLICY "stage_additional_points_auth_write"  ON stage_additional_points FOR ALL    USING (auth.uid() IS NOT NULL);
+
+-- =====================================================
+-- Migration: pre-computed tournament team/player stats
+-- Populated by /api/admin/compute-tournament-stats after each match import.
+-- Circuit pages and other cross-tournament views read from here instead of
+-- recomputing from individual match rows every request.
+-- =====================================================
+CREATE TABLE IF NOT EXISTS tournament_team_stats (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  team_id       UUID REFERENCES teams(id) ON DELETE SET NULL,
+  team_name     TEXT NOT NULL,
+  logo_url      TEXT,
+  games         INT NOT NULL DEFAULT 0,
+  wwcd          INT NOT NULL DEFAULT 0,
+  total_kills   INT NOT NULL DEFAULT 0,
+  total_damage  NUMERIC NOT NULL DEFAULT 0,
+  updated_at    TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_team_stats_tournament ON tournament_team_stats(tournament_id);
+ALTER TABLE tournament_team_stats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "tournament_team_stats_public_read"    ON tournament_team_stats;
+DROP POLICY IF EXISTS "tournament_team_stats_service_write"  ON tournament_team_stats;
+CREATE POLICY "tournament_team_stats_public_read"   ON tournament_team_stats FOR SELECT USING (true);
+CREATE POLICY "tournament_team_stats_service_write" ON tournament_team_stats FOR ALL    USING (auth.role() = 'service_role');
+
+CREATE TABLE IF NOT EXISTS tournament_player_stats (
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id  UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  player_id      UUID REFERENCES players(id) ON DELETE SET NULL,
+  nickname       TEXT NOT NULL,
+  team_id        UUID REFERENCES teams(id) ON DELETE SET NULL,
+  team_name      TEXT NOT NULL DEFAULT '',
+  logo_url       TEXT,
+  games          INT NOT NULL DEFAULT 0,
+  kills          INT NOT NULL DEFAULT 0,
+  assists        INT NOT NULL DEFAULT 0,
+  knocks         INT NOT NULL DEFAULT 0,
+  headshot_kills INT NOT NULL DEFAULT 0,
+  damage         NUMERIC NOT NULL DEFAULT 0,
+  updated_at     TIMESTAMPTZ DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_player_stats_tournament ON tournament_player_stats(tournament_id);
+ALTER TABLE tournament_player_stats ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "tournament_player_stats_public_read"    ON tournament_player_stats;
+DROP POLICY IF EXISTS "tournament_player_stats_service_write"  ON tournament_player_stats;
+CREATE POLICY "tournament_player_stats_public_read"   ON tournament_player_stats FOR SELECT USING (true);
+CREATE POLICY "tournament_player_stats_service_write" ON tournament_player_stats FOR ALL    USING (auth.role() = 'service_role');

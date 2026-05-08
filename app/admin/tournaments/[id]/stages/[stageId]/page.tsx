@@ -143,6 +143,20 @@ export default function StageMatchesPage() {
   const [addPtsRows, setAddPtsRows] = useState<{ teamName: string; points: string }[]>([])
   const [savingAddPts, setSavingAddPts] = useState(false)
   const [teamDisplayNames, setTeamDisplayNames] = useState<Map<string, string>>(new Map())
+  const [recomputingStats, setRecomputingStats] = useState(false)
+
+  async function recomputeStats() {
+    setRecomputingStats(true)
+    try {
+      await fetch('/api/admin/compute-tournament-stats', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tournamentId }),
+      })
+    } finally {
+      setRecomputingStats(false)
+    }
+  }
 
   const load = useCallback(async () => {
     const [{ data: s }, { data: m }, { data: ap }, { data: ttData }] = await Promise.all([
@@ -401,6 +415,10 @@ export default function StageMatchesPage() {
           {savingRules ? 'Saving...' : 'Save'}
         </button>
         <span className="text-xs text-gray-400 ml-auto">0 = no rule</span>
+        <button onClick={recomputeStats} disabled={recomputingStats}
+          className="text-xs border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 disabled:opacity-50 rounded-lg px-2.5 py-1 transition-colors ml-auto">
+          {recomputingStats ? '통계 계산 중...' : '통계 새로고침'}
+        </button>
       </div>
 
       {/* Cumulative Standings */}

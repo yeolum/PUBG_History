@@ -5,6 +5,7 @@ import { revalidatePath, revalidateTag } from 'next/cache'
 import { fetchPubgMatch } from '@/lib/pubg-api'
 import { getNameVariants } from '@/lib/scoring'
 import { cookies } from 'next/headers'
+import { computeTournamentStats } from '@/lib/compute-stats'
 
 async function getAuthUser() {
   const cookieStore = await cookies()
@@ -336,6 +337,15 @@ export async function POST(req: NextRequest) {
   )]
   if (linkedPlayerIds.length > 0) {
     await db.rpc('sync_player_current_teams', { player_ids: linkedPlayerIds })
+  }
+
+  // Pre-compute team/player stats for the circuit page to read.
+  if (tournamentId) {
+    try {
+      await computeTournamentStats(tournamentId, db)
+    } catch (err) {
+      console.error('[import] computeTournamentStats failed:', err)
+    }
   }
 
   // Public-page invalidation: a fresh match changes scoreboards, prize totals,

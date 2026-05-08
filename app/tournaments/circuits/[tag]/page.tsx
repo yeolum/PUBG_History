@@ -226,7 +226,7 @@ export default async function CircuitPage({ params }: Props) {
     dqByTournament.get(tid)!.add(r.team_id as string)
   }
 
-  const [allTeamResults, allPlayerStats] = await Promise.all([
+  const [allTeamResults, ttsRows, tpsRows] = await Promise.all([
     fetchInChunked<AnyRow>(
       (chunk) => supabase
         .from('match_team_results')
@@ -235,11 +235,12 @@ export default async function CircuitPage({ params }: Props) {
       matchIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => supabase
-        .from('match_player_stats')
-        .select('id, match_id, player_id, team_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, players(id, nickname), teams(id, name, logo_url)')
-        .in('match_id', chunk),
-      matchIds,
+      (chunk) => supabase.from('tournament_team_stats').select('*').in('tournament_id', chunk),
+      tournamentIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('tournament_player_stats').select('*').in('tournament_id', chunk),
+      tournamentIds,
     ),
   ])
 
@@ -387,46 +388,43 @@ export default async function CircuitPage({ params }: Props) {
     }
   }
 
-  // Aggregate global team stats
+  // Build team stats from pre-computed tournament_team_stats table
   const globalTeamMap = new Map<string, {
     teamId: string | null; teamName: string; logoUrl: string | null
     tournamentSet: Set<string>; matches: number; wins: number; kills: number; damage: number
   }>()
+  const breakdownByTeam = new Map<string, TournamentTeamBreakdown[]>()
 
-  for (const r of allTeamResults) {
-    const tournamentId = matchToTournament.get(r.match_id as string)
-    const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
+  for (const r of ttsRows) {
+    const tid = r.tournament_id as string
+    const key = (r.team_id ?? r.team_name ?? '?') as string
     const ex = globalTeamMap.get(key) ?? {
       teamId: (r.team_id ?? null) as string | null,
-      teamName: (r.teams as AnyRow | null)?.name ?? (r.pubg_team_name as string) ?? '?',
-      logoUrl: (r.teams as AnyRow | null)?.logo_url ?? null,
+      teamName: r.team_name as string,
+      logoUrl: (r.logo_url ?? null) as string | null,
       tournamentSet: new Set<string>(), matches: 0, wins: 0, kills: 0, damage: 0,
     }
-    if (tournamentId) ex.tournamentSet.add(tournamentId)
-    ex.matches++
+    ex.tournamentSet.add(tid)
+    ex.matches += (r.games as number) ?? 0
+    ex.wins += (r.wwcd as number) ?? 0
     ex.kills += (r.total_kills as number) ?? 0
-    ex.damage += (r.total_damage as number) ?? 0
-    if (r.placement === 1) ex.wins++
+    ex.damage += Number(r.total_damage ?? 0)
     globalTeamMap.set(key, ex)
+
+    if (!breakdownByTeam.has(key)) breakdownByTeam.set(key, [])
+    breakdownByTeam.get(key)!.push({
+      tournamentId: tid,
+      tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
+      matches: (r.games as number) ?? 0,
+      wins: (r.wwcd as number) ?? 0,
+      kills: (r.total_kills as number) ?? 0,
+      damage: Number(r.total_damage ?? 0),
+    })
   }
 
   const teamStats: CircuitTeamStat[] = [...globalTeamMap.entries()]
     .map(([key, t]) => {
-      const breakdown: TournamentTeamBreakdown[] = []
-      for (const [tid, byTeam] of tournamentTeamMap) {
-        const td = byTeam.get(key)
-        if (td && td.matches > 0) {
-          breakdown.push({
-            tournamentId: tid,
-            tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
-            matches: td.matches,
-            wins: td.wins,
-            kills: td.kills,
-            damage: td.damage,
-          })
-        }
-      }
-      breakdown.sort((a, b) => {
+      const breakdown = (breakdownByTeam.get(key) ?? []).sort((a, b) => {
         const ta = tournaments.find((x) => x.id === a.tournamentId)?.start_date ?? ''
         const tb = tournaments.find((x) => x.id === b.tournamentId)?.start_date ?? ''
         return tb > ta ? 1 : tb < ta ? -1 : 0
@@ -435,49 +433,42 @@ export default async function CircuitPage({ params }: Props) {
     })
     .sort((a, b) => b.kills - a.kills)
 
-  // Aggregate global player stats. The team column shows the player's
-  // *current* team from the players table (players.team_id), not a team
-  // pulled from match data — admin maintains this via the player profile
-  // / Sync Teams workflow, so it's the canonical answer.
+  // Build player stats from pre-computed tournament_player_stats table.
+  // Current team shown from players.team_id (canonical, admin-maintained).
   const globalPlayerMap = new Map<string, {
     playerId: string | null; nickname: string
     tournamentSet: Set<string>; matches: number; kills: number; assists: number; knocks: number; headshotKills: number; damage: number
   }>()
-  const tournamentPlayerMap = new Map<string, Map<string, {
-    matches: number; kills: number; assists: number; knocks: number; headshotKills: number; damage: number
-  }>>()
-  for (const tid of tournamentIds) tournamentPlayerMap.set(tid, new Map())
+  const breakdownByPlayer = new Map<string, TournamentPlayerBreakdown[]>()
 
-  for (const s of allPlayerStats) {
-    const tournamentId = matchToTournament.get(s.match_id as string)
-    const key = (s.player_id ?? s.pubg_player_name ?? '?') as string
-    let ex = globalPlayerMap.get(key)
-    if (!ex) {
-      ex = {
-        playerId: (s.player_id ?? null) as string | null,
-        nickname: (s.players as AnyRow | null)?.nickname ?? (s.pubg_player_name as string) ?? '?',
-        tournamentSet: new Set<string>(), matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0,
-      }
-      globalPlayerMap.set(key, ex)
+  for (const r of tpsRows) {
+    const tid = r.tournament_id as string
+    const key = (r.player_id ?? `pubg:${(r.nickname as string ?? '').toLowerCase()}`) as string
+    const ex = globalPlayerMap.get(key) ?? {
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+      tournamentSet: new Set<string>(), matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0,
     }
-    if (tournamentId) ex.tournamentSet.add(tournamentId)
-    ex.matches++
-    ex.kills += (s.kills as number) ?? 0
-    ex.assists += (s.assists as number) ?? 0
-    ex.knocks += (s.knocks as number) ?? 0
-    ex.headshotKills += (s.headshot_kills as number) ?? 0
-    ex.damage += (s.damage_dealt as number) ?? 0
-    if (tournamentId) {
-      const byPlayer = tournamentPlayerMap.get(tournamentId)!
-      const tp = byPlayer.get(key) ?? { matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0 }
-      tp.matches++
-      tp.kills += (s.kills as number) ?? 0
-      tp.assists += (s.assists as number) ?? 0
-      tp.knocks += (s.knocks as number) ?? 0
-      tp.headshotKills += (s.headshot_kills as number) ?? 0
-      tp.damage += (s.damage_dealt as number) ?? 0
-      byPlayer.set(key, tp)
-    }
+    ex.tournamentSet.add(tid)
+    ex.matches += (r.games as number) ?? 0
+    ex.kills += (r.kills as number) ?? 0
+    ex.assists += (r.assists as number) ?? 0
+    ex.knocks += (r.knocks as number) ?? 0
+    ex.headshotKills += (r.headshot_kills as number) ?? 0
+    ex.damage += Number(r.damage ?? 0)
+    globalPlayerMap.set(key, ex)
+
+    if (!breakdownByPlayer.has(key)) breakdownByPlayer.set(key, [])
+    breakdownByPlayer.get(key)!.push({
+      tournamentId: tid,
+      tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
+      matches: (r.games as number) ?? 0,
+      kills: (r.kills as number) ?? 0,
+      assists: (r.assists as number) ?? 0,
+      knocks: (r.knocks as number) ?? 0,
+      headshotKills: (r.headshot_kills as number) ?? 0,
+      damage: Number(r.damage ?? 0),
+    })
   }
 
   const linkedPlayerIds = [...new Set(
@@ -502,23 +493,7 @@ export default async function CircuitPage({ params }: Props) {
   const playerStats: CircuitPlayerStat[] = [...globalPlayerMap.entries()]
     .map(([key, p]) => {
       const current = p.playerId ? playerCurrentTeam.get(p.playerId) : null
-      const breakdown: TournamentPlayerBreakdown[] = []
-      for (const [tid, byPlayer] of tournamentPlayerMap) {
-        const pd = byPlayer.get(key)
-        if (pd && pd.matches > 0) {
-          breakdown.push({
-            tournamentId: tid,
-            tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
-            matches: pd.matches,
-            kills: pd.kills,
-            assists: pd.assists,
-            knocks: pd.knocks,
-            headshotKills: pd.headshotKills,
-            damage: pd.damage,
-          })
-        }
-      }
-      breakdown.sort((a, b) => {
+      const breakdown = (breakdownByPlayer.get(key) ?? []).sort((a, b) => {
         const ta = tournaments.find((x) => x.id === a.tournamentId)?.start_date ?? ''
         const tb = tournaments.find((x) => x.id === b.tournamentId)?.start_date ?? ''
         return tb > ta ? 1 : tb < ta ? -1 : 0
