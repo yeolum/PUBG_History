@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
 import type { CircuitChampion, CircuitTeamStat, CircuitPlayerStat } from './page'
@@ -62,6 +62,23 @@ export default function CircuitContent({
   const [playerSortKey, setPlayerSortKey] = useState<PlayerSortKey>('kills')
   const [playerSortDir, setPlayerSortDir] = useState<'asc' | 'desc'>('desc')
   const [search, setSearch] = useState('')
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
+  const [expandedPlayers, setExpandedPlayers] = useState<Set<string>>(new Set())
+
+  function toggleTeam(key: string) {
+    setExpandedTeams((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
+  function togglePlayer(key: string) {
+    setExpandedPlayers((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
+  }
 
   const championMap = useMemo(() => {
     const m = new Map<string, CircuitChampion>()
@@ -267,30 +284,78 @@ export default function CircuitContent({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {sortedTeams.map((t, i) => (
-                  <tr key={t.teamId ?? t.teamName} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
-                    <td className="px-3 py-2.5">
-                      <div className="flex items-center gap-2">
-                        <TeamLogo url={t.logoUrl} name={t.teamName} />
-                        {t.teamId ? (
-                          <Link href={`/teams/${t.teamId}`} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
-                            {t.teamName}
-                          </Link>
-                        ) : (
-                          <span className="font-medium text-gray-900">{t.teamName}</span>
-                        )}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-700">{t.tournaments}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-700">{t.matches}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-700">{t.wins}</td>
-                    <td className="px-3 py-2.5 text-right font-medium text-gray-900">{t.kills}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{t.matches > 0 ? (t.kills / t.matches).toFixed(2) : '—'}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(t.damage).toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{t.matches > 0 ? Math.round(t.damage / t.matches).toLocaleString() : '—'}</td>
-                  </tr>
-                ))}
+                {sortedTeams.map((t, i) => {
+                  const key = t.teamId ?? t.teamName
+                  const expanded = expandedTeams.has(key)
+                  return (
+                    <Fragment key={key}>
+                      <tr
+                        onClick={() => toggleTeam(key)}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer select-none"
+                      >
+                        <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-2">
+                            <span className="text-gray-300 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+                            <TeamLogo url={t.logoUrl} name={t.teamName} />
+                            {t.teamId ? (
+                              <Link href={`/teams/${t.teamId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
+                                {t.teamName}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-gray-900">{t.teamName}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{t.tournaments}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{t.matches}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{t.wins}</td>
+                        <td className="px-3 py-2.5 text-right font-medium text-gray-900">{t.kills}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{t.matches > 0 ? (t.kills / t.matches).toFixed(2) : '—'}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(t.damage).toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{t.matches > 0 ? Math.round(t.damage / t.matches).toLocaleString() : '—'}</td>
+                      </tr>
+                      {expanded && (
+                        <tr>
+                          <td colSpan={9} className="px-0 py-0 border-b border-gray-100">
+                            <div className="bg-gray-50/60 px-10 py-2">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-gray-400 border-b border-gray-200">
+                                    <th className="pb-1.5 text-left font-medium">대회</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">경기</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">1위</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">킬</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">킬/경기</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">데미지</th>
+                                    <th className="pb-1.5 text-right font-medium">ADR</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {t.breakdown.map((b) => (
+                                    <tr key={b.tournamentId} className="border-b border-gray-100 last:border-0">
+                                      <td className="py-1.5">
+                                        <Link href={`/tournaments/${b.tournamentId}`} className="text-gray-700 hover:text-yellow-600 font-medium">
+                                          {b.tournamentName}
+                                        </Link>
+                                      </td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.wins}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-700 font-medium">{b.kills}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches > 0 ? (b.kills / b.matches).toFixed(2) : '—'}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{Math.round(b.damage).toLocaleString()}</td>
+                                      <td className="py-1.5 text-right text-gray-600">{b.matches > 0 ? Math.round(b.damage / b.matches).toLocaleString() : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  )
+                })}
                 {sortedTeams.length === 0 && (
                   <tr><td colSpan={9} className="text-center text-gray-400 py-12">데이터가 없습니다</td></tr>
                 )}
@@ -330,40 +395,92 @@ export default function CircuitContent({
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
-                {sortedPlayers.map((p, i) => (
-                  <tr key={p.playerId ?? p.nickname} className="hover:bg-gray-50 transition-colors">
-                    <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
-                    <td className="px-3 py-2.5">
-                      {p.playerId ? (
-                        <Link href={`/players/${p.playerId}`} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
-                          {p.nickname}
-                        </Link>
-                      ) : (
-                        <span className="font-medium text-gray-900">{p.nickname}</span>
+                {sortedPlayers.map((p, i) => {
+                  const key = p.playerId ?? p.nickname
+                  const expanded = expandedPlayers.has(key)
+                  return (
+                    <Fragment key={key}>
+                      <tr
+                        onClick={() => togglePlayer(key)}
+                        className="hover:bg-gray-50 transition-colors cursor-pointer select-none"
+                      >
+                        <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-gray-300 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+                            {p.playerId ? (
+                              <Link href={`/players/${p.playerId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
+                                {p.nickname}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-gray-900">{p.nickname}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5">
+                          <div className="flex items-center gap-1.5">
+                            <TeamLogo url={p.logoUrl} name={p.teamName} />
+                            {p.teamId ? (
+                              <Link href={`/teams/${p.teamId}`} onClick={(e) => e.stopPropagation()} className="text-gray-600 hover:text-yellow-600 transition-colors">
+                                {p.teamName}
+                              </Link>
+                            ) : (
+                              <span className="text-gray-600">{p.teamName}</span>
+                            )}
+                          </div>
+                        </td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{p.tournaments}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-700">{p.matches}</td>
+                        <td className="px-3 py-2.5 text-right font-medium text-gray-900">{p.kills}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? (p.kills / p.matches).toFixed(2) : '—'}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{p.assists}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{p.knocks}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(p.damage).toLocaleString()}</td>
+                        <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? Math.round(p.damage / p.matches).toLocaleString() : '—'}</td>
+                      </tr>
+                      {expanded && (
+                        <tr>
+                          <td colSpan={11} className="px-0 py-0 border-b border-gray-100">
+                            <div className="bg-gray-50/60 px-10 py-2">
+                              <table className="w-full text-xs">
+                                <thead>
+                                  <tr className="text-gray-400 border-b border-gray-200">
+                                    <th className="pb-1.5 text-left font-medium">대회</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">경기</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">킬</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">킬/경기</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">어시스트</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">넉다운</th>
+                                    <th className="pb-1.5 pr-3 text-right font-medium">데미지</th>
+                                    <th className="pb-1.5 text-right font-medium">ADR</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {p.breakdown.map((b) => (
+                                    <tr key={b.tournamentId} className="border-b border-gray-100 last:border-0">
+                                      <td className="py-1.5">
+                                        <Link href={`/tournaments/${b.tournamentId}`} className="text-gray-700 hover:text-yellow-600 font-medium">
+                                          {b.tournamentName}
+                                        </Link>
+                                      </td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-700 font-medium">{b.kills}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches > 0 ? (b.kills / b.matches).toFixed(2) : '—'}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.assists}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.knocks}</td>
+                                      <td className="py-1.5 pr-3 text-right text-gray-600">{Math.round(b.damage).toLocaleString()}</td>
+                                      <td className="py-1.5 text-right text-gray-600">{b.matches > 0 ? Math.round(b.damage / b.matches).toLocaleString() : '—'}</td>
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          </td>
+                        </tr>
                       )}
-                    </td>
-                    <td className="px-3 py-2.5">
-                      {p.teamId ? (
-                        <div className="flex items-center gap-1.5">
-                          <TeamLogo url={p.logoUrl} name={p.teamName} />
-                          <Link href={`/teams/${p.teamId}`} className="text-gray-600 hover:text-yellow-600 transition-colors">
-                            {p.teamName}
-                          </Link>
-                        </div>
-                      ) : (
-                        <span className="text-gray-300 text-xs">—</span>
-                      )}
-                    </td>
-                    <td className="px-3 py-2.5 text-right text-gray-700">{p.tournaments}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-700">{p.matches}</td>
-                    <td className="px-3 py-2.5 text-right font-medium text-gray-900">{p.kills}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? (p.kills / p.matches).toFixed(2) : '—'}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{p.assists}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{p.knocks}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(p.damage).toLocaleString()}</td>
-                    <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? Math.round(p.damage / p.matches).toLocaleString() : '—'}</td>
-                  </tr>
-                ))}
+                    </Fragment>
+                  )
+                })}
                 {sortedPlayers.length === 0 && (
                   <tr><td colSpan={11} className="text-center text-gray-400 py-12">데이터가 없습니다</td></tr>
                 )}

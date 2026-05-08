@@ -226,15 +226,9 @@ export default function StageMatchesPage() {
     if (toInsert.length > 0) {
       await supabase.from('stage_additional_points').insert(toInsert)
     }
-    // Update state directly from what we just saved — no DB round-trip.
-    // Do NOT call reload() here: the background load() would call
-    // setAdditionalPoints(fetchedData) again and could overwrite this with
-    // stale data if the read races the write.
-    setAdditionalPoints(toInsert)
     setSavingAddPts(false)
     setAddPtsOpen(false)
-    // Only invalidate the public-page cache; skip the admin re-fetch.
-    revalidatePublic({ tournamentId })
+    await Promise.all([load(), revalidatePublic({ tournamentId })])
   }
 
   async function saveAdvancementRules() {

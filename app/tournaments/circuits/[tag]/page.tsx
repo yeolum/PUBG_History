@@ -56,6 +56,26 @@ async function fetchInChunked<T>(
   return out.flat()
 }
 
+export interface TournamentTeamBreakdown {
+  tournamentId: string
+  tournamentName: string
+  matches: number
+  wins: number
+  kills: number
+  damage: number
+}
+
+export interface TournamentPlayerBreakdown {
+  tournamentId: string
+  tournamentName: string
+  matches: number
+  kills: number
+  assists: number
+  knocks: number
+  headshotKills: number
+  damage: number
+}
+
 export interface CircuitTeamStat {
   teamId: string | null
   teamName: string
@@ -65,6 +85,7 @@ export interface CircuitTeamStat {
   wins: number
   kills: number
   damage: number
+  breakdown: TournamentTeamBreakdown[]
 }
 
 export interface CircuitPlayerStat {
@@ -80,6 +101,7 @@ export interface CircuitPlayerStat {
   knocks: number
   headshotKills: number
   damage: number
+  breakdown: TournamentPlayerBreakdown[]
 }
 
 export interface CircuitChampion {
@@ -388,8 +410,29 @@ export default async function CircuitPage({ params }: Props) {
     globalTeamMap.set(key, ex)
   }
 
-  const teamStats: CircuitTeamStat[] = [...globalTeamMap.values()]
-    .map((t) => ({ teamId: t.teamId, teamName: t.teamName, logoUrl: t.logoUrl, tournaments: t.tournamentSet.size, matches: t.matches, wins: t.wins, kills: t.kills, damage: t.damage }))
+  const teamStats: CircuitTeamStat[] = [...globalTeamMap.entries()]
+    .map(([key, t]) => {
+      const breakdown: TournamentTeamBreakdown[] = []
+      for (const [tid, byTeam] of tournamentTeamMap) {
+        const td = byTeam.get(key)
+        if (td && td.matches > 0) {
+          breakdown.push({
+            tournamentId: tid,
+            tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
+            matches: td.matches,
+            wins: td.wins,
+            kills: td.kills,
+            damage: td.damage,
+          })
+        }
+      }
+      breakdown.sort((a, b) => {
+        const ta = tournaments.find((x) => x.id === a.tournamentId)?.start_date ?? ''
+        const tb = tournaments.find((x) => x.id === b.tournamentId)?.start_date ?? ''
+        return tb > ta ? 1 : tb < ta ? -1 : 0
+      })
+      return { teamId: t.teamId, teamName: t.teamName, logoUrl: t.logoUrl, tournaments: t.tournamentSet.size, matches: t.matches, wins: t.wins, kills: t.kills, damage: t.damage, breakdown }
+    })
     .sort((a, b) => b.kills - a.kills)
 
   // Aggregate global player stats. The team column shows the player's
@@ -400,6 +443,10 @@ export default async function CircuitPage({ params }: Props) {
     playerId: string | null; nickname: string
     tournamentSet: Set<string>; matches: number; kills: number; assists: number; knocks: number; headshotKills: number; damage: number
   }>()
+  const tournamentPlayerMap = new Map<string, Map<string, {
+    matches: number; kills: number; assists: number; knocks: number; headshotKills: number; damage: number
+  }>>()
+  for (const tid of tournamentIds) tournamentPlayerMap.set(tid, new Map())
 
   for (const s of allPlayerStats) {
     const tournamentId = matchToTournament.get(s.match_id as string)
@@ -420,12 +467,19 @@ export default async function CircuitPage({ params }: Props) {
     ex.knocks += (s.knocks as number) ?? 0
     ex.headshotKills += (s.headshot_kills as number) ?? 0
     ex.damage += (s.damage_dealt as number) ?? 0
+    if (tournamentId) {
+      const byPlayer = tournamentPlayerMap.get(tournamentId)!
+      const tp = byPlayer.get(key) ?? { matches: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0 }
+      tp.matches++
+      tp.kills += (s.kills as number) ?? 0
+      tp.assists += (s.assists as number) ?? 0
+      tp.knocks += (s.knocks as number) ?? 0
+      tp.headshotKills += (s.headshot_kills as number) ?? 0
+      tp.damage += (s.damage_dealt as number) ?? 0
+      byPlayer.set(key, tp)
+    }
   }
 
-  // Pull each linked player's current team from the players table — this
-  // is the canonical "소속팀" admin sets via the player profile, not
-  // anything inferred from match data. Players with team_id = NULL show
-  // as no team.
   const linkedPlayerIds = [...new Set(
     [...globalPlayerMap.values()].map((p) => p.playerId).filter((x): x is string => !!x),
   )]
@@ -445,18 +499,35 @@ export default async function CircuitPage({ params }: Props) {
     }
   }
 
-  const playerStats: CircuitPlayerStat[] = [...globalPlayerMap.values()]
-    .map((p) => {
+  const playerStats: CircuitPlayerStat[] = [...globalPlayerMap.entries()]
+    .map(([key, p]) => {
       const current = p.playerId ? playerCurrentTeam.get(p.playerId) : null
+      const breakdown: TournamentPlayerBreakdown[] = []
+      for (const [tid, byPlayer] of tournamentPlayerMap) {
+        const pd = byPlayer.get(key)
+        if (pd && pd.matches > 0) {
+          breakdown.push({
+            tournamentId: tid,
+            tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
+            matches: pd.matches,
+            kills: pd.kills,
+            assists: pd.assists,
+            knocks: pd.knocks,
+            headshotKills: pd.headshotKills,
+            damage: pd.damage,
+          })
+        }
+      }
+      breakdown.sort((a, b) => {
+        const ta = tournaments.find((x) => x.id === a.tournamentId)?.start_date ?? ''
+        const tb = tournaments.find((x) => x.id === b.tournamentId)?.start_date ?? ''
+        return tb > ta ? 1 : tb < ta ? -1 : 0
+      })
       return {
-        playerId: p.playerId,
-        nickname: p.nickname,
-        teamId: current?.teamId ?? null,
-        teamName: current?.teamName ?? '',
-        logoUrl: current?.logoUrl ?? null,
-        tournaments: p.tournamentSet.size,
-        matches: p.matches,
-        kills: p.kills, assists: p.assists, knocks: p.knocks, headshotKills: p.headshotKills, damage: p.damage,
+        playerId: p.playerId, nickname: p.nickname,
+        teamId: current?.teamId ?? null, teamName: current?.teamName ?? '', logoUrl: current?.logoUrl ?? null,
+        tournaments: p.tournamentSet.size, matches: p.matches, kills: p.kills, assists: p.assists, knocks: p.knocks, headshotKills: p.headshotKills, damage: p.damage,
+        breakdown,
       }
     })
     .sort((a, b) => b.kills - a.kills)
