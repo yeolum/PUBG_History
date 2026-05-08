@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
 
   try {
     await computeTournamentStats(tournamentId, serviceClient())
-    revalidateTag('tournament-data')
+    revalidateTag('tournament-data', 'default')
     return NextResponse.json({ ok: true })
   } catch (err) {
     console.error('[compute-tournament-stats]', err)
