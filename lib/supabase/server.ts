@@ -44,6 +44,24 @@ export function createPublicClient() {
   )
 }
 
+// unstable_cache 내부에서 사용 — fetch 레벨 캐싱 없이 항상 DB에서 직접 읽음.
+// unstable_cache 자체가 30초 캐싱을 담당하므로 개별 fetch 캐시가 불필요하며,
+// 이중 캐싱이 있으면 revalidateTag 후에도 내부 fetch 캐시가 stale 데이터를
+// 반환하는 문제가 생길 수 있다.
+export function createUncachedPublicClient() {
+  return createSupabaseClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    {
+      auth: { persistSession: false },
+      global: {
+        fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+          fetch(input, { ...init, cache: 'no-store' } as RequestInit),
+      },
+    }
+  )
+}
+
 // Admin API Routes에서 사용 (RLS 우회, 서버 사이드 전용)
 export function createServiceClient() {
   return createSupabaseClient(

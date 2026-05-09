@@ -164,15 +164,21 @@ export default function StageMatchesPage() {
     const [{ data: s }, { data: m }, { data: ap, error: apErr }, { data: ttData }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
-      supabase.from('stage_additional_points').select('*').eq('stage_id', stageId),
+      supabase.from('stage_additional_points').select('id, stage_id, team_id, team_name, points').eq('stage_id', stageId),
       supabase.from('tournament_teams').select('team_id, display_name').eq('tournament_id', tournamentId),
     ])
+    if (!s) return
     const stageData = s as Stage
     setStage(stageData)
     setAdvanceCount(stageData.advance_count ?? 0)
     setEliminateCount(stageData.eliminate_count ?? 0)
     setMatches((m ?? []) as MatchWithResults[])
-    if (!apErr) setAdditionalPoints((ap ?? []) as AdditionalPoint[])
+    if (apErr) {
+      console.error('[admin/load] stage_additional_points error:', apErr.message, apErr.details, apErr.hint, apErr.code)
+    } else {
+      console.log('[admin/load] stage_additional_points rows:', ap?.length ?? 0, ap)
+      setAdditionalPoints((ap ?? []) as AdditionalPoint[])
+    }
     const dnMap = new Map<string, string>()
     for (const tt of (ttData ?? []) as { team_id: string; display_name: string | null }[]) {
       if (tt.team_id && tt.display_name) dnMap.set(tt.team_id, tt.display_name)
@@ -271,6 +277,10 @@ export default function StageMatchesPage() {
     setSavingAddPts(false)
     setAddPtsErr(`✓ Saved (${savedCount} entries)`)
     await revalidatePublic({ tournamentId })
+    // Re-fetch from DB to sync state with what was actually stored
+    const { data: freshAp, error: freshErr } = await supabase
+      .from('stage_additional_points').select('*').eq('stage_id', stageId)
+    if (!freshErr && freshAp) setAdditionalPoints(freshAp as AdditionalPoint[])
     setAddPtsOpen(false)
     setAddPtsErr(null)
   }

@@ -1,6 +1,6 @@
 import 'server-only'
 import { unstable_cache } from 'next/cache'
-import { createPublicClient } from '@/lib/supabase/server'
+import { createPublicClient, createUncachedPublicClient } from '@/lib/supabase/server'
 import { calcPlacementPtsWithRule, ruleFromStage } from '@/lib/scoring'
 
 // Mirrors the rank board + DQ + prize logic that TournamentContent /
@@ -59,7 +59,7 @@ async function fetchAllTeamResults(
 
 export const getTournamentFinalStandings = unstable_cache(
   async (tournamentId: string): Promise<Map<string, TournamentFinalStanding>> => {
-    const supabase = createPublicClient()
+    const supabase = createUncachedPublicClient()
 
     const [{ data: tournament }, { data: stagesData }, { data: prizeConfigData }, { data: seriesData }, { data: ttData }, { data: combinedData }, { data: combinedStageData }, { data: specialAwardsData }] = await Promise.all([
       supabase.from('tournaments').select('id, ranking_method').eq('id', tournamentId).single(),
@@ -228,7 +228,7 @@ export const getTournamentFinalStandings = unstable_cache(
         }
         const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
         for (const e of ptsMap.values()) {
-          e.totalPts += extraForStage[e.teamName.toLowerCase()] ?? 0
+          e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
         }
       }
       combinedStandingsMap.set(cid, [...ptsMap.values()].sort((a, b) =>

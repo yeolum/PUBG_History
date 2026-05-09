@@ -1,5 +1,5 @@
 import { unstable_cache } from 'next/cache'
-import { createPublicClient } from '@/lib/supabase/server'
+import { createPublicClient, createUncachedPublicClient } from '@/lib/supabase/server'
 import type { Tournament, Stage, Match, TournamentPrizeConfig, Series } from '@/lib/types'
 import { calcPlacementPtsWithRule, ruleFromStage, getNameVariants } from '@/lib/scoring'
 import { stripTagPrefix } from '@/lib/pubg-api'
@@ -55,7 +55,7 @@ async function fetchAllPages(supabase: ReturnType<typeof createPublicClient>, ta
 // First load: hits DB. Subsequent loads within 30s: returns cached result instantly.
 const loadTournamentData = unstable_cache(
   async (id: string) => {
-    const supabase = createPublicClient()
+    const supabase = createUncachedPublicClient()
 
     const aliasQueriesPromise = Promise.all([
       supabase.from('team_aliases').select('team_id, alias, logo_url'),
@@ -113,7 +113,7 @@ const loadTournamentData = unstable_cache(
     // run alongside the matches + trData + psData fetches.
     const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
-      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('*').in('stage_id', stageIds),
+      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('id, stage_id, team_id, team_name, points').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, players(id, nickname), teams(id, name, logo_url)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
