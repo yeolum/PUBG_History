@@ -596,6 +596,12 @@ CREATE POLICY "stage_additional_points_public_read" ON stage_additional_points F
 CREATE POLICY "stage_additional_points_auth_write"  ON stage_additional_points FOR ALL    USING (auth.uid() IS NOT NULL);
 
 -- =====================================================
+-- Migration: stage_additional_points team_id linkage
+-- Lets lookup be stable even when team display names change.
+-- =====================================================
+ALTER TABLE stage_additional_points ADD COLUMN IF NOT EXISTS team_id UUID REFERENCES teams(id);
+
+-- =====================================================
 -- Migration: pre-computed tournament team/player stats
 -- Populated by /api/admin/compute-tournament-stats after each match import.
 -- Circuit pages and other cross-tournament views read from here instead of

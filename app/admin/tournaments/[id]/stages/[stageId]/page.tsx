@@ -161,7 +161,7 @@ export default function StageMatchesPage() {
   }
 
   const load = useCallback(async () => {
-    const [{ data: s }, { data: m }, { data: ap }, { data: ttData }] = await Promise.all([
+    const [{ data: s }, { data: m }, { data: ap, error: apErr }, { data: ttData }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
       supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').eq('stage_id', stageId),
@@ -172,7 +172,7 @@ export default function StageMatchesPage() {
     setAdvanceCount(stageData.advance_count ?? 0)
     setEliminateCount(stageData.eliminate_count ?? 0)
     setMatches((m ?? []) as MatchWithResults[])
-    setAdditionalPoints((ap ?? []) as AdditionalPoint[])
+    if (!apErr) setAdditionalPoints((ap ?? []) as AdditionalPoint[])
     const dnMap = new Map<string, string>()
     for (const tt of (ttData ?? []) as { team_id: string; display_name: string | null }[]) {
       if (tt.team_id && tt.display_name) dnMap.set(tt.team_id, tt.display_name)
@@ -270,7 +270,7 @@ export default function StageMatchesPage() {
     setAdditionalPoints(newAdditionalPoints)
     setSavingAddPts(false)
     setAddPtsErr(`✓ Saved (${savedCount} entries)`)
-    await Promise.all([load(), revalidatePublic({ tournamentId })])
+    await revalidatePublic({ tournamentId })
     setAddPtsOpen(false)
     setAddPtsErr(null)
   }
