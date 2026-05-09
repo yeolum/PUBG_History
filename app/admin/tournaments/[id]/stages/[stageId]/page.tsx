@@ -164,7 +164,7 @@ export default function StageMatchesPage() {
     const [{ data: s }, { data: m }, { data: ap, error: apErr }, { data: ttData }] = await Promise.all([
       supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
       supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
-      supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').eq('stage_id', stageId),
+      supabase.from('stage_additional_points').select('*').eq('stage_id', stageId),
       supabase.from('tournament_teams').select('team_id, display_name').eq('tournament_id', tournamentId),
     ])
     const stageData = s as Stage

@@ -11,7 +11,7 @@ import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
-const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, short_name, logo_url)'
+const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname), teams(id, name, logo_url)'
 const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
 const PAGE = 1000
 
@@ -113,7 +113,7 @@ const loadTournamentData = unstable_cache(
     // run alongside the matches + trData + psData fetches.
     const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
-      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').in('stage_id', stageIds),
+      stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_additional_points').select('*').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, players(id, nickname), teams(id, name, logo_url)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),

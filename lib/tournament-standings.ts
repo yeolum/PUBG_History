@@ -94,7 +94,7 @@ export const getTournamentFinalStandings = unstable_cache(
       fetchAllTeamResults(supabase, allImportedMatchIds),
       stageIds.length === 0
         ? Promise.resolve({ data: [] })
-        : supabase.from('stage_additional_points').select('stage_id, team_id, team_name, points').in('stage_id', stageIds),
+        : supabase.from('stage_additional_points').select('*').in('stage_id', stageIds),
       supabase.from('tournament_wwcd_rewards').select('stage_id, series_id, prize, pgs_points, pgc_points').eq('tournament_id', tournamentId),
       stageIds.length === 0
         ? Promise.resolve({ data: [] })
