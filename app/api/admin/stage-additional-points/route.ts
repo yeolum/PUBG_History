@@ -28,6 +28,23 @@ function serviceClient() {
   )
 }
 
+export async function GET(req: NextRequest) {
+  const user = await getAuthUser()
+  if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
+
+  const stageId = req.nextUrl.searchParams.get('stageId')
+  if (!stageId) return NextResponse.json({ error: 'stageId required' }, { status: 400 })
+
+  const db = serviceClient()
+  const { data, error } = await db
+    .from('stage_additional_points')
+    .select('id, stage_id, team_id, team_name, points')
+    .eq('stage_id', stageId)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json(data ?? [])
+}
+
 export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
