@@ -168,10 +168,12 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   const BATCH = 500
   for (let off = 0; off < teamRows.length; off += BATCH) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await db.from('tournament_team_stats').insert(teamRows.slice(off, off + BATCH) as any)
+    const { error } = await db.from('tournament_team_stats').insert(teamRows.slice(off, off + BATCH) as any)
+    if (error) console.error('[compute-stats] team insert failed:', error.message)
   }
   for (let off = 0; off < playerRows.length; off += BATCH) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await db.from('tournament_player_stats').insert(playerRows.slice(off, off + BATCH) as any)
+    const { error } = await db.from('tournament_player_stats').insert(playerRows.slice(off, off + BATCH) as any)
+    if (error) console.error('[compute-stats] player insert failed:', error.message)
   }
 }

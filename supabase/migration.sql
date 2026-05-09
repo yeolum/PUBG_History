@@ -648,3 +648,11 @@ DROP POLICY IF EXISTS "tournament_player_stats_public_read"    ON tournament_pla
 DROP POLICY IF EXISTS "tournament_player_stats_service_write"  ON tournament_player_stats;
 CREATE POLICY "tournament_player_stats_public_read"   ON tournament_player_stats FOR SELECT USING (true);
 CREATE POLICY "tournament_player_stats_service_write" ON tournament_player_stats FOR ALL    USING (auth.role() = 'service_role');
+
+-- =====================================================
+-- Migration: add survival_time to tournament_player_stats
+-- compute-stats.ts already writes this field; without the column the INSERT
+-- fails silently and the player stats tab shows no data.
+-- =====================================================
+
+ALTER TABLE tournament_player_stats ADD COLUMN IF NOT EXISTS survival_time NUMERIC NOT NULL DEFAULT 0;

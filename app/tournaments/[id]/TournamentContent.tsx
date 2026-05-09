@@ -504,23 +504,26 @@ export default async function TournamentContent({ id, tournament }: { id: string
   }
 
   // Build playerStats from pre-computed tournament_player_stats table.
-  // Falls back gracefully (empty array) if not yet populated.
+  // Falls back to live match_player_stats aggregation when pre-computed table is empty
+  // (e.g. table not yet populated, survival_time column missing, or delete/insert race window).
   const tpsRows = (tpsData ?? []) as AnyRow[]
   const tpsPlayerIds = new Set(tpsRows.map((r) => r.player_id as string | null).filter((id): id is string => !!id))
-  const playerStats: PlayerStatRow[] = tpsRows.map((r) => ({
-    playerId: (r.player_id ?? null) as string | null,
-    nickname: r.nickname as string,
-    teamId: (r.team_id ?? null) as string | null,
-    teamName: r.team_name as string,
-    logoUrl: (r.logo_url ?? null) as string | null,
-    games: (r.games as number) ?? 0,
-    kills: (r.kills as number) ?? 0,
-    assists: (r.assists as number) ?? 0,
-    knocks: (r.knocks as number) ?? 0,
-    headshotKills: (r.headshot_kills as number) ?? 0,
-    damage: Number(r.damage ?? 0),
-    survivalTime: Number(r.survival_time ?? 0),
-  }))
+  const playerStats: PlayerStatRow[] = tpsRows.length > 0
+    ? tpsRows.map((r) => ({
+        playerId: (r.player_id ?? null) as string | null,
+        nickname: r.nickname as string,
+        teamId: (r.team_id ?? null) as string | null,
+        teamName: r.team_name as string,
+        logoUrl: (r.logo_url ?? null) as string | null,
+        games: (r.games as number) ?? 0,
+        kills: (r.kills as number) ?? 0,
+        assists: (r.assists as number) ?? 0,
+        knocks: (r.knocks as number) ?? 0,
+        headshotKills: (r.headshot_kills as number) ?? 0,
+        damage: Number(r.damage ?? 0),
+        survivalTime: Number(r.survival_time ?? 0),
+      }))
+    : [...playerStatsMap.values()]
 
   // Seed roster display + 0-stat entries for registered players not in pre-computed table.
   for (const r of (rosterPlayersData ?? []) as AnyRow[]) {
