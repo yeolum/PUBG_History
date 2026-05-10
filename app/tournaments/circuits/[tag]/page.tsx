@@ -5,7 +5,7 @@ import { notFound } from 'next/navigation'
 import type { Tournament } from '@/lib/types'
 import type { Metadata } from 'next'
 import CircuitContent from './CircuitContent'
-import { ruleFromStage, calcPlacementPtsWithRule, DEFAULT_RULE, type ScoringRuleConfig } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, DEFAULT_RULE } from '@/lib/scoring'
 
 export const revalidate = 30
 
@@ -131,7 +131,7 @@ export default async function CircuitPage({ params }: Props) {
   const tournamentIds = tournaments.map((t) => t.id)
 
   const stages = await fetchInChunked<AnyRow>(
-    (chunk) => supabase.from('stages').select('id, tournament_id, series_id, order_num, type, scoring_rules(*)').in('tournament_id', chunk),
+    (chunk) => supabase.from('stages').select('id, tournament_id').in('tournament_id', chunk),
     tournamentIds,
   )
   const stageIds = stages.map((s) => s.id as string)
@@ -154,7 +154,7 @@ export default async function CircuitPage({ params }: Props) {
     )
   }
 
-  const [matches, ttData, prizeConfigData, combinedData, combinedStageData] = await Promise.all([
+  const [matches, ttData, finalStandingsData] = await Promise.all([
     fetchInChunked<AnyRow>(
       (chunk) => supabase.from('matches').select('id, stage_id, status').in('stage_id', chunk).eq('status', 'imported'),
       stageIds,
@@ -164,20 +164,11 @@ export default async function CircuitPage({ params }: Props) {
       tournamentIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => supabase.from('tournament_prize_config').select('tournament_id, rank, stage_id, series_id, combined_scoreboard_id, stage_rank').in('tournament_id', chunk),
+      (chunk) => supabase.from('tournament_final_standings').select('tournament_id, rank, team_id, team_name').in('tournament_id', chunk).eq('rank', 1),
       tournamentIds,
-    ),
-    fetchInChunked<AnyRow>(
-      (chunk) => supabase.from('combined_scoreboards').select('id, scoring_rules(*)').in('tournament_id', chunk),
-      tournamentIds,
-    ),
-    fetchInChunked<AnyRow>(
-      (chunk) => supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id').in('stage_id', chunk),
-      stageIds,
     ),
   ])
-  // Per-tournament team label override (rebrands / roster sales). Falls
-  // back to the team's current global name when no override is set.
+  // Per-tournament team label override (rebrands / roster sales).
   const teamDisplayNameByTournament = new Map<string, string>() // key: `${tournamentId}:${teamId}`
   for (const r of ttData) {
     const tid = r.tournament_id as string
@@ -188,75 +179,19 @@ export default async function CircuitPage({ params }: Props) {
   const matchIds = matches.map((m) => m.id as string)
 
   const stageToTournament = new Map<string, string>()
-  const stageRuleById = new Map<string, ScoringRuleConfig>()
   for (const s of stages) {
     stageToTournament.set(s.id as string, s.tournament_id as string)
-    stageRuleById.set(s.id as string, ruleFromStage(s.scoring_rules))
   }
   const matchToTournament = new Map<string, string>()
-  const matchToStage = new Map<string, string>()
   for (const m of matches) {
     const tid = stageToTournament.get(m.stage_id as string)
     if (tid) matchToTournament.set(m.id as string, tid)
-    matchToStage.set(m.id as string, m.stage_id as string)
   }
 
-  // series_id → Set<stageId>  (derived from stages.series_id)
-  const seriesStageIds = new Map<string, Set<string>>()
-  for (const s of stages) {
-    const sid = s.series_id as string | null
-    if (!sid) continue
-    if (!seriesStageIds.has(sid)) seriesStageIds.set(sid, new Set())
-    seriesStageIds.get(sid)!.add(s.id as string)
-  }
-
-  // combined scoreboard → Set<stageId> + optional scoring rule override
-  const combinedStageSet = new Map<string, Set<string>>()
-  const combinedRuleById = new Map<string, ScoringRuleConfig | null>()
-  for (const c of combinedData) {
-    combinedRuleById.set(c.id as string, c.scoring_rules ? ruleFromStage(c.scoring_rules) : null)
-  }
-  for (const cs of combinedStageData) {
-    const cid = cs.combined_scoreboard_id as string
-    if (!combinedStageSet.has(cid)) combinedStageSet.set(cid, new Set())
-    combinedStageSet.get(cid)!.add(cs.stage_id as string)
-  }
-
-  // Per-tournament deciding source — mirrors Final Standings (TournamentContent rankBoard):
-  //   1) prize_config rank=1, stage_rank=1 → combined > series > stage
-  //   2) grand_final stage type
-  //   3) fallback: tournament-wide aggregate (decidingMap stays empty)
-  type DecidingSource =
-    | { type: 'stage'; stageIds: Set<string> }
-    | { type: 'series'; stageIds: Set<string> }
-    | { type: 'combined'; stageIds: Set<string>; overrideRule: ScoringRuleConfig | null }
-  const decidingSourceByTournament = new Map<string, DecidingSource>()
-
-  for (const pc of prizeConfigData) {
-    if (pc.rank !== 1 || pc.stage_rank !== 1) continue
-    const tid = pc.tournament_id as string
-    if (decidingSourceByTournament.has(tid)) continue
-    if (pc.combined_scoreboard_id) {
-      const sids = combinedStageSet.get(pc.combined_scoreboard_id as string)
-      if (sids && sids.size > 0) {
-        decidingSourceByTournament.set(tid, {
-          type: 'combined', stageIds: sids,
-          overrideRule: combinedRuleById.get(pc.combined_scoreboard_id as string) ?? null,
-        })
-      }
-    } else if (pc.series_id) {
-      const sids = seriesStageIds.get(pc.series_id as string)
-      if (sids && sids.size > 0) decidingSourceByTournament.set(tid, { type: 'series', stageIds: sids })
-    } else if (pc.stage_id) {
-      decidingSourceByTournament.set(tid, { type: 'stage', stageIds: new Set([pc.stage_id as string]) })
-    }
-  }
-  for (const s of stages) {
-    if (s.type !== 'grand_final') continue
-    const tid = s.tournament_id as string
-    if (!decidingSourceByTournament.has(tid)) {
-      decidingSourceByTournament.set(tid, { type: 'stage', stageIds: new Set([s.id as string]) })
-    }
+  // Champion (rank=1) from pre-computed final standings
+  const championByTournament = new Map<string, AnyRow>()
+  for (const s of finalStandingsData) {
+    if (s.rank === 1) championByTournament.set(s.tournament_id as string, s)
   }
 
   const dqByTournament = new Map<string, Set<string>>()
@@ -289,18 +224,10 @@ export default async function CircuitPage({ params }: Props) {
     teamId: string | null; teamName: string; logoUrl: string | null
     matches: number; wins: number; kills: number; damage: number; totalPoints: number
   }
-  // Two per-tournament aggregates: one for the deciding stage only (used to
-  // pick the champion) and one tournament-wide (used for the champions
-  // table's stat columns).
-  const decidingMap = new Map<string, Map<string, TeamAgg>>()
   const tournamentTeamMap = new Map<string, Map<string, TeamAgg>>()
-  for (const tid of tournamentIds) {
-    decidingMap.set(tid, new Map())
-    tournamentTeamMap.set(tid, new Map())
-  }
+  for (const tid of tournamentIds) tournamentTeamMap.set(tid, new Map())
 
-  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow, rule?: ScoringRuleConfig) {
-    const effectiveRule = rule ?? DEFAULT_RULE
+  function bumpAgg(byTeam: Map<string, TeamAgg>, r: AnyRow) {
     const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
     const ex = byTeam.get(key) ?? {
       teamId: (r.team_id ?? null) as string | null,
@@ -311,7 +238,7 @@ export default async function CircuitPage({ params }: Props) {
     ex.matches++
     ex.kills += (r.total_kills as number) ?? 0
     ex.damage += (r.total_damage as number) ?? 0
-    ex.totalPoints += calcPlacementPtsWithRule((r.placement as number) ?? 99, effectiveRule) + Math.round(((r.total_kills as number) ?? 0) * effectiveRule.kill_pts)
+    ex.totalPoints += calcPlacementPtsWithRule((r.placement as number) ?? 99, DEFAULT_RULE) + Math.round(((r.total_kills as number) ?? 0) * DEFAULT_RULE.kill_pts)
     if (r.placement === 1) ex.wins++
     byTeam.set(key, ex)
   }
@@ -320,16 +247,6 @@ export default async function CircuitPage({ params }: Props) {
     const tournamentId = matchToTournament.get(r.match_id as string)
     if (!tournamentId) continue
     bumpAgg(tournamentTeamMap.get(tournamentId)!, r)
-    const stageId = matchToStage.get(r.match_id as string)
-    if (stageId) {
-      const source = decidingSourceByTournament.get(tournamentId)
-      if (source && source.stageIds.has(stageId)) {
-        const rule = (source.type === 'combined' && source.overrideRule)
-          ? source.overrideRule
-          : stageRuleById.get(stageId)
-        bumpAgg(decidingMap.get(tournamentId)!, r, rule)
-      }
-    }
   }
 
   const champions: CircuitChampion[] = []
@@ -337,41 +254,28 @@ export default async function CircuitPage({ params }: Props) {
   // period-correct logo from team_aliases below.
   const championPubgTagByTournament = new Map<string, string>()
   for (const tid of tournamentIds) {
+    const standing = championByTournament.get(tid)
+    if (!standing || !standing.team_id) continue
     const dq = dqByTournament.get(tid) ?? new Set<string>()
-    const isDq = (e: TeamAgg) => !!e.teamId && dq.has(e.teamId)
+    if (dq.has(standing.team_id as string)) continue
+
     const wide = tournamentTeamMap.get(tid)
-    const deciding = decidingMap.get(tid)
-    // Pick from the deciding stage when present (matches Final Standings
-    // top spot for ranking_method='stage' tournaments, which is the typical
-    // PWS / PEC / PGC layout), otherwise fall back to tournament-wide.
-    const pool = (deciding && deciding.size > 0) ? deciding : wide
-    if (!pool || pool.size === 0) continue
-    const sorted = [...pool.values()]
-      .filter((e) => !isDq(e))
-      .sort((a, b) => b.totalPoints - a.totalPoints)
-    if (sorted.length === 0) continue
-    const c = sorted[0]
-    // Stat columns reflect tournament-wide totals so matches / wins /
-    // kills / points read the same as before.
-    const wideEntry = wide ? [...wide.values()].find((e) => e.teamId === c.teamId) : null
-    const stat = wideEntry ?? c
-    // Snapshot the team's in-game tag from one of their match results in
-    // this tournament — used to look up the period logo from team_aliases.
-    if (c.teamId) {
+    const wideEntry = wide ? [...wide.values()].find((e) => e.teamId === standing.team_id) : null
+    const stat = wideEntry ?? { totalPoints: 0, kills: 0, wins: 0, matches: 0, damage: 0 }
+
+    // Snapshot the team's in-game tag for period-correct logo resolution
+    if (standing.team_id) {
       for (const r of allTeamResults) {
         if (matchToTournament.get(r.match_id as string) !== tid) continue
-        if (r.team_id !== c.teamId) continue
-        if (r.pubg_team_name) {
-          championPubgTagByTournament.set(tid, r.pubg_team_name as string)
-          break
-        }
+        if (r.team_id !== standing.team_id) continue
+        if (r.pubg_team_name) { championPubgTagByTournament.set(tid, r.pubg_team_name as string); break }
       }
     }
     champions.push({
       tournamentId: tid,
-      teamId: c.teamId,
-      teamName: c.teamName,
-      logoUrl: c.logoUrl,
+      teamId: standing.team_id as string | null,
+      teamName: standing.team_name as string,
+      logoUrl: wideEntry?.logoUrl ?? null,
       totalPoints: stat.totalPoints,
       totalKills: stat.kills,
       wins: stat.wins,

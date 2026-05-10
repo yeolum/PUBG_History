@@ -710,3 +710,26 @@ DROP POLICY IF EXISTS "series_player_stats_public_read"   ON series_player_stats
 DROP POLICY IF EXISTS "series_player_stats_service_write" ON series_player_stats;
 CREATE POLICY "series_player_stats_public_read"   ON series_player_stats FOR SELECT USING (true);
 CREATE POLICY "series_player_stats_service_write" ON series_player_stats FOR ALL    USING (auth.role() = 'service_role');
+
+-- =====================================================
+-- Migration: pre-computed tournament final standings
+-- Populated by /api/admin/compute-tournament-stats after each Compute Stats.
+-- Circuit pages query rank=1 directly instead of recomputing the complex
+-- rankBoard logic on every page load.
+-- =====================================================
+CREATE TABLE IF NOT EXISTS tournament_final_standings (
+  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tournament_id UUID NOT NULL REFERENCES tournaments(id) ON DELETE CASCADE,
+  rank          INT NOT NULL,
+  team_id       UUID REFERENCES teams(id) ON DELETE SET NULL,
+  team_name     TEXT NOT NULL,
+  logo_url      TEXT,
+  updated_at    TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (tournament_id, rank)
+);
+CREATE INDEX IF NOT EXISTS idx_tournament_final_standings_tournament ON tournament_final_standings(tournament_id);
+ALTER TABLE tournament_final_standings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "tournament_final_standings_public_read"   ON tournament_final_standings;
+DROP POLICY IF EXISTS "tournament_final_standings_service_write" ON tournament_final_standings;
+CREATE POLICY "tournament_final_standings_public_read"   ON tournament_final_standings FOR SELECT USING (true);
+CREATE POLICY "tournament_final_standings_service_write" ON tournament_final_standings FOR ALL    USING (auth.role() = 'service_role');
