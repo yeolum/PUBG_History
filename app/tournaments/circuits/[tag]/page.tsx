@@ -131,7 +131,7 @@ export default async function CircuitPage({ params }: Props) {
   const tournamentIds = tournaments.map((t) => t.id)
 
   const stages = await fetchInChunked<AnyRow>(
-    (chunk) => supabase.from('stages').select('id, tournament_id, order_num, type, scoring_rules(*)').in('tournament_id', chunk),
+    (chunk) => supabase.from('stages').select('id, tournament_id, series_id, order_num, type, scoring_rules(*)').in('tournament_id', chunk),
     tournamentIds,
   )
   const stageIds = stages.map((s) => s.id as string)
@@ -154,7 +154,7 @@ export default async function CircuitPage({ params }: Props) {
     )
   }
 
-  const [matches, ttData, prizeConfigData] = await Promise.all([
+  const [matches, ttData, prizeConfigData, combinedData, combinedStageData] = await Promise.all([
     fetchInChunked<AnyRow>(
       (chunk) => supabase.from('matches').select('id, stage_id, status').in('stage_id', chunk).eq('status', 'imported'),
       stageIds,
@@ -166,6 +166,14 @@ export default async function CircuitPage({ params }: Props) {
     fetchInChunked<AnyRow>(
       (chunk) => supabase.from('tournament_prize_config').select('tournament_id, rank, stage_id, series_id, combined_scoreboard_id, stage_rank').in('tournament_id', chunk),
       tournamentIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('combined_scoreboards').select('id, scoring_rules(*)').in('tournament_id', chunk),
+      tournamentIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id').in('stage_id', chunk),
+      stageIds,
     ),
   ])
   // Per-tournament team label override (rebrands / roster sales). Falls
@@ -180,48 +188,77 @@ export default async function CircuitPage({ params }: Props) {
   const matchIds = matches.map((m) => m.id as string)
 
   const stageToTournament = new Map<string, string>()
-  for (const s of stages) stageToTournament.set(s.id as string, s.tournament_id as string)
+  const stageRuleById = new Map<string, ScoringRuleConfig>()
+  for (const s of stages) {
+    stageToTournament.set(s.id as string, s.tournament_id as string)
+    stageRuleById.set(s.id as string, ruleFromStage(s.scoring_rules))
+  }
   const matchToTournament = new Map<string, string>()
+  const matchToStage = new Map<string, string>()
   for (const m of matches) {
     const tid = stageToTournament.get(m.stage_id as string)
     if (tid) matchToTournament.set(m.id as string, tid)
+    matchToStage.set(m.id as string, m.stage_id as string)
   }
-  // Per-tournament: which stage decides the champion. Priority order
-  // mirrors what TournamentContent's Final Standings logic uses for
-  // ranking_method='stage' (the typical PWS / PEC / PGC setup):
-  //   1) prize_config row with rank=1 + stage_rank=1 → its mapped stage
+
+  // series_id → Set<stageId>  (derived from stages.series_id)
+  const seriesStageIds = new Map<string, Set<string>>()
+  for (const s of stages) {
+    const sid = s.series_id as string | null
+    if (!sid) continue
+    if (!seriesStageIds.has(sid)) seriesStageIds.set(sid, new Set())
+    seriesStageIds.get(sid)!.add(s.id as string)
+  }
+
+  // combined scoreboard → Set<stageId> + optional scoring rule override
+  const combinedStageSet = new Map<string, Set<string>>()
+  const combinedRuleById = new Map<string, ScoringRuleConfig | null>()
+  for (const c of combinedData) {
+    combinedRuleById.set(c.id as string, c.scoring_rules ? ruleFromStage(c.scoring_rules) : null)
+  }
+  for (const cs of combinedStageData) {
+    const cid = cs.combined_scoreboard_id as string
+    if (!combinedStageSet.has(cid)) combinedStageSet.set(cid, new Set())
+    combinedStageSet.get(cid)!.add(cs.stage_id as string)
+  }
+
+  // Per-tournament deciding source — mirrors Final Standings (TournamentContent rankBoard):
+  //   1) prize_config rank=1, stage_rank=1 → combined > series > stage
   //   2) grand_final stage type
-  // No deciding stage → fall back to tournament-wide aggregate.
-  const decidingStageByTournament = new Map<string, string>()
-  // First pass: prize_config rank=1, stage_rank=1 → stage_id (only stage
-  // targets used here; series/combined-scoreboard targets need richer
-  // aggregation that's out of scope for this index).
+  //   3) fallback: tournament-wide aggregate (decidingMap stays empty)
+  type DecidingSource =
+    | { type: 'stage'; stageIds: Set<string> }
+    | { type: 'series'; stageIds: Set<string> }
+    | { type: 'combined'; stageIds: Set<string>; overrideRule: ScoringRuleConfig | null }
+  const decidingSourceByTournament = new Map<string, DecidingSource>()
+
   for (const pc of prizeConfigData) {
     if (pc.rank !== 1 || pc.stage_rank !== 1) continue
-    if (!pc.stage_id) continue
     const tid = pc.tournament_id as string
-    if (!decidingStageByTournament.has(tid)) decidingStageByTournament.set(tid, pc.stage_id as string)
+    if (decidingSourceByTournament.has(tid)) continue
+    if (pc.combined_scoreboard_id) {
+      const sids = combinedStageSet.get(pc.combined_scoreboard_id as string)
+      if (sids && sids.size > 0) {
+        decidingSourceByTournament.set(tid, {
+          type: 'combined', stageIds: sids,
+          overrideRule: combinedRuleById.get(pc.combined_scoreboard_id as string) ?? null,
+        })
+      }
+    } else if (pc.series_id) {
+      const sids = seriesStageIds.get(pc.series_id as string)
+      if (sids && sids.size > 0) decidingSourceByTournament.set(tid, { type: 'series', stageIds: sids })
+    } else if (pc.stage_id) {
+      decidingSourceByTournament.set(tid, { type: 'stage', stageIds: new Set([pc.stage_id as string]) })
+    }
   }
-  // Second pass: fall back to grand_final stage type for tournaments not
-  // already decided by prize_config.
   for (const s of stages) {
     if (s.type !== 'grand_final') continue
     const tid = s.tournament_id as string
-    if (!decidingStageByTournament.has(tid)) decidingStageByTournament.set(tid, s.id as string)
-  }
-  const decidingStageRuleByTournament = new Map<string, ScoringRuleConfig>()
-  for (const s of stages) {
-    const tid = s.tournament_id as string
-    if (decidingStageByTournament.get(tid) === (s.id as string)) {
-      decidingStageRuleByTournament.set(tid, ruleFromStage(s.scoring_rules))
+    if (!decidingSourceByTournament.has(tid)) {
+      decidingSourceByTournament.set(tid, { type: 'stage', stageIds: new Set([s.id as string]) })
     }
   }
-  const decidingMatchIds = new Set<string>()
-  for (const m of matches) {
-    const sid = m.stage_id as string
-    const tid = stageToTournament.get(sid)
-    if (tid && decidingStageByTournament.get(tid) === sid) decidingMatchIds.add(m.id as string)
-  }
+
   const dqByTournament = new Map<string, Set<string>>()
   for (const r of ttData) {
     if (!r.disqualified) continue
@@ -283,8 +320,15 @@ export default async function CircuitPage({ params }: Props) {
     const tournamentId = matchToTournament.get(r.match_id as string)
     if (!tournamentId) continue
     bumpAgg(tournamentTeamMap.get(tournamentId)!, r)
-    if (decidingMatchIds.has(r.match_id as string)) {
-      bumpAgg(decidingMap.get(tournamentId)!, r, decidingStageRuleByTournament.get(tournamentId))
+    const stageId = matchToStage.get(r.match_id as string)
+    if (stageId) {
+      const source = decidingSourceByTournament.get(tournamentId)
+      if (source && source.stageIds.has(stageId)) {
+        const rule = (source.type === 'combined' && source.overrideRule)
+          ? source.overrideRule
+          : stageRuleById.get(stageId)
+        bumpAgg(decidingMap.get(tournamentId)!, r, rule)
+      }
     }
   }
 
