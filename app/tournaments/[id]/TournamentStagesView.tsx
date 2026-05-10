@@ -113,20 +113,21 @@ export default function TournamentStagesView({
     if (!selectedSeriesId || selectedStageId) return []
     const seriesStages = stages.filter(s => s.series_id === selectedSeriesId && (s as AnyObj).include_in_total !== false)
     const seriesMatchIds = new Set(seriesStages.flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id)))
-    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; matches: number; wwcd: number }>()
+    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; killPts: number; matches: number; wwcd: number }>()
     for (const [matchId, results] of Object.entries(resultsByMatch)) {
       if (!seriesMatchIds.has(matchId)) continue
       const rule = matchToRule.get(matchId)!
       for (const r of results as AnyObj[]) {
         const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
         if (!ptsMap.has(key)) {
-          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'), totalPts: 0, placePts: 0, matches: 0, wwcd: 0 })
+          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'), totalPts: 0, placePts: 0, killPts: 0, matches: 0, wwcd: 0 })
         }
         const e = ptsMap.get(key)!
         const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
-        const kills = Math.round((r.total_kills ?? 0) * rule.kill_pts)
-        e.totalPts += pp + kills
+        const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+        e.totalPts += pp + kp
         e.placePts += pp
+        e.killPts += kp
         e.matches++
         if ((r.placement ?? 99) === 1) e.wwcd++
       }
@@ -759,7 +760,7 @@ export default function TournamentStagesView({
                                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matches}</td>
                                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
                                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.placePts}</td>
-                                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.placePts}</td>
+                                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.killPts}</td>
                                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
                                   </tr>
                                 </Fragment>

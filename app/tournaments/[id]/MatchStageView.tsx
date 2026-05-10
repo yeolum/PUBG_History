@@ -250,7 +250,7 @@ export default function MatchStageView({ stage, matches, selectedMatchId, result
                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.matchesPlayed}</td>
                     <td className="px-4 py-2 text-right text-gray-400 text-xs">{s.wwcd}</td>
                     <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPlacementPts}</td>
-                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalPts - s.totalPlacementPts}</td>
+                    <td className="px-4 py-2 text-right text-gray-500 text-xs">{s.totalKillPts}</td>
                     <td className="px-4 py-2 text-right font-bold text-gray-900 text-xs">{s.totalPts}</td>
                   </tr>
                   </Fragment>
