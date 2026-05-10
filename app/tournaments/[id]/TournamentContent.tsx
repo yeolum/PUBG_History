@@ -114,6 +114,8 @@ const loadTournamentData = unstable_cache(
 
     // Side queries that don't depend on matchIds — start them now so they
     // run alongside the matches + trData + psData fetches.
+    const SPS_SELECT = 'stage_id, player_id, nickname, team_id, team_name, logo_url, games, kills, assists, knocks, headshot_kills, damage, survival_time'
+    const SRPS_SELECT = 'series_id, player_id, nickname, team_id, team_name, logo_url, games, kills, assists, knocks, headshot_kills, damage, survival_time'
     const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('stage_additional_points').select('id, stage_id, team_id, team_name, points').in('stage_id', stageIds),
@@ -125,6 +127,8 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count, scoring_rule_id, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
+      stageIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('stage_player_stats').select(SPS_SELECT).in('stage_id', stageIds),
+      seriesIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('series_player_stats').select(SRPS_SELECT).in('series_id', seriesIds),
     ])
 
     const allMatches = await matchesPromise
@@ -145,7 +149,7 @@ const loadTournamentData = unstable_cache(
 
     // Now run the matchId-dependent fetches, which can also overlap with the
     // tail of any still-in-flight side queries.
-    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }], { data: tpsData }] = await Promise.all([
+    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }, { data: stagePsData }, { data: seriesPsData }], { data: tpsData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       sideQueriesPromise,
@@ -153,7 +157,7 @@ const loadTournamentData = unstable_cache(
       (supabase as any).from('tournament_player_stats').select('*').eq('tournament_id', id),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData }
   },
   ['tournament-data'],
   // Tag lets admin saves call revalidateTag('tournament-data') for an
@@ -169,7 +173,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData } = await loadTournamentData(id)
 
   // stageId → { teamId|teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -553,6 +557,46 @@ export default async function TournamentContent({ id, tournament }: { id: string
     }
   }
   playerStats.sort((a, b) => b.kills - a.kills)
+
+  const stagePlayerStats: Record<string, PlayerStatRow[]> = {}
+  for (const r of (stagePsData ?? []) as AnyRow[]) {
+    const sid = r.stage_id as string
+    if (!stagePlayerStats[sid]) stagePlayerStats[sid] = []
+    stagePlayerStats[sid].push({
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+      teamId: (r.team_id ?? null) as string | null,
+      teamName: r.team_name as string,
+      logoUrl: (r.logo_url ?? null) as string | null,
+      games: (r.games as number) ?? 0,
+      kills: (r.kills as number) ?? 0,
+      assists: (r.assists as number) ?? 0,
+      knocks: (r.knocks as number) ?? 0,
+      headshotKills: (r.headshot_kills as number) ?? 0,
+      damage: Number(r.damage ?? 0),
+      survivalTime: Number(r.survival_time ?? 0),
+    })
+  }
+
+  const seriesPlayerStats: Record<string, PlayerStatRow[]> = {}
+  for (const r of (seriesPsData ?? []) as AnyRow[]) {
+    const sid = r.series_id as string
+    if (!seriesPlayerStats[sid]) seriesPlayerStats[sid] = []
+    seriesPlayerStats[sid].push({
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+      teamId: (r.team_id ?? null) as string | null,
+      teamName: r.team_name as string,
+      logoUrl: (r.logo_url ?? null) as string | null,
+      games: (r.games as number) ?? 0,
+      kills: (r.kills as number) ?? 0,
+      assists: (r.assists as number) ?? 0,
+      knocks: (r.knocks as number) ?? 0,
+      headshotKills: (r.headshot_kills as number) ?? 0,
+      damage: Number(r.damage ?? 0),
+      survivalTime: Number(r.survival_time ?? 0),
+    })
+  }
 
   const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)
 
@@ -1076,6 +1120,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
         wwcdBonusByTeamId={wwcdBonusByTeamId}
         specialAwards={specialAwardsList}
         playerStats={playerStats}
+        stagePlayerStats={stagePlayerStats}
+        seriesPlayerStats={seriesPlayerStats}
         playerStatsByMatch={playerStatsByMatch}
         teamStats={teamStats}
         dropLocations={dropLocations}

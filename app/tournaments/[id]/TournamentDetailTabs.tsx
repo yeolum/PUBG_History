@@ -32,6 +32,8 @@ interface Props {
   wwcdBonusByTeamId: Record<string, { prize: number; pgs: number; pgc: number }>
   specialAwards: SpecialAwardItem[]
   playerStats: PlayerStatRow[]
+  stagePlayerStats: Record<string, PlayerStatRow[]>
+  seriesPlayerStats: Record<string, PlayerStatRow[]>
   playerStatsByMatch: Record<string, PlayerMatchStat[]>
   teamStats: TeamStatRow[]
   dropLocations: DropLocationRow[]
@@ -86,6 +88,8 @@ export default function TournamentDetailTabs(props: Props) {
       {tab === 'players' && (
         <PlayerStatsTable
           playerStats={props.playerStats}
+          stagePlayerStats={props.stagePlayerStats}
+          seriesPlayerStats={props.seriesPlayerStats}
           stages={props.stages}
           series={props.series}
           playerStatsByMatch={props.playerStatsByMatch}

@@ -49,11 +49,15 @@ function formatSurvival(totalSec: number, games: number): string {
 
 export default function PlayerStatsTable({
   playerStats,
+  stagePlayerStats = {},
+  seriesPlayerStats = {},
   stages = [],
   series = [],
   playerStatsByMatch = {},
 }: {
   playerStats: PlayerStatRow[]
+  stagePlayerStats?: Record<string, PlayerStatRow[]>
+  seriesPlayerStats?: Record<string, PlayerStatRow[]>
   stages?: StageWithMatches[]
   series?: SeriesItem[]
   playerStatsByMatch?: Record<string, PlayerMatchStat[]>
@@ -86,26 +90,10 @@ export default function PlayerStatsTable({
     setSelectedMatchId(prev => prev === id ? null : id)
   }
 
-  const activeMatchIds = useMemo(() => {
-    if (selectedMatchId) return new Set([selectedMatchId])
-    if (selectedStageId) {
-      const stage = stages.find(s => s.id === selectedStageId)
-      return new Set(stage?.matches.filter(m => m.status === 'imported').map(m => m.id) ?? [])
-    }
-    if (selectedSeriesId) {
-      const ids = stages
-        .filter(s => s.series_id === selectedSeriesId)
-        .flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id))
-      return new Set(ids)
-    }
-    return null // null = all (Total)
-  }, [selectedMatchId, selectedStageId, selectedSeriesId, stages])
-
-  const displayStats = useMemo((): PlayerStatRow[] => {
-    if (!activeMatchIds) return playerStats
+  function aggregateFromMatches(matchIds: Set<string>): PlayerStatRow[] {
     const map = new Map<string, PlayerStatRow>()
     for (const [matchId, matchStats] of Object.entries(playerStatsByMatch)) {
-      if (!activeMatchIds.has(matchId)) continue
+      if (!matchIds.has(matchId)) continue
       for (const s of matchStats) {
         const key = s.playerId ?? `pubg:${s.pubgPlayerName}`
         if (!map.has(key)) {
@@ -122,7 +110,41 @@ export default function PlayerStatsTable({
       }
     }
     return [...map.values()]
-  }, [activeMatchIds, playerStats, playerStatsByMatch])
+  }
+
+  const displayStats = useMemo((): PlayerStatRow[] => {
+    // Single match: aggregate from raw playerStatsByMatch
+    if (selectedMatchId) {
+      const map = new Map<string, PlayerStatRow>()
+      for (const s of playerStatsByMatch[selectedMatchId] ?? []) {
+        const key = s.playerId ?? `pubg:${s.pubgPlayerName}`
+        if (!map.has(key)) {
+          map.set(key, { playerId: s.playerId, nickname: s.nickname, teamId: s.teamId, teamName: s.teamName, logoUrl: s.logoUrl, games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0 })
+        }
+        const e = map.get(key)!
+        e.games++; e.kills += s.kills; e.assists += s.assists; e.knocks += s.knocks
+        e.headshotKills += s.headshotKills; e.damage += s.damage; e.survivalTime += s.survivalTime
+      }
+      return [...map.values()]
+    }
+    // Stage scope: pre-computed stage_player_stats, fallback to match aggregation
+    if (selectedStageId) {
+      const precomputed = stagePlayerStats[selectedStageId]
+      if (precomputed && precomputed.length > 0) return precomputed
+      const stage = stages.find(s => s.id === selectedStageId)
+      return aggregateFromMatches(new Set(stage?.matches.filter(m => m.status === 'imported').map(m => m.id) ?? []))
+    }
+    // Series scope: pre-computed series_player_stats, fallback to match aggregation
+    if (selectedSeriesId) {
+      const precomputed = seriesPlayerStats[selectedSeriesId]
+      if (precomputed && precomputed.length > 0) return precomputed
+      const ids = stages.filter(s => s.series_id === selectedSeriesId).flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id))
+      return aggregateFromMatches(new Set(ids))
+    }
+    // Total: pre-computed tournament_player_stats
+    return playerStats
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedMatchId, selectedStageId, selectedSeriesId, playerStats, stagePlayerStats, seriesPlayerStats, playerStatsByMatch, stages])
 
   const enriched = useMemo(() => displayStats.map((p) => ({
     ...p,
