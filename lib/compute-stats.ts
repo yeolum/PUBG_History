@@ -119,6 +119,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     db.from('tournament_team_stats').delete().eq('tournament_id', tournamentId),
     db.from('tournament_player_stats').delete().eq('tournament_id', tournamentId),
     db.from('tournament_final_standings').delete().eq('tournament_id', tournamentId),
+    db.from('kill_club_100').delete().eq('tournament_id', tournamentId),
   ])
 
   if (stageIds.length === 0) return
@@ -264,7 +265,27 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   }
   await insertPlayerRows(db, 'tournament_player_stats', playerRows as AnyRow[])
 
-  // ── 5. Final standings (replicates TournamentContent rankBoard logic) ─
+  // ── 5. 100킬 클럽 (tournament_player_stats에서 kills >= 100인 선수) ─────
+  const killClubRows = playerRows
+    .filter((r) => (r.kills as number) >= 100)
+    .map((r) => ({
+      tournament_id: tournamentId,
+      player_id: r.player_id ?? null,
+      nickname: r.nickname,
+      team_id: r.team_id ?? null,
+      team_name: r.team_name,
+      logo_url: r.logo_url ?? null,
+      kills: r.kills,
+      games: r.games,
+      damage: r.damage,
+      updated_at: now,
+    }))
+  for (let off = 0; off < killClubRows.length; off += BATCH) {
+    const { error } = await db.from('kill_club_100').insert(killClubRows.slice(off, off + BATCH) as any)
+    if (error) console.error('[compute-stats] kill_club_100 insert failed:', error.message)
+  }
+
+  // ── 6. Final standings (replicates TournamentContent rankBoard logic) ─
   const resultsByMatchForStandings = new Map<string, AnyRow[]>()
   for (const r of allTrData) {
     const mid = r.match_id as string

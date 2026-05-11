@@ -3,10 +3,11 @@
 import { useState, useMemo, Fragment } from 'react'
 import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
-import type { CircuitChampion, CircuitTeamStat, CircuitPlayerStat } from './page'
+import type { CircuitChampion, CircuitTeamStat, CircuitPlayerStat, KillClub100Entry } from './page'
 import { formatPrize } from '@/lib/currency'
 
 type Tab = 'tournaments' | 'champions' | 'teams' | 'players'
+type PlayerSubTab = 'total' | 'killclub'
 
 type TeamSortKey = 'teamName' | 'tournaments' | 'matches' | 'wins' | 'kills' | 'kpg' | 'damage' | 'adr'
 type PlayerSortKey = 'nickname' | 'teamName' | 'tournaments' | 'matches' | 'kills' | 'kpg' | 'assists' | 'knocks' | 'damage' | 'adr'
@@ -49,14 +50,17 @@ export default function CircuitContent({
   champions,
   teamStats,
   playerStats,
+  killClub100,
 }: {
   tag: string
   tournaments: Tournament[]
   champions: CircuitChampion[]
   teamStats: CircuitTeamStat[]
   playerStats: CircuitPlayerStat[]
+  killClub100: KillClub100Entry[]
 }) {
   const [tab, setTab] = useState<Tab>('tournaments')
+  const [playerSubTab, setPlayerSubTab] = useState<PlayerSubTab>('total')
   const [teamSortKey, setTeamSortKey] = useState<TeamSortKey>('kills')
   const [teamSortDir, setTeamSortDir] = useState<'asc' | 'desc'>('desc')
   const [playerSortKey, setPlayerSortKey] = useState<PlayerSortKey>('kills')
@@ -368,125 +372,219 @@ export default function CircuitContent({
       {/* 선수 통계 */}
       {tab === 'players' && (
         <div>
-          <div className="mb-3">
-            <input
-              type="text"
-              placeholder="선수/팀 검색..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full sm:w-64 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-yellow-400"
-            />
+          {/* 선수 통계 세부 탭 */}
+          <div className="flex gap-1 mb-4 border-b border-gray-100">
+            <button
+              onClick={() => setPlayerSubTab('total')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${playerSubTab === 'total' ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              전체
+            </button>
+            <button
+              onClick={() => setPlayerSubTab('killclub')}
+              className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${playerSubTab === 'killclub' ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+            >
+              100킬 클럽
+              {killClub100.length > 0 && (
+                <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">{killClub100.length}</span>
+              )}
+            </button>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="bg-gray-50 border-b border-gray-200">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
-                  <SortTh label="선수" sortKey="nickname" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="팀" sortKey="teamName" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="대회" sortKey="tournaments" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="경기" sortKey="matches" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="총 킬" sortKey="kills" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="킬/경기" sortKey="kpg" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="어시스트" sortKey="assists" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="넉다운" sortKey="knocks" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="데미지" sortKey="damage" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                  <SortTh label="ADR" sortKey="adr" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {sortedPlayers.map((p, i) => {
-                  const key = p.playerId ?? p.nickname
-                  const expanded = expandedPlayers.has(key)
-                  return (
-                    <Fragment key={key}>
-                      <tr
-                        onClick={() => togglePlayer(key)}
-                        className="hover:bg-gray-50 transition-colors cursor-pointer select-none"
-                      >
-                        <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <span className="text-gray-300 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
-                            {p.playerId ? (
-                              <Link href={`/players/${p.playerId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
-                                {p.nickname}
-                              </Link>
-                            ) : (
-                              <span className="font-medium text-gray-900">{p.nickname}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5">
-                          <div className="flex items-center gap-1.5">
-                            <TeamLogo url={p.logoUrl} name={p.teamName} />
-                            {p.teamId ? (
-                              <Link href={`/teams/${p.teamId}`} onClick={(e) => e.stopPropagation()} className="text-gray-600 hover:text-yellow-600 transition-colors">
-                                {p.teamName}
-                              </Link>
-                            ) : (
-                              <span className="text-gray-600">{p.teamName}</span>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-2.5 text-right text-gray-700">{p.tournaments}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-700">{p.matches}</td>
-                        <td className="px-3 py-2.5 text-right font-medium text-gray-900">{p.kills}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? (p.kills / p.matches).toFixed(2) : '—'}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-600">{p.assists}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-600">{p.knocks}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(p.damage).toLocaleString()}</td>
-                        <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? Math.round(p.damage / p.matches).toLocaleString() : '—'}</td>
+
+          {/* 전체 탭 */}
+          {playerSubTab === 'total' && (
+            <div>
+              <div className="mb-3">
+                <input
+                  type="text"
+                  placeholder="선수/팀 검색..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full sm:w-64 px-3 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:border-yellow-400"
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-gray-50 border-b border-gray-200">
+                      <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
+                      <SortTh label="선수" sortKey="nickname" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="팀" sortKey="teamName" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="대회" sortKey="tournaments" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="경기" sortKey="matches" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="총 킬" sortKey="kills" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="킬/경기" sortKey="kpg" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="어시스트" sortKey="assists" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="넉다운" sortKey="knocks" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="데미지" sortKey="damage" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                      <SortTh label="ADR" sortKey="adr" currentKey={playerSortKey} dir={playerSortDir} onSort={togglePlayerSort} />
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {sortedPlayers.map((p, i) => {
+                      const key = p.playerId ?? p.nickname
+                      const expanded = expandedPlayers.has(key)
+                      return (
+                        <Fragment key={key}>
+                          <tr
+                            onClick={() => togglePlayer(key)}
+                            className="hover:bg-gray-50 transition-colors cursor-pointer select-none"
+                          >
+                            <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-gray-300 text-[10px] w-3 shrink-0">{expanded ? '▼' : '▶'}</span>
+                                {p.playerId ? (
+                                  <Link href={`/players/${p.playerId}`} onClick={(e) => e.stopPropagation()} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
+                                    {p.nickname}
+                                  </Link>
+                                ) : (
+                                  <span className="font-medium text-gray-900">{p.nickname}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex items-center gap-1.5">
+                                <TeamLogo url={p.logoUrl} name={p.teamName} />
+                                {p.teamId ? (
+                                  <Link href={`/teams/${p.teamId}`} onClick={(e) => e.stopPropagation()} className="text-gray-600 hover:text-yellow-600 transition-colors">
+                                    {p.teamName}
+                                  </Link>
+                                ) : (
+                                  <span className="text-gray-600">{p.teamName}</span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-gray-700">{p.tournaments}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-700">{p.matches}</td>
+                            <td className="px-3 py-2.5 text-right font-medium text-gray-900">{p.kills}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? (p.kills / p.matches).toFixed(2) : '—'}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{p.assists}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{p.knocks}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(p.damage).toLocaleString()}</td>
+                            <td className="px-3 py-2.5 text-right text-gray-600">{p.matches > 0 ? Math.round(p.damage / p.matches).toLocaleString() : '—'}</td>
+                          </tr>
+                          {expanded && (
+                            <tr>
+                              <td colSpan={11} className="px-0 py-0 border-b border-gray-100">
+                                <div className="bg-gray-50/60 px-10 py-2">
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="text-gray-400 border-b border-gray-200">
+                                        <th className="pb-1.5 text-left font-medium">대회</th>
+                                        <th className="pb-1.5 pr-3 text-right font-medium">경기</th>
+                                        <th className="pb-1.5 pr-3 text-right font-medium">킬</th>
+                                        <th className="pb-1.5 pr-3 text-right font-medium">킬/경기</th>
+                                        <th className="pb-1.5 pr-3 text-right font-medium">어시스트</th>
+                                        <th className="pb-1.5 pr-3 text-right font-medium">넉다운</th>
+                                        <th className="pb-1.5 pr-3 text-right font-medium">데미지</th>
+                                        <th className="pb-1.5 text-right font-medium">ADR</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody>
+                                      {p.breakdown.map((b) => (
+                                        <tr key={b.tournamentId} className="border-b border-gray-100 last:border-0">
+                                          <td className="py-1.5">
+                                            <Link href={`/tournaments/${b.tournamentId}`} className="text-gray-700 hover:text-yellow-600 font-medium">
+                                              {b.tournamentName}
+                                            </Link>
+                                          </td>
+                                          <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches}</td>
+                                          <td className="py-1.5 pr-3 text-right text-gray-700 font-medium">{b.kills}</td>
+                                          <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches > 0 ? (b.kills / b.matches).toFixed(2) : '—'}</td>
+                                          <td className="py-1.5 pr-3 text-right text-gray-600">{b.assists}</td>
+                                          <td className="py-1.5 pr-3 text-right text-gray-600">{b.knocks}</td>
+                                          <td className="py-1.5 pr-3 text-right text-gray-600">{Math.round(b.damage).toLocaleString()}</td>
+                                          <td className="py-1.5 text-right text-gray-600">{b.matches > 0 ? Math.round(b.damage / b.matches).toLocaleString() : '—'}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                  </table>
+                                </div>
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      )
+                    })}
+                    {sortedPlayers.length === 0 && (
+                      <tr><td colSpan={11} className="text-center text-gray-400 py-12">데이터가 없습니다</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* 100킬 클럽 탭 */}
+          {playerSubTab === 'killclub' && (
+            <div>
+              <p className="text-xs text-gray-400 mb-3">한 대회에서 100킬 이상을 달성한 선수 기록입니다. 통계 재계산 후 갱신됩니다.</p>
+              {killClub100.length === 0 ? (
+                <div className="text-center text-gray-400 py-16">
+                  <p className="text-2xl mb-2">🏆</p>
+                  <p>100킬 클럽 기록이 없습니다</p>
+                  <p className="text-xs mt-1">각 대회에서 통계 재계산을 실행하면 자동으로 집계됩니다</p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="bg-gray-50 border-b border-gray-200">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase w-8">#</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">선수</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">팀</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">대회</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">경기</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">킬</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">킬/경기</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">데미지</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">ADR</th>
                       </tr>
-                      {expanded && (
-                        <tr>
-                          <td colSpan={11} className="px-0 py-0 border-b border-gray-100">
-                            <div className="bg-gray-50/60 px-10 py-2">
-                              <table className="w-full text-xs">
-                                <thead>
-                                  <tr className="text-gray-400 border-b border-gray-200">
-                                    <th className="pb-1.5 text-left font-medium">대회</th>
-                                    <th className="pb-1.5 pr-3 text-right font-medium">경기</th>
-                                    <th className="pb-1.5 pr-3 text-right font-medium">킬</th>
-                                    <th className="pb-1.5 pr-3 text-right font-medium">킬/경기</th>
-                                    <th className="pb-1.5 pr-3 text-right font-medium">어시스트</th>
-                                    <th className="pb-1.5 pr-3 text-right font-medium">넉다운</th>
-                                    <th className="pb-1.5 pr-3 text-right font-medium">데미지</th>
-                                    <th className="pb-1.5 text-right font-medium">ADR</th>
-                                  </tr>
-                                </thead>
-                                <tbody>
-                                  {p.breakdown.map((b) => (
-                                    <tr key={b.tournamentId} className="border-b border-gray-100 last:border-0">
-                                      <td className="py-1.5">
-                                        <Link href={`/tournaments/${b.tournamentId}`} className="text-gray-700 hover:text-yellow-600 font-medium">
-                                          {b.tournamentName}
-                                        </Link>
-                                      </td>
-                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches}</td>
-                                      <td className="py-1.5 pr-3 text-right text-gray-700 font-medium">{b.kills}</td>
-                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.matches > 0 ? (b.kills / b.matches).toFixed(2) : '—'}</td>
-                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.assists}</td>
-                                      <td className="py-1.5 pr-3 text-right text-gray-600">{b.knocks}</td>
-                                      <td className="py-1.5 pr-3 text-right text-gray-600">{Math.round(b.damage).toLocaleString()}</td>
-                                      <td className="py-1.5 text-right text-gray-600">{b.matches > 0 ? Math.round(b.damage / b.matches).toLocaleString() : '—'}</td>
-                                    </tr>
-                                  ))}
-                                </tbody>
-                              </table>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {killClub100.map((e, i) => (
+                        <tr key={`${e.tournamentId}-${e.nickname}`} className="hover:bg-gray-50 transition-colors">
+                          <td className="px-3 py-2.5 text-gray-400 text-xs">{i + 1}</td>
+                          <td className="px-3 py-2.5">
+                            {e.playerId ? (
+                              <Link href={`/players/${e.playerId}`} className="font-medium text-gray-900 hover:text-yellow-600 transition-colors">
+                                {e.nickname}
+                              </Link>
+                            ) : (
+                              <span className="font-medium text-gray-900">{e.nickname}</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2.5">
+                            <div className="flex items-center gap-1.5">
+                              <TeamLogo url={e.logoUrl} name={e.teamName} />
+                              {e.teamId ? (
+                                <Link href={`/teams/${e.teamId}`} className="text-gray-600 hover:text-yellow-600 transition-colors">
+                                  {e.teamName}
+                                </Link>
+                              ) : (
+                                <span className="text-gray-600">{e.teamName}</span>
+                              )}
                             </div>
                           </td>
+                          <td className="px-3 py-2.5">
+                            <Link href={`/tournaments/${e.tournamentId}`} className="text-gray-600 hover:text-yellow-600 transition-colors text-xs">
+                              {e.tournamentName}
+                            </Link>
+                          </td>
+                          <td className="px-3 py-2.5 text-right text-gray-700">{e.games}</td>
+                          <td className="px-3 py-2.5 text-right font-bold text-yellow-600">{e.kills}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{e.games > 0 ? (e.kills / e.games).toFixed(2) : '—'}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(e.damage).toLocaleString()}</td>
+                          <td className="px-3 py-2.5 text-right text-gray-600">{e.games > 0 ? Math.round(e.damage / e.games).toLocaleString() : '—'}</td>
                         </tr>
-                      )}
-                    </Fragment>
-                  )
-                })}
-                {sortedPlayers.length === 0 && (
-                  <tr><td colSpan={11} className="text-center text-gray-400 py-12">데이터가 없습니다</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

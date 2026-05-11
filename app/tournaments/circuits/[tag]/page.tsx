@@ -112,6 +112,19 @@ export interface CircuitChampion {
   matches: number
 }
 
+export interface KillClub100Entry {
+  tournamentId: string
+  tournamentName: string
+  playerId: string | null
+  nickname: string
+  teamId: string | null
+  teamName: string
+  logoUrl: string | null
+  kills: number
+  games: number
+  damage: number
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
@@ -148,6 +161,7 @@ export default async function CircuitPage({ params }: Props) {
             champions={[]}
             teamStats={[]}
             playerStats={[]}
+            killClub100={[]}
           />
         </main>
       </>
@@ -202,7 +216,7 @@ export default async function CircuitPage({ params }: Props) {
     dqByTournament.get(tid)!.add(r.team_id as string)
   }
 
-  const [allTeamResults, ttsRows, tpsRows] = await Promise.all([
+  const [allTeamResults, ttsRows, tpsRows, kcRows] = await Promise.all([
     fetchInChunked<AnyRow>(
       (chunk) => supabase
         .from('match_team_results')
@@ -216,6 +230,10 @@ export default async function CircuitPage({ params }: Props) {
     ),
     fetchInChunked<AnyRow>(
       (chunk) => supabase.from('tournament_player_stats').select('*').in('tournament_id', chunk),
+      tournamentIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => supabase.from('kill_club_100').select('*').in('tournament_id', chunk),
       tournamentIds,
     ),
   ])
@@ -460,6 +478,21 @@ export default async function CircuitPage({ params }: Props) {
     })
     .sort((a, b) => b.kills - a.kills)
 
+  const killClub100: KillClub100Entry[] = kcRows
+    .map((r) => ({
+      tournamentId: r.tournament_id as string,
+      tournamentName: tournaments.find((t) => t.id === r.tournament_id)?.name ?? (r.tournament_id as string),
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+      teamId: (r.team_id ?? null) as string | null,
+      teamName: (r.team_name ?? '') as string,
+      logoUrl: (r.logo_url ?? null) as string | null,
+      kills: (r.kills as number) ?? 0,
+      games: (r.games as number) ?? 0,
+      damage: Number(r.damage ?? 0),
+    }))
+    .sort((a, b) => b.kills - a.kills)
+
   return (
     <>
       <Header />
@@ -471,6 +504,7 @@ export default async function CircuitPage({ params }: Props) {
           champions={champions}
           teamStats={teamStats}
           playerStats={playerStats}
+          killClub100={killClub100}
         />
       </main>
     </>
