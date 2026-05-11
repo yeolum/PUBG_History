@@ -147,6 +147,12 @@ export default function StageMatchesPage() {
   const [teamDisplayNames, setTeamDisplayNames] = useState<Map<string, string>>(new Map())
   const [recomputingStats, setRecomputingStats] = useState(false)
 
+  // Match result edit
+  const [matchEditMode, setMatchEditMode] = useState(false)
+  const [matchEditRows, setMatchEditRows] = useState<{ id: string | null; teamName: string; placement: string; kills: string }[]>([])
+  const [savingMatchEdit, setSavingMatchEdit] = useState(false)
+  const [matchEditErr, setMatchEditErr] = useState<string | null>(null)
+
   async function recomputeStats() {
     setRecomputingStats(true)
     try {
@@ -340,6 +346,50 @@ export default function StageMatchesPage() {
     }
     setAnyImporting(false)
     reload()
+  }
+
+  function openMatchEdit() {
+    if (!selectedMatchData) return
+    const rows = [...selectedMatchData.match_team_results]
+      .sort((a, b) => (a.placement ?? 99) - (b.placement ?? 99))
+      .map(r => ({
+        id: r.id,
+        teamName: r.display_name ?? r.teams?.name ?? r.pubg_team_name ?? '',
+        placement: String(r.placement ?? ''),
+        kills: String(r.total_kills ?? 0),
+      }))
+    setMatchEditRows(rows)
+    setMatchEditErr(null)
+    setMatchEditMode(true)
+  }
+
+  async function saveMatchEdit() {
+    if (!selectedMatchData) return
+    setSavingMatchEdit(true)
+    setMatchEditErr(null)
+    try {
+      for (const row of matchEditRows) {
+        const placement = parseInt(row.placement) || null
+        const kills = parseInt(row.kills) || 0
+        if (row.id) {
+          const { error } = await supabase.from('match_team_results')
+            .update({ placement, total_kills: kills })
+            .eq('id', row.id)
+          if (error) throw new Error(error.message)
+        } else {
+          if (!row.teamName.trim()) continue
+          const { error } = await supabase.from('match_team_results')
+            .insert({ match_id: selectedMatchData.id, pubg_team_name: row.teamName.trim(), placement, total_kills: kills, total_damage: 0 })
+          if (error) throw new Error(error.message)
+        }
+      }
+      setMatchEditMode(false)
+      await reload()
+    } catch (e) {
+      setMatchEditErr(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSavingMatchEdit(false)
+    }
   }
 
   async function deleteMatch(matchId: string) {
@@ -688,7 +738,38 @@ export default function StageMatchesPage() {
                     <span className="text-xs text-gray-400">{new Date(selectedMatchData.match_date).toLocaleDateString('en-US')}</span>
                   )}
                 </div>
-                <button onClick={() => deleteMatch(selectedMatchData.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                <div className="flex items-center gap-2">
+                  {matchEditMode ? (
+                    <>
+                      {matchEditErr && <span className="text-xs text-red-500">{matchEditErr}</span>}
+                      <button
+                        onClick={saveMatchEdit}
+                        disabled={savingMatchEdit}
+                        className="text-xs bg-yellow-400 hover:bg-yellow-300 disabled:opacity-50 text-gray-900 font-semibold px-3 py-1 rounded-lg"
+                      >
+                        {savingMatchEdit ? 'Saving...' : 'Save'}
+                      </button>
+                      <button
+                        onClick={() => setMatchEditMode(false)}
+                        className="text-xs text-gray-400 hover:text-gray-600 border border-gray-200 rounded-lg px-3 py-1"
+                      >
+                        Cancel
+                      </button>
+                    </>
+                  ) : (
+                    <>
+                      {selectedMatchData.status === 'imported' && (
+                        <button
+                          onClick={openMatchEdit}
+                          className="text-xs text-blue-500 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded-lg px-3 py-1"
+                        >
+                          Edit
+                        </button>
+                      )}
+                      <button onClick={() => deleteMatch(selectedMatchData.id)} className="text-xs text-red-400 hover:text-red-600">Delete</button>
+                    </>
+                  )}
+                </div>
               </div>
 
               {selectedMatchData.status === 'error' && (
@@ -702,6 +783,75 @@ export default function StageMatchesPage() {
                   {/* Team Results */}
                   <div>
                     <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">Team Results</p>
+
+                    {/* ── 편집 모드 ── */}
+                    {matchEditMode ? (
+                      <div>
+                        <table className="w-full text-xs mb-2">
+                          <thead>
+                            <tr className="text-gray-400 border-b border-gray-100">
+                              <th className="text-left pb-1.5">Team</th>
+                              <th className="text-right pb-1.5 w-16">순위</th>
+                              <th className="text-right pb-1.5 w-16">킬</th>
+                              <th className="pb-1.5 w-6" />
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {matchEditRows.map((row, idx) => (
+                              <tr key={idx} className="border-b border-gray-50 last:border-0">
+                                <td className="py-1">
+                                  {row.id ? (
+                                    <span className="font-medium text-gray-800">{row.teamName}</span>
+                                  ) : (
+                                    <input
+                                      type="text"
+                                      value={row.teamName}
+                                      onChange={e => setMatchEditRows(rows => rows.map((r, i) => i === idx ? { ...r, teamName: e.target.value } : r))}
+                                      placeholder="팀 이름"
+                                      className="w-full border border-blue-300 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-blue-400 bg-blue-50"
+                                    />
+                                  )}
+                                </td>
+                                <td className="py-1 text-right">
+                                  <input
+                                    type="number"
+                                    min="1"
+                                    max="25"
+                                    value={row.placement}
+                                    onChange={e => setMatchEditRows(rows => rows.map((r, i) => i === idx ? { ...r, placement: e.target.value } : r))}
+                                    className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                                  />
+                                </td>
+                                <td className="py-1 text-right">
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    value={row.kills}
+                                    onChange={e => setMatchEditRows(rows => rows.map((r, i) => i === idx ? { ...r, kills: e.target.value } : r))}
+                                    className="w-14 border border-gray-300 rounded px-1.5 py-0.5 text-xs text-right focus:outline-none focus:ring-1 focus:ring-yellow-400"
+                                  />
+                                </td>
+                                <td className="py-1 text-center">
+                                  {!row.id && (
+                                    <button
+                                      onClick={() => setMatchEditRows(rows => rows.filter((_, i) => i !== idx))}
+                                      className="text-gray-300 hover:text-red-500 text-base leading-none"
+                                    >×</button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                        <button
+                          onClick={() => setMatchEditRows(rows => [...rows, { id: null, teamName: '', placement: '', kills: '0' }])}
+                          className="text-xs text-blue-500 hover:text-blue-700 border border-blue-200 hover:border-blue-400 rounded-lg px-2.5 py-1"
+                        >
+                          + Add Team
+                        </button>
+                      </div>
+                    ) : (
+                    /* ── 뷰 모드 ── */
                     <table className="w-full text-xs">
                       <thead>
                         <tr className="text-gray-400 border-b border-gray-100">
@@ -740,6 +890,7 @@ export default function StageMatchesPage() {
                         ))}
                       </tbody>
                     </table>
+                    )}
                   </div>
 
                   {/* Player Stats */}
