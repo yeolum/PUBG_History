@@ -49,9 +49,38 @@ interface AdditionalPoint {
   points: number
 }
 
+type StandingStat = ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }
+
+function sortStandingStats(results: StandingStat[], ruleType: string): ComputedStanding[] {
+  if (ruleType === 'chicken') {
+    return results.sort((a, b) => {
+      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+      if (a.wwcd > 0 && b.wwcd > 0 && a.firstChickenOrder !== b.firstChickenOrder) return a.firstChickenOrder - b.firstChickenOrder
+      if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+      if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+      return b.lastMatchDamage - a.lastMatchDamage
+    })
+  }
+  if (ruleType === 'chicken_v2') {
+    return results.sort((a, b) => {
+      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+      if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
+      if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+      return a.lastMatchPlacement - b.lastMatchPlacement
+    })
+  }
+  return results.sort((a, b) => {
+    if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+    if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+    if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
+    if (a.lastMatchPlacement !== b.lastMatchPlacement) return a.lastMatchPlacement - b.lastMatchPlacement
+    return b.lastMatchDamage - a.lastMatchDamage
+  })
+}
+
 function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig = DEFAULT_RULE, extraPts: Record<string, number> = {}, teamDisplayNames: Map<string, string> = new Map()): ComputedStanding[] {
   const imported = matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
-  const statMap = new Map<string, ComputedStanding & { lastMatchOrder: number; firstChickenOrder: number }>()
+  const statMap = new Map<string, StandingStat>()
   for (const match of imported) {
     for (const r of match.match_team_results) {
       const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
@@ -89,30 +118,19 @@ function computeStandings(matches: MatchWithResults[], rule: ScoringRuleConfig =
   }
 
   const results = [...statMap.values()]
-  if (rule.type === 'chicken') {
-    return results.sort((a, b) => {
-      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
-      if (a.wwcd > 0 && b.wwcd > 0 && a.firstChickenOrder !== b.firstChickenOrder) return a.firstChickenOrder - b.firstChickenOrder
-      if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
-      if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
-      return b.lastMatchDamage - a.lastMatchDamage
-    })
+
+  if (rule.type === 'smash') {
+    const maxOrder = results.reduce((m, r) => Math.max(m, r.lastMatchOrder), -Infinity)
+    const winnerIdx = results.findIndex(r => r.lastMatchOrder === maxOrder && r.lastMatchPlacement === 1)
+    if (winnerIdx >= 0) {
+      const winner = results[winnerIdx]
+      const rest = results.filter((_, i) => i !== winnerIdx)
+      return [winner, ...sortStandingStats(rest, rule.smash_sub_type ?? 'super')]
+    }
+    return sortStandingStats(results, rule.smash_sub_type ?? 'super')
   }
-  if (rule.type === 'chicken_v2') {
-    return results.sort((a, b) => {
-      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
-      if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
-      if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
-      return a.lastMatchPlacement - b.lastMatchPlacement
-    })
-  }
-  return results.sort((a, b) => {
-    if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
-    if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
-    if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
-    if (a.lastMatchPlacement !== b.lastMatchPlacement) return a.lastMatchPlacement - b.lastMatchPlacement
-    return b.lastMatchDamage - a.lastMatchDamage
-  })
+
+  return sortStandingStats(results, rule.type ?? 'super')
 }
 
 let rowCounter = 0

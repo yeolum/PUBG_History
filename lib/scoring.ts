@@ -1,9 +1,13 @@
 export const PLACEMENT_PTS = [10, 6, 5, 4, 3, 2, 1, 1]
 
+export type ScoringRuleType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2' | 'smash'
+export type SmashSubType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
+
 export interface ScoringRuleConfig {
-  type?: 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
+  type?: ScoringRuleType
   placement_pts: number[]
   kill_pts: number
+  smash_sub_type?: SmashSubType
 }
 
 export const DEFAULT_RULE: ScoringRuleConfig = {
@@ -21,12 +25,13 @@ export function calcPlacementPtsWithRule(placement: number, rule: ScoringRuleCon
   return placement >= 1 && placement <= pts.length ? pts[placement - 1] : 0
 }
 
-export function ruleFromStage(scoring_rules: { placement_pts: number[]; kill_pts: number; type: string } | null | undefined): ScoringRuleConfig {
+export function ruleFromStage(scoring_rules: { placement_pts: number[]; kill_pts: number; type: string; smash_sub_type?: string | null } | null | undefined): ScoringRuleConfig {
   if (!scoring_rules) return DEFAULT_RULE
   return {
-    type: (scoring_rules.type as 'super' | 'super_v1' | 'chicken' | 'chicken_v2') ?? 'super',
+    type: (scoring_rules.type as ScoringRuleType) ?? 'super',
     placement_pts: scoring_rules.placement_pts,
     kill_pts: scoring_rules.kill_pts,
+    smash_sub_type: (scoring_rules.smash_sub_type as SmashSubType | null | undefined) ?? undefined,
   }
 }
 

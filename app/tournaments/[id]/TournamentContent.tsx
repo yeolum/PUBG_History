@@ -646,18 +646,43 @@ export default async function TournamentContent({ id, tournament }: { id: string
     for (const e of ptsMap.values()) {
       e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
     }
-    const entries = [...ptsMap.values()]
-    if (stageRule.type === 'chicken_v2') {
-      entries.sort((a, b) => {
-        if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
-        if (b.killPts !== a.killPts) return b.killPts - a.killPts
-        if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
-        return a.lastMatchPlacement - b.lastMatchPlacement
-      })
-    } else {
-      entries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
+    const entries = [...ptsMap.entries()]
+
+    function sortBySubType(arr: typeof entries, subType: string) {
+      if (subType === 'chicken_v2') {
+        return arr.sort(([, a], [, b]) => {
+          if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+          if (b.killPts !== a.killPts) return b.killPts - a.killPts
+          if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+          return a.lastMatchPlacement - b.lastMatchPlacement
+        })
+      }
+      if (subType === 'chicken') {
+        return arr.sort(([, a], [, b]) => {
+          if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+          if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+          return b.placePts - a.placePts
+        })
+      }
+      return arr.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
     }
-    stageStandingsMap.set(stage.id, entries)
+
+    let sortedEntries: StandingsEntry[]
+    if (stageRule.type === 'smash') {
+      const lastMatchResults = (resultsByMatch[lastImportedMatchId ?? ''] ?? []) as AnyRow[]
+      const lastWinner = lastMatchResults.find(r => (r.placement ?? 99) === 1)
+      const winnerKey = lastWinner ? (lastWinner.team_id ?? `pubg:${lastWinner.pubg_team_name ?? ''}`) as string : null
+      const winnerEntry = winnerKey ? ptsMap.get(winnerKey) ?? null : null
+      const restKeys = entries.filter(([k]) => k !== winnerKey)
+      sortBySubType(restKeys, stageRule.smash_sub_type ?? 'super')
+      const restValues = restKeys.map(([, e]) => e)
+      sortedEntries = winnerEntry ? [winnerEntry, ...restValues] : restValues
+    } else if (stageRule.type === 'chicken_v2') {
+      sortedEntries = sortBySubType(entries, 'chicken_v2').map(([, e]) => e)
+    } else {
+      sortedEntries = sortBySubType(entries, stageRule.type ?? 'super').map(([, e]) => e)
+    }
+    stageStandingsMap.set(stage.id, sortedEntries)
   }
 
   // Series cumulative standings — built early so rank-board mapping below can

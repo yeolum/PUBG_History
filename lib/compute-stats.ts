@@ -360,6 +360,7 @@ async function buildAndSaveFinalStandings(
   }
 
   type StandingEntry = {
+    key: string
     teamId: string | null; teamName: string; logoUrl: string | null
     totalPts: number; placePts: number; killPts: number; wwcd: number
     lastMatchKills: number; lastMatchPlacement: number
@@ -367,6 +368,9 @@ async function buildAndSaveFinalStandings(
 
   function buildStandings(stageList: AnyRow[], overrideRule: ReturnType<typeof ruleFromStage> | null = null): StandingEntry[] {
     const ptsMap = new Map<string, StandingEntry>()
+    // Determine last match across all stages for smash winner tracking
+    const allMatchIds = stageList.flatMap(s => matchIdsByStage.get(s.id as string) ?? [])
+    const overallLastMatchId = allMatchIds[allMatchIds.length - 1] ?? null
     for (const stage of stageList) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const rule = overrideRule ?? ruleFromStage(stage.scoring_rules as any)
@@ -377,6 +381,7 @@ async function buildAndSaveFinalStandings(
           const key = (r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`) as string
           if (!ptsMap.has(key)) {
             ptsMap.set(key, {
+              key,
               teamId: r.team_id ?? null, teamName: resolveTeamName(r),
               logoUrl: ((r.teams as AnyRow | null)?.logo_url ?? null) as string | null,
               totalPts: 0, placePts: 0, killPts: 0, wwcd: 0, lastMatchKills: 0, lastMatchPlacement: 99,
@@ -398,8 +403,16 @@ async function buildAndSaveFinalStandings(
     return [...ptsMap.values()]
   }
 
-  function sortStandings(entries: StandingEntry[], ruleType: string): StandingEntry[] {
-    if (ruleType === 'chicken_v2') {
+  function smashWinnerKey(stageList: AnyRow[]): string | null {
+    const allMatchIds = stageList.flatMap(s => matchIdsByStage.get(s.id as string) ?? [])
+    const lastMatchId = allMatchIds[allMatchIds.length - 1] ?? null
+    if (!lastMatchId) return null
+    const winner = (resultsByMatch.get(lastMatchId) ?? []).find(r => r.placement === 1)
+    return winner ? (winner.team_id ?? `pubg:${winner.pubg_team_name ?? ''}`) as string : null
+  }
+
+  function sortBySubType(entries: StandingEntry[], subType: string): StandingEntry[] {
+    if (subType === 'chicken_v2') {
       return entries.sort((a, b) => {
         if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
         if (b.killPts !== a.killPts) return b.killPts - a.killPts
@@ -407,7 +420,7 @@ async function buildAndSaveFinalStandings(
         return a.lastMatchPlacement - b.lastMatchPlacement
       })
     }
-    if (ruleType === 'chicken') {
+    if (subType === 'chicken') {
       return entries.sort((a, b) => {
         if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
         if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
@@ -417,6 +430,19 @@ async function buildAndSaveFinalStandings(
     return entries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
   }
 
+  function sortStandings(entries: StandingEntry[], ruleType: string, smashSubType?: string | null, smashWinnerKey?: string | null): StandingEntry[] {
+    if (ruleType === 'smash') {
+      const winnerIdx = smashWinnerKey ? entries.findIndex(e => e.key === smashWinnerKey) : -1
+      if (winnerIdx >= 0) {
+        const winner = entries[winnerIdx]
+        const rest = entries.filter((_, i) => i !== winnerIdx)
+        return [winner, ...sortBySubType(rest, smashSubType ?? 'super')]
+      }
+      return sortBySubType(entries, smashSubType ?? 'super')
+    }
+    return sortBySubType(entries, ruleType)
+  }
+
   // Build stage standings (exclude stages with include_in_total === false)
   const stageStandingsMap = new Map<string, StandingEntry[]>()
   for (const stage of stages) {
@@ -424,7 +450,8 @@ async function buildAndSaveFinalStandings(
     if ((matchIdsByStage.get(stage.id as string) ?? []).length === 0) continue
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const rule = ruleFromStage(stage.scoring_rules as any)
-    stageStandingsMap.set(stage.id as string, sortStandings(buildStandings([stage]), rule.type ?? 'super'))
+    const wk = rule.type === 'smash' ? smashWinnerKey([stage]) : null
+    stageStandingsMap.set(stage.id as string, sortStandings(buildStandings([stage]), rule.type ?? 'super', rule.smash_sub_type, wk))
   }
 
   // Build series standings
@@ -444,7 +471,8 @@ async function buildAndSaveFinalStandings(
     const cbRule = combinedRuleById.get(cid) ?? null
     const cbStages = stages.filter((s) => cStageIds.has(s.id as string))
     const entries = buildStandings(cbStages, cbRule)
-    combinedStandingsMap.set(cid, sortStandings(entries, cbRule?.type ?? 'super'))
+    const wk = cbRule?.type === 'smash' ? smashWinnerKey(cbStages) : null
+    combinedStandingsMap.set(cid, sortStandings(entries, cbRule?.type ?? 'super', cbRule?.smash_sub_type, wk))
   }
 
   // Build rankBoard (mirrors TournamentContent rankBoard logic)

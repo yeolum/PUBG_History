@@ -118,30 +118,46 @@ function computeStandings(
   }
 
   const results = [...statMap.values()]
-  if (rule.type === 'chicken') {
-    return results.sort((a, b) => {
-      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
-      if (a.wwcd > 0 && b.wwcd > 0 && a.firstChickenOrder !== b.firstChickenOrder) return a.firstChickenOrder - b.firstChickenOrder
+
+  function sortBySubType(arr: typeof results, subType: string): typeof results {
+    if (subType === 'chicken') {
+      return arr.sort((a, b) => {
+        if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+        if (a.wwcd > 0 && b.wwcd > 0 && a.firstChickenOrder !== b.firstChickenOrder) return a.firstChickenOrder - b.firstChickenOrder
+        if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+        if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+        return b.lastMatchDamage - a.lastMatchDamage
+      })
+    }
+    if (subType === 'chicken_v2') {
+      return arr.sort((a, b) => {
+        if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
+        if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
+        if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
+        return a.lastMatchPlacement - b.lastMatchPlacement
+      })
+    }
+    return arr.sort((a, b) => {
       if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
       if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+      if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
+      if (a.lastMatchPlacement !== b.lastMatchPlacement) return a.lastMatchPlacement - b.lastMatchPlacement
       return b.lastMatchDamage - a.lastMatchDamage
     })
   }
-  if (rule.type === 'chicken_v2') {
-    return results.sort((a, b) => {
-      if (b.wwcd !== a.wwcd) return b.wwcd - a.wwcd
-      if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
-      if (b.lastMatchKills !== a.lastMatchKills) return b.lastMatchKills - a.lastMatchKills
-      return a.lastMatchPlacement - b.lastMatchPlacement
-    })
+
+  if (rule.type === 'smash') {
+    const maxOrder = results.reduce((m, r) => Math.max(m, r.lastMatchOrder), -Infinity)
+    const winnerIdx = results.findIndex(r => r.lastMatchOrder === maxOrder && r.lastMatchPlacement === 1)
+    if (winnerIdx >= 0) {
+      const winner = results[winnerIdx]
+      const rest = results.filter((_, i) => i !== winnerIdx)
+      return [winner, ...sortBySubType(rest, rule.smash_sub_type ?? 'super')]
+    }
+    return sortBySubType(results, rule.smash_sub_type ?? 'super')
   }
-  return results.sort((a, b) => {
-    if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
-    if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
-    if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
-    if (a.lastMatchPlacement !== b.lastMatchPlacement) return a.lastMatchPlacement - b.lastMatchPlacement
-    return b.lastMatchDamage - a.lastMatchDamage
-  })
+
+  return sortBySubType(results, rule.type ?? 'super')
 }
 
 const rankStyle = (i: number) =>

@@ -3,7 +3,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 
-type RuleType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
+type RuleType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2' | 'smash'
+type SmashSubType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
 
 interface ScoringRule {
   id: string
@@ -12,12 +13,21 @@ interface ScoringRule {
   placement_pts: number[]
   kill_pts: number
   description: string | null
+  smash_sub_type: SmashSubType | null
   created_at: string
 }
 
 const DEFAULT_PLACEMENT = [10, 6, 5, 4, 3, 2, 1, 1]
 
 const RULE_TYPE_LABELS: Record<RuleType, string> = {
+  super: 'SUPER v2',
+  super_v1: 'SUPER v1',
+  chicken: 'Chicken',
+  chicken_v2: 'Chicken v2',
+  smash: 'Smash',
+}
+
+const SMASH_SUB_LABELS: Record<SmashSubType, string> = {
   super: 'SUPER v2',
   super_v1: 'SUPER v1',
   chicken: 'Chicken',
@@ -29,6 +39,7 @@ const RULE_TYPE_DESCS: Record<RuleType, string> = {
   super_v1: '킬점수 + 순위점수 합산, 동점 시 킬점수 우선',
   chicken: '치킨 먹은 횟수 우선, 동수이면 아래 순위점수 기준으로 정렬',
   chicken_v2: '치킨 먹은 횟수 우선 → 동수이면 총 킬점수 → 마지막 매치 킬수 → 마지막 매치 생존순위',
+  smash: '마지막 매치 1위 팀이 전체 1위, 나머지는 서브룰(SUPER/Chicken 등) 기준 순위',
 }
 
 function PlacementPtsDisplay({ pts }: { pts: number[] }) {
@@ -55,6 +66,7 @@ export default function ScoringPage() {
   // Form state
   const [formName, setFormName] = useState('')
   const [formType, setFormType] = useState<RuleType>('super')
+  const [formSmashSubType, setFormSmashSubType] = useState<SmashSubType>('super')
   const [formPts, setFormPts] = useState<string[]>(DEFAULT_PLACEMENT.map(String))
   const [formKillPts, setFormKillPts] = useState('1')
   const [formDesc, setFormDesc] = useState('')
@@ -76,6 +88,7 @@ export default function ScoringPage() {
   function resetForm() {
     setFormName('')
     setFormType('super')
+    setFormSmashSubType('super')
     setFormPts(DEFAULT_PLACEMENT.map(String))
     setFormKillPts('1')
     setFormDesc('')
@@ -91,6 +104,7 @@ export default function ScoringPage() {
       placement_pts: pts,
       kill_pts: parseFloat(formKillPts) || 0,
       description: formDesc.trim() || null,
+      smash_sub_type: formType === 'smash' ? formSmashSubType : null,
     })
     setSaving(false)
     if (error) { alert(error.message); return }
@@ -126,9 +140,9 @@ export default function ScoringPage() {
       {/* 룰 설명 박스 */}
       <div className="grid grid-cols-2 gap-3 mb-6">
         {(Object.keys(RULE_TYPE_LABELS) as RuleType[]).map((t) => (
-          <div key={t} className="bg-white border border-gray-200 rounded-xl p-4">
+          <div key={t} className={`bg-white border rounded-xl p-4 ${t === 'smash' ? 'col-span-2 border-purple-200 bg-purple-50' : 'border-gray-200'}`}>
             <div className="flex items-center gap-2 mb-1">
-              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t === 'chicken' || t === 'chicken_v2' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${t === 'smash' ? 'bg-purple-100 text-purple-700' : t === 'chicken' || t === 'chicken_v2' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                 {RULE_TYPE_LABELS[t]}
               </span>
             </div>
@@ -162,7 +176,23 @@ export default function ScoringPage() {
                 <option value="super_v1">SUPER v1 (동점 시 킬점수 우선)</option>
                 <option value="chicken">Chicken (치킨 우선)</option>
                 <option value="chicken_v2">Chicken v2 (치킨→킬점수→마지막매치킬→생존순위)</option>
+                <option value="smash">Smash (마지막 매치 치킨팀 1위)</option>
               </select>
+              {formType === 'smash' && (
+                <div className="mt-2">
+                  <label className="block text-[11px] text-gray-500 mb-1">2위 이하 순위 결정 방식 (서브룰) *</label>
+                  <select
+                    value={formSmashSubType}
+                    onChange={(e) => setFormSmashSubType(e.target.value as SmashSubType)}
+                    className={inputCls + ' w-full'}
+                  >
+                    <option value="super">SUPER v2 (동점 시 순위점수 우선)</option>
+                    <option value="super_v1">SUPER v1 (동점 시 킬점수 우선)</option>
+                    <option value="chicken">Chicken (치킨 우선)</option>
+                    <option value="chicken_v2">Chicken v2 (치킨→킬점수→마지막매치킬→생존순위)</option>
+                  </select>
+                </div>
+              )}
             </div>
           </div>
           <div className="mb-3">
@@ -278,9 +308,12 @@ export default function ScoringPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <span className="font-semibold text-gray-900 text-sm">{rule.name}</span>
-                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${rule.type === 'chicken' || rule.type === 'chicken_v2' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                    <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${rule.type === 'smash' ? 'bg-purple-100 text-purple-700' : rule.type === 'chicken' || rule.type === 'chicken_v2' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'}`}>
                       {RULE_TYPE_LABELS[rule.type]}
                     </span>
+                    {rule.type === 'smash' && rule.smash_sub_type && (
+                      <span className="text-[11px] text-purple-500 font-medium">서브룰: {SMASH_SUB_LABELS[rule.smash_sub_type as SmashSubType]}</span>
+                    )}
                   </div>
                   <div className="mb-2">
                     <PlacementPtsDisplay pts={rule.placement_pts} />
@@ -297,6 +330,11 @@ export default function ScoringPage() {
                   {rule.type === 'chicken_v2' && (
                     <p className="text-[11px] text-blue-500 mt-1.5">
                       치킨 횟수 → 총 킬점수 → 마지막 매치 킬수 → 마지막 매치 생존순위
+                    </p>
+                  )}
+                  {rule.type === 'smash' && (
+                    <p className="text-[11px] text-purple-600 mt-1.5">
+                      마지막 매치 1위 팀 → 전체 1위 / 나머지 {rule.smash_sub_type ? SMASH_SUB_LABELS[rule.smash_sub_type as SmashSubType] : ''} 룰 적용
                     </p>
                   )}
                 </div>

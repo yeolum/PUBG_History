@@ -116,10 +116,11 @@ export interface Series {
 export interface ScoringRule {
   id: string
   name: string
-  type: 'super' | 'super_v1' | 'chicken'
+  type: 'super' | 'super_v1' | 'chicken' | 'chicken_v2' | 'smash'
   placement_pts: number[]
   kill_pts: number
   description: string | null
+  smash_sub_type: string | null
   created_at: string
 }
 
