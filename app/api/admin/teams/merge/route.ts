@@ -35,9 +35,19 @@ export async function POST(req: NextRequest) {
 
   const svc = serviceClient()
 
-  // 1. Add old team name as alias on target team
+  // 1. Collect all aliases to transfer: existing team_aliases + name + short_name
+  const [{ data: sourceTeam }, { data: sourceAliases }] = await Promise.all([
+    svc.from('teams').select('short_name').eq('id', fromId).single(),
+    svc.from('team_aliases').select('alias').eq('team_id', fromId),
+  ])
+
+  const aliasSet = new Set<string>()
+  aliasSet.add(fromName)
+  if (sourceTeam?.short_name) aliasSet.add(sourceTeam.short_name)
+  for (const row of (sourceAliases ?? [])) aliasSet.add(row.alias)
+
   await svc.from('team_aliases').upsert(
-    [{ team_id: targetId, alias: fromName }],
+    [...aliasSet].map((alias) => ({ team_id: targetId, alias })),
     { onConflict: 'alias', ignoreDuplicates: true },
   )
 
