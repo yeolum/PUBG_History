@@ -492,7 +492,11 @@ export default async function CircuitPage({ params }: Props) {
       games: (r.games as number) ?? 0,
       damage: Number(r.damage ?? 0),
     }))
-    .sort((a, b) => b.kills - a.kills)
+    .sort((a, b) => {
+      const da = tournamentById.get(a.tournamentId)?.start_date ?? ''
+      const db = tournamentById.get(b.tournamentId)?.start_date ?? ''
+      return db > da ? 1 : db < da ? -1 : b.kills - a.kills
+    })
 
   return (
     <>

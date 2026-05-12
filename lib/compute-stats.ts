@@ -86,7 +86,7 @@ async function insertPlayerRows(db: DB, table: string, rows: AnyRow[]): Promise<
   for (let off = 0; off < rows.length; off += BATCH) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await db.from(table).insert(rows.slice(off, off + BATCH) as any)
-    if (error) console.error(`[compute-stats] ${table} insert failed:`, error.message)
+    if (error) throw new Error(`[compute-stats] ${table} insert failed: ${error.message}`)
   }
 }
 
@@ -279,7 +279,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     for (let off = 0; off < rows.length; off += BATCH) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const { error } = await db.from(table).insert(rows.slice(off, off + BATCH) as any)
-      if (error) console.error(`[compute-stats] ${table} insert failed:`, error.message)
+      if (error) throw new Error(`[compute-stats] ${table} insert failed: ${error.message}`)
     }
   }
 
