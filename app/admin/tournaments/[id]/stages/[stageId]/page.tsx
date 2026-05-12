@@ -195,10 +195,13 @@ export default function StageMatchesPage() {
   }, [stageId])
 
   const load = useCallback(async () => {
-    const [{ data: s }, { data: m }, { data: ttData }] = await Promise.all([
-      supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
-      supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
-      supabase.from('tournament_teams').select('team_id, display_name').eq('tournament_id', tournamentId),
+    const [[{ data: s }, { data: m }, { data: ttData }]] = await Promise.all([
+      Promise.all([
+        supabase.from('stages').select('*, scoring_rules(*)').eq('id', stageId).single(),
+        supabase.from('matches').select('*, match_team_results(*, teams(id, name)), match_player_stats(*, players(id, nickname))').eq('stage_id', stageId).order('order_num'),
+        supabase.from('tournament_teams').select('team_id, display_name').eq('tournament_id', tournamentId),
+      ]),
+      loadAdditionalPoints(),
     ])
     if (!s) return
     const stageData = s as Stage
@@ -211,7 +214,6 @@ export default function StageMatchesPage() {
       if (tt.team_id && tt.display_name) dnMap.set(tt.team_id, tt.display_name)
     }
     setTeamDisplayNames(dnMap)
-    await loadAdditionalPoints()
   }, [stageId, tournamentId, supabase, loadAdditionalPoints])
 
   useEffect(() => { load() }, [load])
@@ -337,13 +339,17 @@ export default function StageMatchesPage() {
     const pending = importRows.filter(r => r.matchId.trim() && r.status === 'pending')
     if (pending.length === 0) return
     setAnyImporting(true)
-    for (const row of pending) {
+    // skipStats=true for every import except the last one — computeTournamentStats
+    // only needs to run once after all matches are in, not after each one.
+    for (let i = 0; i < pending.length; i++) {
+      const row = pending[i]
+      const isLast = i === pending.length - 1
       setImportRows(rows => rows.map(r => r.rowId === row.rowId ? { ...r, status: 'importing' } : r))
       try {
         const res = await fetch('/api/admin/pubg/import', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ stageId, pubgMatchId: row.matchId.trim() }),
+          body: JSON.stringify({ stageId, pubgMatchId: row.matchId.trim(), skipStats: !isLast }),
         })
         const result = await res.json()
         if (!res.ok) {

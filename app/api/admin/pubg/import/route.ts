@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid request format' }, { status: 400 })
   }
 
-  const { stageId, pubgMatchId } = body
+  const { stageId, pubgMatchId, skipStats } = body as { stageId?: string; pubgMatchId?: string; skipStats?: boolean }
   if (!stageId || !pubgMatchId) {
     return NextResponse.json({ error: 'stageId and pubgMatchId are required' }, { status: 400 })
   }
@@ -298,7 +298,10 @@ export async function POST(req: NextRequest) {
     await db.rpc('sync_player_current_teams', { player_ids: linkedPlayerIds })
   }
 
-  if (tournamentId) {
+  // skipStats=true when this is not the last match in a bulk import — avoids
+  // running computeTournamentStats N times when importing N matches at once.
+  // The caller is responsible for running stats on the final import.
+  if (!skipStats && tournamentId) {
     try {
       await computeTournamentStats(tournamentId, db)
     } catch (err) {
@@ -306,10 +309,12 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  revalidateTag('tournament-data', 'default')
-  if (tournamentId) revalidatePath(`/tournaments/${tournamentId}`)
-  revalidatePath('/tournaments')
-  revalidatePath('/')
+  if (!skipStats) {
+    revalidateTag('tournament-data', 'default')
+    if (tournamentId) revalidatePath(`/tournaments/${tournamentId}`)
+    revalidatePath('/tournaments')
+    revalidatePath('/')
+  }
 
   return NextResponse.json({
     success: true,
