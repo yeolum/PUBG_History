@@ -38,7 +38,6 @@ function majority(values: string[]): string | null {
   return Object.entries(counts).sort((a, b) => b[1] - a[1])[0][0]
 }
 
-// Extract team tag from player names: ["DNS_Heaven", "DNS_Kill"] → "DNS"
 function extractTeamTag(playerNames: string[]): string | null {
   if (playerNames.length === 0) return null
   const tags = playerNames.map((name) => {
@@ -68,27 +67,25 @@ export async function POST(req: NextRequest) {
 
   const db = serviceClient()
 
-  // Duplicate check
-  const { data: existing } = await db
-    .from('matches')
-    .select('id')
-    .eq('pubg_match_id', pubgMatchId)
-    .single()
+  // ── Phase 1: Run all independent initial queries in parallel ─────────────
+  const [
+    { data: existing },
+    orderRes,
+    { data: stageRow },
+  ] = await Promise.all([
+    db.from('matches').select('id').eq('pubg_match_id', pubgMatchId).maybeSingle(),
+    db.from('matches').select('order_num').eq('stage_id', stageId).order('order_num', { ascending: false }).limit(1),
+    db.from('stages').select('tournament_id').eq('id', stageId).single(),
+  ])
 
   if (existing) {
     return NextResponse.json({ error: 'Match ID already imported' }, { status: 409 })
   }
 
-  // Create match record in pending status
-  const orderRes = await db
-    .from('matches')
-    .select('order_num')
-    .eq('stage_id', stageId)
-    .order('order_num', { ascending: false })
-    .limit(1)
-
+  const tournamentId = stageRow?.tournament_id as string | undefined
   const nextOrder = (orderRes.data?.[0]?.order_num ?? -1) + 1
 
+  // ── Phase 2: Create pending match record ─────────────────────────────────
   const { data: matchRecord, error: insertErr } = await db
     .from('matches')
     .insert([{
@@ -104,10 +101,23 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to create match record' }, { status: 500 })
   }
 
-  // Call PUBG API
+  // ── Phase 3: PUBG API call + tournament roster fetch in parallel ──────────
+  // The PUBG API call is the single slowest step (~1–3 s). We overlap it with
+  // the roster lookup so neither blocks the other.
+  const rosterFetch = tournamentId
+    ? Promise.all([
+        db.from('tournament_teams').select('team_id').eq('tournament_id', tournamentId),
+        db.from('tournament_players').select('player_id').eq('tournament_id', tournamentId),
+      ])
+    : Promise.resolve([{ data: null as { team_id: string }[] | null }, { data: null as { player_id: string }[] | null }] as const)
+
   let matchData
+  let rosterResult: readonly [{ data: { team_id: string }[] | null }, { data: { player_id: string }[] | null }]
   try {
-    matchData = await fetchPubgMatch(pubgMatchId, 'tournament')
+    ;[matchData, rosterResult] = await Promise.all([
+      fetchPubgMatch(pubgMatchId, 'tournament'),
+      rosterFetch,
+    ])
   } catch (err) {
     await db
       .from('matches')
@@ -116,31 +126,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'PUBG API error' }, { status: 500 })
   }
 
-  // Update match metadata
-  await db.from('matches').update({
-    match_date: matchData.matchDate,
-    map: matchData.map,
-    game_mode: matchData.gameMode,
-    duration: matchData.duration,
-    status: 'imported',
-    error_msg: null,
-  }).eq('id', matchRecord.id)
-
-  // Resolve the tournament_id this match belongs to so we can scope auto-linking
-  // to the tournament's pre-registered participants when they exist.
-  const { data: stageRow } = await db
-    .from('stages')
-    .select('tournament_id')
-    .eq('id', stageId)
-    .single()
-  const tournamentId = stageRow?.tournament_id as string | undefined
-
-  const [{ data: rosterTeamRows }, { data: rosterPlayerRows }] = tournamentId
-    ? await Promise.all([
-        db.from('tournament_teams').select('team_id').eq('tournament_id', tournamentId),
-        db.from('tournament_players').select('player_id').eq('tournament_id', tournamentId),
-      ])
-    : [{ data: null }, { data: null }]
+  const [{ data: rosterTeamRows }, { data: rosterPlayerRows }] = rosterResult
 
   const allowedTeamIds: Set<string> | null = (rosterTeamRows && rosterTeamRows.length > 0)
     ? new Set(rosterTeamRows.map((r) => r.team_id as string))
@@ -149,9 +135,7 @@ export async function POST(req: NextRequest) {
     ? new Set(rosterPlayerRows.map((r) => r.player_id as string))
     : null
 
-  // Build name → ID lookup maps (including aliases, case-insensitive).
-  // When a tournament roster exists, restrict the candidate pool to it so
-  // colliding tags / nicknames from unrelated teams don't cross-link.
+  // ── Phase 4: Update match metadata + fetch lookup maps in parallel ────────
   let teamsQuery = db.from('teams').select('id, name')
   if (allowedTeamIds) teamsQuery = teamsQuery.in('id', [...allowedTeamIds])
   let teamAliasesQuery = db.from('team_aliases').select('alias, team_id')
@@ -162,23 +146,24 @@ export async function POST(req: NextRequest) {
   if (allowedPlayerIds) playerAliasesQuery = playerAliasesQuery.in('player_id', [...allowedPlayerIds])
 
   const [
-    { data: teamAliasRows },
-    { data: teamRows },
-    { data: playerAliasRows },
-    { data: playerRows },
+    [{ data: teamAliasRows }, { data: teamRows }, { data: playerAliasRows }, { data: playerRows }],
   ] = await Promise.all([
-    teamAliasesQuery,
-    teamsQuery,
-    playerAliasesQuery,
-    playersQuery,
+    Promise.all([teamAliasesQuery, teamsQuery, playerAliasesQuery, playersQuery]),
+    db.from('matches').update({
+      match_date: matchData.matchDate,
+      map: matchData.map,
+      game_mode: matchData.gameMode,
+      duration: matchData.duration,
+      status: 'imported',
+      error_msg: null,
+    }).eq('id', matchRecord.id),
   ])
 
-  // team name/alias → team_id
+  // ── Phase 5: Build lookup maps and prepare insert rows (in-memory) ────────
   const teamByName: Record<string, string> = {}
   for (const t of teamRows ?? []) teamByName[t.name.toLowerCase()] = t.id
   for (const a of teamAliasRows ?? []) {
     teamByName[a.alias.toLowerCase()] = a.team_id
-    // "TAG - Full Name" format → also index the tag part alone
     const dashIdx = a.alias.indexOf(' - ')
     if (dashIdx !== -1) {
       const tagPart = a.alias.slice(0, dashIdx).trim().toLowerCase()
@@ -186,37 +171,24 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // player nickname/alias variant → player_id[] (multiple per key when ambiguous).
-  // Each name (nickname or alias) is indexed under its full lowercased form
-  // AND, when it contains an underscore, under the after-first-underscore
-  // suffix too. This makes "JoShY-_-" findable both as itself and via
-  // "TAG_JoShY-_-" PUBG match names.
   const playerByName: Record<string, string[]> = {}
-  // Single-value lookup retained for the team-tag fallback below.
   const playerById: Record<string, string> = {}
   const addName = (name: string, playerId: string) => {
     for (const v of getNameVariants(name)) {
       if (!playerByName[v]) playerByName[v] = []
       if (!playerByName[v].includes(playerId)) playerByName[v].push(playerId)
-      // Last-write-wins map preserves the prior `playerById` semantics for
-      // the team-resolution fallback path.
       playerById[v] = playerId
     }
   }
   for (const p of playerRows ?? []) addName(p.nickname as string, p.id as string)
   for (const a of playerAliasRows ?? []) addName(a.alias as string, a.player_id as string)
 
-  // player_id → team_id (current team membership)
   const playerTeam: Record<string, string> = {}
   for (const p of playerRows ?? []) {
     if (p.team_id) playerTeam[p.id] = p.team_id
   }
 
   function resolvePlayerId(pubgName: string): string | null {
-    // Try each variant of the input — full first, then after-underscore
-    // suffix. Stop at the first variant with at least one match; only
-    // accept it if it points to a single player so ambiguous names stay
-    // unlinked instead of cross-linking.
     for (const v of getNameVariants(pubgName)) {
       const candidates = playerByName[v] ?? []
       if (candidates.length === 1) return candidates[0]
@@ -225,7 +197,6 @@ export async function POST(req: NextRequest) {
     return null
   }
 
-  // Prepare player stat rows
   const playerStatInserts = matchData.rosters.flatMap((roster) =>
     roster.participants.map((p) => ({
       match_id: matchRecord.id,
@@ -246,18 +217,12 @@ export async function POST(req: NextRequest) {
     }))
   )
 
-  // Prepare team result rows
   const teamResultInserts = matchData.rosters.map((roster) => {
     const participants = roster.participants
     const playerNames = participants.map((p) => p.pubgPlayerName)
-
-    // Extract team tag from player names: "DNS_Heaven" → "DNS"
     const teamTag = extractTeamTag(playerNames) ?? playerNames.join(', ')
 
-    // 1st: look up team by tag
     let resolvedTeamId: string | null = teamByName[teamTag.toLowerCase()] ?? null
-
-    // 2nd: fall back to known player → team membership
     if (!resolvedTeamId) {
       const resolvedPlayerIds = playerNames
         .map((n) => playerById[n.toLowerCase()])
@@ -280,16 +245,11 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  // Propagate team_id to player stats
   for (const stat of playerStatInserts) {
     const rosterResult = teamResultInserts.find((t) => t.pubg_roster_id === stat._rosterId)
     stat.team_id = rosterResult?.team_id ?? null
   }
 
-  // Strict filter: when a tournament has a participant roster, only entries
-  // that resolved to a registered team / player make it into the DB. Empty
-  // sets keep the previous global behavior so older tournaments still import
-  // everything.
   const keptTeamResults = allowedTeamIds
     ? teamResultInserts.filter((t) => t.team_id && allowedTeamIds.has(t.team_id))
     : teamResultInserts
@@ -313,25 +273,24 @@ export async function POST(req: NextRequest) {
 
   const cleanStats = keptStatInserts.map(({ _rosterId: _, ...rest }) => rest)
 
-  if (keptTeamResults.length > 0) {
-    await db.from('match_team_results').insert(keptTeamResults)
-  }
-  if (cleanStats.length > 0) {
-    await db.from('match_player_stats').insert(cleanStats)
-  }
-
-  // Persist resolved pubg_player_name → player_id mappings as aliases
-  // so that future Q2 lookups on the player page can find these stats even if player_id is later null
   const playerAliasUpserts = cleanStats
     .filter((s) => s.player_id && s.pubg_player_name)
     .map((s) => ({ player_id: s.player_id as string, alias: s.pubg_player_name as string }))
-  if (playerAliasUpserts.length > 0) {
-    await db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'player_id,alias', ignoreDuplicates: true })
-  }
 
-  // Sync each linked player's global team_id to the team they played for in
-  // their most recent imported match. Re-importing an old match never moves
-  // them off a newer team because the function picks the latest by date.
+  // ── Phase 6: All inserts in parallel ─────────────────────────────────────
+  await Promise.all([
+    keptTeamResults.length > 0
+      ? db.from('match_team_results').insert(keptTeamResults)
+      : Promise.resolve(),
+    cleanStats.length > 0
+      ? db.from('match_player_stats').insert(cleanStats)
+      : Promise.resolve(),
+    playerAliasUpserts.length > 0
+      ? db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'player_id,alias', ignoreDuplicates: true })
+      : Promise.resolve(),
+  ])
+
+  // ── Phase 7: Post-insert operations (sequential: each depends on prior) ──
   const linkedPlayerIds = [...new Set(
     cleanStats.map((s) => s.player_id).filter((pid): pid is string => !!pid)
   )]
@@ -339,7 +298,6 @@ export async function POST(req: NextRequest) {
     await db.rpc('sync_player_current_teams', { player_ids: linkedPlayerIds })
   }
 
-  // Pre-compute team/player stats for the circuit page to read.
   if (tournamentId) {
     try {
       await computeTournamentStats(tournamentId, db)
@@ -348,8 +306,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Public-page invalidation: a fresh match changes scoreboards, prize totals,
-  // team / player profiles, etc. — refresh now instead of waiting 30s.
   revalidateTag('tournament-data', 'default')
   if (tournamentId) revalidatePath(`/tournaments/${tournamentId}`)
   revalidatePath('/tournaments')

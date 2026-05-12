@@ -268,14 +268,18 @@ export default function AdminPlayersPage() {
     if (!mergeModal) return
     const fromId = mergeModal.fromId
     if (fromId === targetId) { setMergeModal(null); return }
-    await supabase.from('player_aliases').upsert(
-      [{ player_id: targetId, alias: mergeModal.fromName }],
-      { onConflict: 'player_id,alias', ignoreDuplicates: true }
-    )
-    await supabase.from('match_player_stats').update({ player_id: targetId }).eq('player_id', fromId)
-    await supabase.from('players').delete().eq('id', fromId)
-    setMergeModal(null)
+    const res = await fetch('/api/admin/players/merge', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromId, targetId, fromName: mergeModal.fromName }),
+    })
+    if (!res.ok) {
+      const json = await res.json().catch(() => ({}))
+      alert(`Merge failed: ${json.error ?? res.status}`)
+      return
+    }
     void targetName
+    setMergeModal(null)
     load()
   }
 

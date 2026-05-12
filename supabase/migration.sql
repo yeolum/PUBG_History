@@ -718,6 +718,14 @@ CREATE POLICY "series_player_stats_service_write" ON series_player_stats FOR ALL
 ALTER TABLE scoring_rules ADD COLUMN IF NOT EXISTS smash_sub_type TEXT;
 
 -- =====================================================
+-- Migration: update scoring_rules type check constraint
+-- Extends allowed types to include chicken_v2 and smash.
+-- =====================================================
+ALTER TABLE scoring_rules DROP CONSTRAINT IF EXISTS scoring_rules_type_check;
+ALTER TABLE scoring_rules ADD CONSTRAINT scoring_rules_type_check
+  CHECK (type IN ('super', 'super_v1', 'chicken', 'chicken_v2', 'smash'));
+
+-- =====================================================
 -- Migration: 100킬 클럽 — 한 대회에서 100킬 이상 달성한 선수 기록
 -- compute-tournament-stats 실행 시 tournament_player_stats에서 자동 집계.
 -- =====================================================
