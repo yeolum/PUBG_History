@@ -166,27 +166,7 @@ export default function AdminTournamentDetailPage() {
   >(null)
 
   const load = useCallback(async () => {
-    // Supabase caps a single SELECT at 1000 rows server-side regardless of
-    // .limit(N), so the global collision check needs to page through.
-    async function fetchAllPaged<T>(
-      table: string,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      buildQuery: (q: any) => any,
-    ): Promise<T[]> {
-      const out: T[] = []
-      const PAGE = 1000
-      let page = 0
-      while (true) {
-        const { data } = await buildQuery(supabase.from(table)).range(page * PAGE, (page + 1) * PAGE - 1)
-        const batch = (data ?? []) as T[]
-        out.push(...batch)
-        if (batch.length < PAGE) break
-        page++
-      }
-      return out
-    }
-
-    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, { data: combinedData }, { data: combinedStageData }, allPlayers, allPlayerAliases] = await Promise.all([
+    const [{ data: t }, { data: s }, { data: pc }, { data: ser }, { data: sr }, { data: wwcd }, { data: special }, { data: ttData }, { data: tpData }, { data: combinedData }, { data: combinedStageData }] = await Promise.all([
       supabase.from('tournaments').select('*').eq('id', id).single(),
       supabase
         .from('stages')
@@ -220,12 +200,6 @@ export default function AdminTournamentDetailPage() {
           .eq('tournament_id', id).order('order_num')
       })(),
       supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
-      // Global collision map: a registered player whose nickname (or alias) is
-      // shared with another player gets flagged so admin can re-pick if needed.
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fetchAllPaged<any>('players', (q) => q.select('id, nickname').order('id')),
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      fetchAllPaged<any>('player_aliases', (q) => q.select('player_id, alias').order('id')),
     ])
     setSeriesList((ser ?? []) as Series[])
     setScoringRules((sr ?? []) as ScoringRule[])
@@ -277,16 +251,26 @@ export default function AdminTournamentDetailPage() {
     }
     setPrizeRows(rows)
 
-    // Stage / series prize config (sequential query after we have stage / series IDs)
+    // Stage / series prize config + targeted collision check in one parallel batch.
+    // Collision check is scoped to only the nicknames already registered in this
+    // tournament — avoids paginating the entire global player table.
     const stageIds = ((s ?? []) as StageFull[]).map((stage) => stage.id)
     const seriesIds = ((ser ?? []) as Series[]).map((sr) => sr.id)
-    const [{ data: spStage }, { data: spSeries }] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const registeredNicknames = [...new Set(((tpData ?? []) as any[]).map((r) => r.players?.nickname as string).filter(Boolean))]
+    const [{ data: spStage }, { data: spSeries }, { data: collisionPlayers }, { data: collisionAliases }] = await Promise.all([
       stageIds.length > 0
         ? supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds).order('placement')
         : Promise.resolve({ data: [] as { stage_id: string; placement: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }[] }),
       seriesIds.length > 0
         ? supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds).order('placement')
         : Promise.resolve({ data: [] as { series_id: string; placement: number; prize: number | null; pgs_points: number | null; pgc_points: number | null }[] }),
+      registeredNicknames.length > 0
+        ? supabase.from('players').select('id, nickname').in('nickname', registeredNicknames)
+        : Promise.resolve({ data: [] as { id: string; nickname: string }[] }),
+      registeredNicknames.length > 0
+        ? supabase.from('player_aliases').select('player_id, alias').in('alias', registeredNicknames)
+        : Promise.resolve({ data: [] as { player_id: string; alias: string }[] }),
     ])
 
     const spMap: Record<string, StagePrizeRow[]> = {}
@@ -427,10 +411,8 @@ export default function AdminTournamentDetailPage() {
       if (!nameToPlayerIds.has(k)) nameToPlayerIds.set(k, new Set())
       nameToPlayerIds.get(k)!.add(playerId)
     }
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const p of allPlayers as any[]) addName(p.nickname as string, p.id as string)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    for (const a of allPlayerAliases as any[]) addName(a.alias as string, a.player_id as string)
+    for (const p of (collisionPlayers ?? []) as { id: string; nickname: string }[]) addName(p.nickname, p.id)
+    for (const a of (collisionAliases ?? []) as { player_id: string; alias: string }[]) addName(a.alias, a.player_id)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setRosterPlayers(((tpData ?? []) as any[])
