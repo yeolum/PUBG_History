@@ -664,6 +664,9 @@ export default async function TournamentContent({ id, tournament }: { id: string
           return b.placePts - a.placePts
         })
       }
+      if (subType === 'super_v1') {
+        return arr.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
+      }
       return arr.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
     }
 
@@ -813,6 +816,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
         if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
         return b.placePts - a.placePts
       })
+    } else if (cbRuleType === 'super_v1') {
+      cbEntries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
     } else {
       cbEntries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
     }

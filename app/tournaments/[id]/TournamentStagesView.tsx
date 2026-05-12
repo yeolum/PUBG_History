@@ -140,7 +140,15 @@ export default function TournamentStagesView({
         if (extra) e.totalPts += (e.teamId ? extra[e.teamId] : undefined) ?? extra[e.teamName.toLowerCase()] ?? 0
       }
     }
-    return [...ptsMap.values()].sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
+    const seriesRuleType = seriesMatchIds.size > 0
+      ? (matchToRule.get([...seriesMatchIds][0])?.type ?? 'super')
+      : 'super'
+    return [...ptsMap.values()].sort((a, b) =>
+      b.totalPts !== a.totalPts ? b.totalPts - a.totalPts
+        : seriesRuleType === 'super_v1'
+          ? b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts
+          : b.placePts - a.placePts
+    )
   }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule, stageAdditionalPts, excludedMatchIds])
 
   // Per-match results for series view

@@ -137,6 +137,16 @@ function computeStandings(
         return a.lastMatchPlacement - b.lastMatchPlacement
       })
     }
+    if (subType === 'super_v1') {
+      return arr.sort((a, b) => {
+        if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+        if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
+        if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+        if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
+        if (a.lastMatchPlacement !== b.lastMatchPlacement) return a.lastMatchPlacement - b.lastMatchPlacement
+        return b.lastMatchDamage - a.lastMatchDamage
+      })
+    }
     return arr.sort((a, b) => {
       if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
       if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts

@@ -275,29 +275,19 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     }))
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const teamBatches: Promise<{ error: any }>[] = []
-  for (let off = 0; off < teamRows.length; off += BATCH) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    teamBatches.push(db.from('tournament_team_stats').insert(teamRows.slice(off, off + BATCH) as any))
-  }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const killClubBatches: Promise<{ error: any }>[] = []
-  for (let off = 0; off < killClubRows.length; off += BATCH) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    killClubBatches.push(db.from('kill_club_100').insert(killClubRows.slice(off, off + BATCH) as any))
+  async function batchInsert(table: string, rows: any[]): Promise<void> {
+    for (let off = 0; off < rows.length; off += BATCH) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error } = await db.from(table).insert(rows.slice(off, off + BATCH) as any)
+      if (error) console.error(`[compute-stats] ${table} insert failed:`, error.message)
+    }
   }
 
-  const results = await Promise.all([
-    Promise.all(teamBatches),
+  await Promise.all([
+    batchInsert('tournament_team_stats', teamRows),
     insertPlayerRows(db, 'tournament_player_stats', playerRows as AnyRow[]),
-    Promise.all(killClubBatches),
+    batchInsert('kill_club_100', killClubRows),
   ])
-  for (const { error } of results[0]) {
-    if (error) console.error('[compute-stats] tournament_team_stats insert failed:', error.message)
-  }
-  for (const { error } of results[2]) {
-    if (error) console.error('[compute-stats] kill_club_100 insert failed:', error.message)
-  }
 
   // ── 6. Final standings (replicates TournamentContent rankBoard logic) ─
   const resultsByMatchForStandings = new Map<string, AnyRow[]>()
@@ -440,6 +430,9 @@ async function buildAndSaveFinalStandings(
         if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
         return b.placePts - a.placePts
       })
+    }
+    if (subType === 'super_v1') {
+      return entries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
     }
     return entries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
   }

@@ -128,7 +128,7 @@ export const getTournamentFinalStandings = unstable_cache(
       stageAdditionalPts[ap.stage_id][(ap.team_name as string).toLowerCase()] = Number(ap.points)
     }
 
-    type StandingsEntry = { teamId: string | null; teamName: string; placePts: number; totalPts: number }
+    type StandingsEntry = { teamId: string | null; teamName: string; placePts: number; killPts: number; totalPts: number }
     const stageStandingsMap = new Map<string, StandingsEntry[]>()
     for (const stage of stagesList) {
       const ptsMap = new Map<string, StandingsEntry>()
@@ -140,22 +140,28 @@ export const getTournamentFinalStandings = unstable_cache(
             ptsMap.set(key, {
               teamId: r.team_id ?? null,
               teamName: (r.pubg_team_name as string | null) ?? '',
-              totalPts: 0, placePts: 0,
+              totalPts: 0, placePts: 0, killPts: 0,
             })
           }
           const e = ptsMap.get(key)!
           const rule = matchToRule.get(m.id as string) ?? ruleFromStage(null)
           const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
-          e.totalPts += pp + Math.round((r.total_kills ?? 0) * rule.kill_pts)
+          const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+          e.totalPts += pp + kp
           e.placePts += pp
+          e.killPts += kp
         }
       }
       const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
       for (const e of ptsMap.values()) {
         e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
       }
+      const stageRuleType = ruleFromStage(stage.scoring_rules as Parameters<typeof ruleFromStage>[0]).type ?? 'super'
       stageStandingsMap.set(stage.id as string, [...ptsMap.values()].sort((a, b) =>
-        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
+        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts
+          : stageRuleType === 'super_v1'
+            ? b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts
+            : b.placePts - a.placePts
       ))
     }
 
@@ -165,7 +171,10 @@ export const getTournamentFinalStandings = unstable_cache(
       const seriesStages = stagesList.filter((s) => s.series_id === sr.id)
       if (seriesStages.length === 0) continue
       const ptsMap = new Map<string, StandingsEntry>()
+      let seriesRuleType = 'super'
       for (const stage of seriesStages) {
+        const stageRule = ruleFromStage(stage.scoring_rules as Parameters<typeof ruleFromStage>[0])
+        if (stageRule.type) seriesRuleType = stageRule.type
         for (const m of stage.matches ?? []) {
           if (m.status !== 'imported') continue
           for (const r of resultsByMatch.get(m.id as string) ?? []) {
@@ -174,14 +183,16 @@ export const getTournamentFinalStandings = unstable_cache(
               ptsMap.set(key, {
                 teamId: r.team_id ?? null,
                 teamName: (r.pubg_team_name as string | null) ?? '',
-                totalPts: 0, placePts: 0,
+                totalPts: 0, placePts: 0, killPts: 0,
               })
             }
             const e = ptsMap.get(key)!
             const rule = matchToRule.get(m.id as string) ?? ruleFromStage(null)
             const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
-            e.totalPts += pp + Math.round((r.total_kills ?? 0) * rule.kill_pts)
+            const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+            e.totalPts += pp + kp
             e.placePts += pp
+            e.killPts += kp
           }
         }
         const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
@@ -190,7 +201,10 @@ export const getTournamentFinalStandings = unstable_cache(
         }
       }
       seriesStandingsMap.set(sr.id as string, [...ptsMap.values()].sort((a, b) =>
-        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
+        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts
+          : seriesRuleType === 'super_v1'
+            ? b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts
+            : b.placePts - a.placePts
       ))
     }
 
@@ -207,8 +221,11 @@ export const getTournamentFinalStandings = unstable_cache(
       const stageIds = combinedStagesByCombined.get(cid) ?? new Set()
       if (stageIds.size === 0) continue
       const ptsMap = new Map<string, StandingsEntry>()
+      let combinedRuleType = 'super'
       for (const stage of stagesList) {
         if (!stageIds.has(stage.id as string)) continue
+        const stageRule = ruleFromStage(stage.scoring_rules as Parameters<typeof ruleFromStage>[0])
+        if (stageRule.type) combinedRuleType = stageRule.type
         for (const m of stage.matches ?? []) {
           if (m.status !== 'imported') continue
           for (const r of resultsByMatch.get(m.id as string) ?? []) {
@@ -217,14 +234,16 @@ export const getTournamentFinalStandings = unstable_cache(
               ptsMap.set(key, {
                 teamId: r.team_id ?? null,
                 teamName: (r.pubg_team_name as string | null) ?? '',
-                totalPts: 0, placePts: 0,
+                totalPts: 0, placePts: 0, killPts: 0,
               })
             }
             const e = ptsMap.get(key)!
             const rule = matchToRule.get(m.id as string) ?? ruleFromStage(null)
             const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
-            e.totalPts += pp + Math.round((r.total_kills ?? 0) * rule.kill_pts)
+            const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
+            e.totalPts += pp + kp
             e.placePts += pp
+            e.killPts += kp
           }
         }
         const extraForStage = stageAdditionalPts[stage.id as string] ?? {}
@@ -233,7 +252,10 @@ export const getTournamentFinalStandings = unstable_cache(
         }
       }
       combinedStandingsMap.set(cid, [...ptsMap.values()].sort((a, b) =>
-        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts
+        b.totalPts !== a.totalPts ? b.totalPts - a.totalPts
+          : combinedRuleType === 'super_v1'
+            ? b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts
+            : b.placePts - a.placePts
       ))
     }
 

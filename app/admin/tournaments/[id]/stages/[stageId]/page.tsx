@@ -69,6 +69,16 @@ function sortStandingStats(results: StandingStat[], ruleType: string): ComputedS
       return a.lastMatchPlacement - b.lastMatchPlacement
     })
   }
+  if (ruleType === 'super_v1') {
+    return results.sort((a, b) => {
+      if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
+      if (b.totalKillPts !== a.totalKillPts) return b.totalKillPts - a.totalKillPts
+      if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
+      if (b.lastMatchPts !== a.lastMatchPts) return b.lastMatchPts - a.lastMatchPts
+      if (a.lastMatchPlacement !== b.lastMatchPlacement) return a.lastMatchPlacement - b.lastMatchPlacement
+      return b.lastMatchDamage - a.lastMatchDamage
+    })
+  }
   return results.sort((a, b) => {
     if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
     if (b.totalPlacementPts !== a.totalPlacementPts) return b.totalPlacementPts - a.totalPlacementPts
@@ -442,14 +452,18 @@ export default function StageMatchesPage() {
     const row = matches.find(m => m.id === matchId)?.match_team_results.find(r => r.id === teamResultId)
     const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
     const aliasRows = aliasesToUpsert.map(alias => ({ team_id: teamId, alias }))
-    const ops: Promise<unknown>[] = [
+    const baseOps = [
       supabase.from('match_team_results').update({ team_id: teamId, display_name: displayName }).eq('id', teamResultId),
       supabase.from('team_aliases').upsert(aliasRows, { onConflict: 'alias', ignoreDuplicates: true }),
-    ]
+    ] as const
     if (pubgTeamName) {
-      ops.push(supabase.from('match_player_stats').update({ team_id: teamId }).eq('match_id', matchId).is('team_id', null).eq('placement', row?.placement ?? -1))
+      await Promise.all([
+        ...baseOps,
+        supabase.from('match_player_stats').update({ team_id: teamId }).eq('match_id', matchId).is('team_id', null).eq('placement', row?.placement ?? -1),
+      ])
+    } else {
+      await Promise.all(baseOps)
     }
-    await Promise.all(ops)
     setLinkModal(null)
     reload()
   }
