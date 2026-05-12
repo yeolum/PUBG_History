@@ -392,7 +392,7 @@ export default function StageMatchesPage() {
     setSavingMatchEdit(true)
     setMatchEditErr(null)
     try {
-      for (const row of matchEditRows) {
+      await Promise.all(matchEditRows.map(async (row) => {
         const placement = parseInt(row.placement) || null
         const kills = parseInt(row.kills) || 0
         if (row.id) {
@@ -401,12 +401,12 @@ export default function StageMatchesPage() {
             .eq('id', row.id)
           if (error) throw new Error(error.message)
         } else {
-          if (!row.teamName.trim()) continue
+          if (!row.teamName.trim()) return
           const { error } = await supabase.from('match_team_results')
             .insert({ match_id: selectedMatchData.id, pubg_team_name: row.teamName.trim(), placement, total_kills: kills, total_damage: 0 })
           if (error) throw new Error(error.message)
         }
-      }
+      }))
       setMatchEditMode(false)
       await reload()
     } catch (e) {
@@ -439,36 +439,36 @@ export default function StageMatchesPage() {
   }
 
   async function linkTeam(matchId: string, teamResultId: string, teamId: string, displayName: string | null, pubgTeamName: string | null, entityName: string) {
-    await supabase.from('match_team_results').update({ team_id: teamId, display_name: displayName }).eq('id', teamResultId)
     const row = matches.find(m => m.id === matchId)?.match_team_results.find(r => r.id === teamResultId)
     const aliasesToUpsert = [entityName, ...(displayName && displayName !== entityName ? [displayName] : [])]
-    for (const alias of aliasesToUpsert) {
-      await supabase.from('team_aliases').upsert([{ team_id: teamId, alias }], { onConflict: 'alias', ignoreDuplicates: true })
-    }
+    const aliasRows = aliasesToUpsert.map(alias => ({ team_id: teamId, alias }))
+    const ops: Promise<unknown>[] = [
+      supabase.from('match_team_results').update({ team_id: teamId, display_name: displayName }).eq('id', teamResultId),
+      supabase.from('team_aliases').upsert(aliasRows, { onConflict: 'alias', ignoreDuplicates: true }),
+    ]
     if (pubgTeamName) {
-      await supabase.from('match_player_stats').update({ team_id: teamId }).eq('match_id', matchId).is('team_id', null).eq('placement', row?.placement ?? -1)
+      ops.push(supabase.from('match_player_stats').update({ team_id: teamId }).eq('match_id', matchId).is('team_id', null).eq('placement', row?.placement ?? -1))
     }
+    await Promise.all(ops)
     setLinkModal(null)
     reload()
   }
 
   async function linkPlayer(statId: string, playerId: string, displayName: string | null, pubgPlayerName: string | null, entityName: string) {
-    // Update ALL stats with same pubg_player_name across the entire stage
-    if (pubgPlayerName && matches.length > 0) {
-      const matchIds = matches.map(m => m.id)
-      await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName })
-        .in('match_id', matchIds).eq('pubg_player_name', pubgPlayerName)
-    } else {
-      await supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName }).eq('id', statId)
-    }
     const aliasSet = new Set<string>([
       ...(pubgPlayerName ? [pubgPlayerName] : []),
       entityName,
       ...(displayName && displayName !== entityName ? [displayName] : []),
     ].filter(Boolean))
-    for (const alias of aliasSet) {
-      await supabase.from('player_aliases').upsert([{ player_id: playerId, alias }], { onConflict: 'player_id,alias', ignoreDuplicates: true })
-    }
+    const aliasRows = [...aliasSet].map(alias => ({ player_id: playerId, alias }))
+    const statsUpdate = pubgPlayerName && matches.length > 0
+      ? supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName })
+          .in('match_id', matches.map(m => m.id)).eq('pubg_player_name', pubgPlayerName)
+      : supabase.from('match_player_stats').update({ player_id: playerId, display_name: displayName }).eq('id', statId)
+    await Promise.all([
+      statsUpdate,
+      supabase.from('player_aliases').upsert(aliasRows, { onConflict: 'player_id,alias', ignoreDuplicates: true }),
+    ])
     // Re-pin the player's global team to whichever match they most recently played in
     await supabase.rpc('sync_player_current_teams', { player_ids: [playerId] })
     setLinkModal(null)

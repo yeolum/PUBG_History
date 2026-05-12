@@ -210,25 +210,25 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   const now = new Date().toISOString()
 
   // ── 1. Stage player stats ─────────────────────────────────────────
-  for (const stage of stages) {
+  await Promise.all(stages.map((stage) => {
     const matchIds = matchIdsByStage.get(stage.id as string) ?? []
-    if (matchIds.length === 0) continue
+    if (matchIds.length === 0) return Promise.resolve()
     const rows = matchIds.flatMap((mid) => psByMatch.get(mid) ?? [])
     const statsMap = aggregatePlayerStats(rows, displayNameByTeam, accountIdToPlayerId)
     const toInsert = [...statsMap.values()].map((e) => ({ ...e, stage_id: stage.id, updated_at: now }))
-    if (toInsert.length > 0) await insertPlayerRows(db, 'stage_player_stats', toInsert as AnyRow[])
-  }
+    return toInsert.length > 0 ? insertPlayerRows(db, 'stage_player_stats', toInsert as AnyRow[]) : Promise.resolve()
+  }))
 
   // ── 2. Series player stats ────────────────────────────────────────
-  for (const sr of seriesList) {
+  await Promise.all(seriesList.map((sr) => {
     const srStages = stages.filter((s) => s.series_id === sr.id)
     const matchIds = srStages.flatMap((s) => matchIdsByStage.get(s.id as string) ?? [])
-    if (matchIds.length === 0) continue
+    if (matchIds.length === 0) return Promise.resolve()
     const rows = matchIds.flatMap((mid) => psByMatch.get(mid) ?? [])
     const statsMap = aggregatePlayerStats(rows, displayNameByTeam, accountIdToPlayerId)
     const toInsert = [...statsMap.values()].map((e) => ({ ...e, series_id: sr.id, updated_at: now }))
-    if (toInsert.length > 0) await insertPlayerRows(db, 'series_player_stats', toInsert as AnyRow[])
-  }
+    return toInsert.length > 0 ? insertPlayerRows(db, 'series_player_stats', toInsert as AnyRow[]) : Promise.resolve()
+  }))
 
   // ── 3. Tournament team stats (total matches only) ─────────────────
   const teamStatsMap = new Map<string, {
@@ -258,13 +258,6 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   const teamRows = [...teamStatsMap.values()].map((e) => ({ ...e, tournament_id: tournamentId, updated_at: now }))
   const playerRows = [...playerStatsMap.values()].map((e) => ({ ...e, tournament_id: tournamentId, updated_at: now }))
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  for (let off = 0; off < teamRows.length; off += BATCH) {
-    const { error } = await db.from('tournament_team_stats').insert(teamRows.slice(off, off + BATCH) as any)
-    if (error) console.error('[compute-stats] tournament_team_stats insert failed:', error.message)
-  }
-  await insertPlayerRows(db, 'tournament_player_stats', playerRows as AnyRow[])
-
   // ── 5. 100킬 클럽 (tournament_player_stats에서 kills >= 100인 선수) ─────
   const killClubRows = playerRows
     .filter((r) => (r.kills as number) >= 100)
@@ -280,8 +273,29 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       damage: r.damage,
       updated_at: now,
     }))
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const teamBatches: Promise<{ error: any }>[] = []
+  for (let off = 0; off < teamRows.length; off += BATCH) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    teamBatches.push(db.from('tournament_team_stats').insert(teamRows.slice(off, off + BATCH) as any))
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const killClubBatches: Promise<{ error: any }>[] = []
   for (let off = 0; off < killClubRows.length; off += BATCH) {
-    const { error } = await db.from('kill_club_100').insert(killClubRows.slice(off, off + BATCH) as any)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    killClubBatches.push(db.from('kill_club_100').insert(killClubRows.slice(off, off + BATCH) as any))
+  }
+
+  const results = await Promise.all([
+    Promise.all(teamBatches),
+    insertPlayerRows(db, 'tournament_player_stats', playerRows as AnyRow[]),
+    Promise.all(killClubBatches),
+  ])
+  for (const { error } of results[0]) {
+    if (error) console.error('[compute-stats] tournament_team_stats insert failed:', error.message)
+  }
+  for (const { error } of results[2]) {
     if (error) console.error('[compute-stats] kill_club_100 insert failed:', error.message)
   }
 

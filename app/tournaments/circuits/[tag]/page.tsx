@@ -141,6 +141,7 @@ export default async function CircuitPage({ params }: Props) {
   const tournaments = (tournamentsData ?? []) as Tournament[]
   if (tournaments.length === 0) notFound()
 
+  const tournamentById = new Map<string, Tournament>(tournaments.map((t) => [t.id, t]))
   const tournamentIds = tournaments.map((t) => t.id)
 
   const stages = await fetchInChunked<AnyRow>(
@@ -385,7 +386,7 @@ export default async function CircuitPage({ params }: Props) {
     if (!breakdownByTeam.has(key)) breakdownByTeam.set(key, [])
     breakdownByTeam.get(key)!.push({
       tournamentId: tid,
-      tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
+      tournamentName: tournamentById.get(tid)?.name ?? tid,
       matches: (r.games as number) ?? 0,
       wins: (r.wwcd as number) ?? 0,
       kills: (r.total_kills as number) ?? 0,
@@ -396,8 +397,8 @@ export default async function CircuitPage({ params }: Props) {
   const teamStats: CircuitTeamStat[] = [...globalTeamMap.entries()]
     .map(([key, t]) => {
       const breakdown = (breakdownByTeam.get(key) ?? []).sort((a, b) => {
-        const ta = tournaments.find((x) => x.id === a.tournamentId)?.start_date ?? ''
-        const tb = tournaments.find((x) => x.id === b.tournamentId)?.start_date ?? ''
+        const ta = tournamentById.get(a.tournamentId)?.start_date ?? ''
+        const tb = tournamentById.get(b.tournamentId)?.start_date ?? ''
         return tb > ta ? 1 : tb < ta ? -1 : 0
       })
       return { teamId: t.teamId, teamName: t.teamName, logoUrl: t.logoUrl, tournaments: t.tournamentSet.size, matches: t.matches, wins: t.wins, kills: t.kills, damage: t.damage, breakdown }
@@ -432,7 +433,7 @@ export default async function CircuitPage({ params }: Props) {
     if (!breakdownByPlayer.has(key)) breakdownByPlayer.set(key, [])
     breakdownByPlayer.get(key)!.push({
       tournamentId: tid,
-      tournamentName: tournaments.find((x) => x.id === tid)?.name ?? tid,
+      tournamentName: tournamentById.get(tid)?.name ?? tid,
       matches: (r.games as number) ?? 0,
       kills: (r.kills as number) ?? 0,
       assists: (r.assists as number) ?? 0,
@@ -465,8 +466,8 @@ export default async function CircuitPage({ params }: Props) {
     .map(([key, p]) => {
       const current = p.playerId ? playerCurrentTeam.get(p.playerId) : null
       const breakdown = (breakdownByPlayer.get(key) ?? []).sort((a, b) => {
-        const ta = tournaments.find((x) => x.id === a.tournamentId)?.start_date ?? ''
-        const tb = tournaments.find((x) => x.id === b.tournamentId)?.start_date ?? ''
+        const ta = tournamentById.get(a.tournamentId)?.start_date ?? ''
+        const tb = tournamentById.get(b.tournamentId)?.start_date ?? ''
         return tb > ta ? 1 : tb < ta ? -1 : 0
       })
       return {
@@ -481,7 +482,7 @@ export default async function CircuitPage({ params }: Props) {
   const killClub100: KillClub100Entry[] = kcRows
     .map((r) => ({
       tournamentId: r.tournament_id as string,
-      tournamentName: tournaments.find((t) => t.id === r.tournament_id)?.name ?? (r.tournament_id as string),
+      tournamentName: tournamentById.get(r.tournament_id as string)?.name ?? (r.tournament_id as string),
       playerId: (r.player_id ?? null) as string | null,
       nickname: r.nickname as string,
       teamId: (r.team_id ?? null) as string | null,
