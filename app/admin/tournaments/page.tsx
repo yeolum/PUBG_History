@@ -8,14 +8,27 @@ import RefreshAllStatsButton from '@/components/admin/RefreshAllStatsButton'
 export const dynamic = 'force-dynamic'
 export const metadata: Metadata = { title: 'Tournament Management' }
 
+async function fetchAllTournaments(supabase: Awaited<ReturnType<typeof createClient>>) {
+  const PAGE = 1000
+  const rows: Tournament[] = []
+  let page = 0
+  while (true) {
+    const { data } = await supabase
+      .from('tournaments')
+      .select('*')
+      .order('start_date', { ascending: false })
+      .range(page * PAGE, (page + 1) * PAGE - 1)
+    if (!data || data.length === 0) break
+    rows.push(...(data as Tournament[]))
+    if (data.length < PAGE) break
+    page++
+  }
+  return rows
+}
+
 export default async function AdminTournamentsPage() {
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('tournaments')
-    .select('*')
-    .order('start_date', { ascending: false })
-
-  const tournaments = (data ?? []) as Tournament[]
+  const tournaments = await fetchAllTournaments(supabase)
 
   return (
     <div className="p-8">
