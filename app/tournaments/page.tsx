@@ -17,7 +17,8 @@ export default async function TournamentsPage() {
     const { data } = await supabase
       .from('tournaments')
       .select('*')
-      .order('start_date', { ascending: false })
+      .order('start_date', { ascending: false, nullsFirst: false })
+      .order('id')
       .range(page * PAGE, (page + 1) * PAGE - 1)
     if (!data || data.length === 0) break
     tournaments.push(...(data as Tournament[]))

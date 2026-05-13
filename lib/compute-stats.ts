@@ -259,20 +259,27 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   const playerRows = [...playerStatsMap.values()].map((e) => ({ ...e, tournament_id: tournamentId, updated_at: now }))
 
   // ── 5. 100킬 클럽 (tournament_player_stats에서 kills >= 100인 선수) ─────
-  const killClubRows = playerRows
-    .filter((r) => (r.kills as number) >= 100)
-    .map((r) => ({
-      tournament_id: tournamentId,
-      player_id: r.player_id ?? null,
-      nickname: r.nickname,
-      team_id: r.team_id ?? null,
-      team_name: r.team_name,
-      logo_url: r.logo_url ?? null,
-      kills: r.kills,
-      games: r.games,
-      damage: r.damage,
-      updated_at: now,
-    }))
+  const killClubByNickname = new Map<string, AnyRow>()
+  for (const r of playerRows) {
+    if ((r.kills as number) < 100) continue
+    const nick = (r.nickname as string).toLowerCase()
+    const existing = killClubByNickname.get(nick)
+    if (!existing || (r.kills as number) > (existing.kills as number)) {
+      killClubByNickname.set(nick, {
+        tournament_id: tournamentId,
+        player_id: r.player_id ?? null,
+        nickname: r.nickname,
+        team_id: r.team_id ?? null,
+        team_name: r.team_name,
+        logo_url: r.logo_url ?? null,
+        kills: r.kills,
+        games: r.games,
+        damage: r.damage,
+        updated_at: now,
+      })
+    }
+  }
+  const killClubRows = [...killClubByNickname.values()]
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async function batchInsert(table: string, rows: any[]): Promise<void> {

@@ -16,7 +16,8 @@ async function fetchAllTournaments(supabase: Awaited<ReturnType<typeof createCli
     const { data } = await supabase
       .from('tournaments')
       .select('*')
-      .order('start_date', { ascending: false })
+      .order('start_date', { ascending: false, nullsFirst: false })
+      .order('id')
       .range(page * PAGE, (page + 1) * PAGE - 1)
     if (!data || data.length === 0) break
     rows.push(...(data as Tournament[]))
@@ -35,7 +36,10 @@ export default async function AdminTournamentsPage() {
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-2xl font-bold text-gray-900">Tournament Management</h1>
         <div className="flex items-center gap-3">
-          <RefreshAllStatsButton tournamentIds={tournaments.map(t => t.id)} />
+          <RefreshAllStatsButton
+            tournamentIds={tournaments.map(t => t.id)}
+            tournamentNames={Object.fromEntries(tournaments.map(t => [t.id, t.short_name ?? t.name]))}
+          />
           <Link
             href="/admin/tournaments/new"
             className="bg-yellow-400 hover:bg-yellow-300 text-gray-900 font-semibold text-sm px-4 py-2 rounded-lg transition-colors"
