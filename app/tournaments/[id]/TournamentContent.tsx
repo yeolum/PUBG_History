@@ -15,6 +15,23 @@ const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_na
 const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
 const PAGE = 1000
 
+// Paginates any pre-built Supabase query, returning { data: rows } to match
+// the existing destructuring pattern. Handles PostgREST's 1000-row cap.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllRows<T>(query: any): Promise<{ data: T[] }> {
+  const rows: T[] = []
+  let pg = 0
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: batch } = await (query as any).order('id').range(pg * PAGE, (pg + 1) * PAGE - 1)
+    if (!batch || batch.length === 0) break
+    rows.push(...(batch as T[]))
+    if (batch.length < PAGE) break
+    pg++
+  }
+  return { data: rows }
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function fetchAllPages(supabase: ReturnType<typeof createPublicClient>, table: string, select: string, matchIds: string[]): Promise<AnyRow[]> {
   // Chunk match_ids so the .in() list doesn't overflow PostgREST / proxy URL
@@ -61,9 +78,9 @@ const loadTournamentData = unstable_cache(
     const svcSupabase = createServiceClient()
 
     const aliasQueriesPromise = Promise.all([
-      supabase.from('team_aliases').select('team_id, alias, logo_url'),
+      fetchAllRows<AnyRow>(supabase.from('team_aliases').select('team_id, alias, logo_url')),
       supabase.from('team_drop_locations').select('id, team_id, map_name, x, y, teams(name, logo_url)').eq('tournament_id', id),
-      supabase.from('player_aliases').select('alias, player_id'),
+      fetchAllRows<AnyRow>(supabase.from('player_aliases').select('alias, player_id')),
     ])
 
     const [{ data: stagesData }, { data: prizeConfigData }, { data: seriesData }] = await Promise.all([
@@ -126,9 +143,9 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
       supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count, scoring_rule_id, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
-      supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id'),
-      stageIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('stage_player_stats').select(SPS_SELECT).in('stage_id', stageIds),
-      seriesIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('series_player_stats').select(SRPS_SELECT).in('series_id', seriesIds),
+      stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id').in('stage_id', stageIds)),
+      stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('stage_player_stats').select(SPS_SELECT).in('stage_id', stageIds)),
+      seriesIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('series_player_stats').select(SRPS_SELECT).in('series_id', seriesIds)),
     ])
 
     const allMatches = await matchesPromise
@@ -154,7 +171,7 @@ const loadTournamentData = unstable_cache(
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       sideQueriesPromise,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (supabase as any).from('tournament_player_stats').select('*').eq('tournament_id', id),
+      fetchAllRows<AnyRow>((supabase as any).from('tournament_player_stats').select('*').eq('tournament_id', id)),
     ])
 
     return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData }

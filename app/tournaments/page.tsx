@@ -10,12 +10,20 @@ export const metadata: Metadata = { title: '대회 목록' }
 
 export default async function TournamentsPage() {
   const supabase = createPublicClient()
-  const { data } = await supabase
-    .from('tournaments')
-    .select('*')
-    .order('start_date', { ascending: false })
-
-  const tournaments = (data ?? []) as Tournament[]
+  const PAGE = 1000
+  const tournaments: Tournament[] = []
+  let page = 0
+  while (true) {
+    const { data } = await supabase
+      .from('tournaments')
+      .select('*')
+      .order('start_date', { ascending: false })
+      .range(page * PAGE, (page + 1) * PAGE - 1)
+    if (!data || data.length === 0) break
+    tournaments.push(...(data as Tournament[]))
+    if (data.length < PAGE) break
+    page++
+  }
 
   return (
     <>

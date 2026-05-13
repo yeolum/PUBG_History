@@ -57,6 +57,23 @@ interface Props {
   onClose: () => void
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllPaged(query: any): Promise<any[]> {
+  const PAGE = 1000
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = []
+  let page = 0
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: batch } = await (query as any).order('id').range(page * PAGE, (page + 1) * PAGE - 1)
+    if (!batch || batch.length === 0) break
+    rows.push(...batch)
+    if (batch.length < PAGE) break
+    page++
+  }
+  return rows
+}
+
 export default function CsvImportModal({ type, onDone, onClose }: Props) {
   const supabase = createClient()
   const fileRef = useRef<HTMLInputElement>(null)
@@ -117,8 +134,10 @@ export default function CsvImportModal({ type, onDone, onClose }: Props) {
         }
       }
     } else {
-      const { data: teamRows } = await supabase.from('teams').select('id, name')
-      const { data: aliasRows } = await supabase.from('team_aliases').select('alias, team_id')
+      const [teamRows, aliasRows] = await Promise.all([
+        fetchAllPaged(supabase.from('teams').select('id, name')),
+        fetchAllPaged(supabase.from('team_aliases').select('alias, team_id')),
+      ])
       const teamMap: Record<string, string> = {}
       for (const t of teamRows ?? []) teamMap[t.name.toLowerCase()] = t.id
       for (const a of aliasRows ?? []) teamMap[a.alias.toLowerCase()] = a.team_id

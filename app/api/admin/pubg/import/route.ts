@@ -31,6 +31,23 @@ function serviceClient() {
   )
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllPaged(query: any): Promise<any[]> {
+  const PAGE = 1000
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = []
+  let page = 0
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: batch } = await (query as any).order('id').range(page * PAGE, (page + 1) * PAGE - 1)
+    if (!batch || batch.length === 0) break
+    rows.push(...batch)
+    if (batch.length < PAGE) break
+    page++
+  }
+  return rows
+}
+
 function majority(values: string[]): string | null {
   if (values.length === 0) return null
   const counts: Record<string, number> = {}
@@ -146,9 +163,14 @@ export async function POST(req: NextRequest) {
   if (allowedPlayerIds) playerAliasesQuery = playerAliasesQuery.in('player_id', [...allowedPlayerIds])
 
   const [
-    [{ data: teamAliasRows }, { data: teamRows }, { data: playerAliasRows }, { data: playerRows }],
+    [teamAliasRows, teamRows, playerAliasRows, playerRows],
   ] = await Promise.all([
-    Promise.all([teamAliasesQuery, teamsQuery, playerAliasesQuery, playersQuery]),
+    Promise.all([
+      fetchAllPaged(teamAliasesQuery),
+      fetchAllPaged(teamsQuery),
+      fetchAllPaged(playerAliasesQuery),
+      fetchAllPaged(playersQuery),
+    ]),
     db.from('matches').update({
       match_date: matchData.matchDate,
       map: matchData.map,
