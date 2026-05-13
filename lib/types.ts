@@ -12,6 +12,7 @@ export interface Team {
   description: string | null
   league: string | null
   is_active: boolean
+  parent_team_id: string | null
   created_at: string
   updated_at: string
 }

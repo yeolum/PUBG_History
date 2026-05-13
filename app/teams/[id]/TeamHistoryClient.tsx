@@ -6,6 +6,14 @@ import { getMapDisplayName } from '@/lib/pubg-api'
 import Pagination from '@/components/Pagination'
 import { formatPrize } from '@/lib/currency'
 
+interface SubTeamResult {
+  teamId: string
+  teamName: string
+  rank: number | null
+  rankLabel: string | null
+  prize: number | null
+}
+
 interface TourEntry {
   id: string
   name: string
@@ -19,6 +27,7 @@ interface TourEntry {
   finalStageRankLabel: string | null
   finalStagePrize: number | null
   currency: string
+  subTeamResults: SubTeamResult[]
 }
 
 interface MatchResult {
@@ -37,6 +46,7 @@ interface MatchResult {
   tourName: string | null
   year: number | null
   tourType: string | null
+  subTeamName: string | null
 }
 
 interface RosterPlayer {
@@ -224,10 +234,24 @@ export default function TeamHistoryClient({
                         </Link>
                         {te.finalStageRankLabel === 'DQ' ? (
                           <span className="text-xs font-bold text-red-500 shrink-0">DQ</span>
-                        ) : te.finalStageRank != null && (
+                        ) : te.finalStageRank != null ? (
                           <span className="text-base font-bold text-yellow-500 shrink-0">#{te.finalStageRank}</span>
-                        )}
+                        ) : null}
                       </div>
+                      {te.subTeamResults.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mb-1">
+                          {te.subTeamResults.map((sr) => (
+                            <span key={sr.teamId} className="inline-flex items-center gap-0.5 text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 font-medium">
+                              {sr.teamName}
+                              {sr.rankLabel === 'DQ' ? (
+                                <span className="text-red-500 font-bold ml-0.5">DQ</span>
+                              ) : sr.rank != null ? (
+                                <span className="text-gray-800 font-bold ml-0.5">#{sr.rank}</span>
+                              ) : null}
+                            </span>
+                          ))}
+                        </div>
+                      )}
                       {(te.startDate || te.endDate) && (
                         <p className="text-[11px] text-gray-400 mb-2">{te.startDate ?? '?'} ~ {te.endDate ?? '?'}</p>
                       )}
@@ -281,18 +305,32 @@ export default function TeamHistoryClient({
                         )}
                       </div>
                     </div>
-                    {te.finalStageRankLabel === 'DQ' ? (
-                      <div className="text-right shrink-0">
+                    <div className="text-right shrink-0 space-y-0.5">
+                      {te.finalStageRankLabel === 'DQ' ? (
                         <p className="text-sm font-bold text-red-500">DQ</p>
-                      </div>
-                    ) : te.finalStageRank != null && (
-                      <div className="text-right shrink-0">
-                        <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
-                        {te.finalStagePrize != null && (
-                          <p className="text-xs text-yellow-600 font-medium">{formatPrize(te.finalStagePrize, te.currency)}</p>
-                        )}
-                      </div>
-                    )}
+                      ) : te.finalStageRank != null ? (
+                        <>
+                          <p className="text-base font-bold text-gray-900">#{te.finalStageRank}</p>
+                          {te.finalStagePrize != null && (
+                            <p className="text-xs text-yellow-600 font-medium">{formatPrize(te.finalStagePrize, te.currency)}</p>
+                          )}
+                        </>
+                      ) : null}
+                      {te.subTeamResults.length > 0 && (
+                        <div className="flex flex-wrap justify-end gap-1 mt-0.5">
+                          {te.subTeamResults.map((sr) => (
+                            <span key={sr.teamId} className="inline-flex items-center gap-0.5 text-[10px] bg-gray-100 text-gray-600 rounded px-1.5 py-0.5 font-medium">
+                              {sr.teamName}
+                              {sr.rankLabel === 'DQ' ? (
+                                <span className="text-red-500 font-bold ml-0.5">DQ</span>
+                              ) : sr.rank != null ? (
+                                <span className="text-gray-800 font-bold ml-0.5">#{sr.rank}</span>
+                              ) : null}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -332,6 +370,9 @@ export default function TeamHistoryClient({
             {pagedMatches.map((r) => (
               <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
                 <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+                  {r.subTeamName && (
+                    <span className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-medium shrink-0">{r.subTeamName}</span>
+                  )}
                   {r.tourId && (
                     <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
                       {r.tourName}

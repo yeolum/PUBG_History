@@ -772,3 +772,12 @@ DROP POLICY IF EXISTS "tournament_final_standings_public_read"   ON tournament_f
 DROP POLICY IF EXISTS "tournament_final_standings_service_write" ON tournament_final_standings;
 CREATE POLICY "tournament_final_standings_public_read"   ON tournament_final_standings FOR SELECT USING (true);
 CREATE POLICY "tournament_final_standings_service_write" ON tournament_final_standings FOR ALL    USING (auth.role() = 'service_role');
+
+-- =====================================================
+-- Migration: parent_team_id — organisational hierarchy
+-- A-1, A-2 can each set parent_team_id = A so that the
+-- A team page aggregates all child team results without
+-- merging the underlying match data.
+-- =====================================================
+ALTER TABLE teams ADD COLUMN IF NOT EXISTS parent_team_id UUID REFERENCES teams(id) ON DELETE SET NULL;
+CREATE INDEX IF NOT EXISTS idx_teams_parent_team ON teams(parent_team_id);

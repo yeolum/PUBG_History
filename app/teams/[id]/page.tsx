@@ -19,21 +19,41 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
 
+type ChildTeam = { id: string; name: string; short_name: string | null }
+type SubTeamResult = { teamId: string; teamName: string; rank: number | null; rankLabel: string | null; prize: number | null }
+
 export default async function TeamDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params
   const supabase = createPublicClient()
 
-  const [{ data: team }, { data: playersData }, { data: aliasesData }] = await Promise.all([
+  const [{ data: team }, { data: playersData }, { data: aliasesData }, { data: childTeamsData }] = await Promise.all([
     supabase.from('teams').select('*').eq('id', id).single(),
     supabase.from('players').select('*').eq('team_id', id).eq('is_active', true).order('nickname'),
     supabase.from('team_aliases').select('*').eq('team_id', id),
+    supabase.from('teams').select('id, name, short_name').eq('parent_team_id', id),
   ])
 
   if (!team) notFound()
   const players = (playersData ?? []) as Player[]
   const aliases = (aliasesData ?? []) as TeamAlias[]
+  const childTeams = (childTeamsData ?? []) as ChildTeam[]
 
-  // All known PUBG team tags for this team (short_name + tag parts from "TAG - Name" aliases)
+  // Fetch parent team info + child team aliases in parallel
+  const parentTeamId = (team as AnyObj).parent_team_id as string | null
+  const childTeamIds = childTeams.map((ct) => ct.id)
+
+  const [parentTeamResult, childAliasesResult] = await Promise.all([
+    parentTeamId
+      ? supabase.from('teams').select('id, name').eq('id', parentTeamId).single()
+      : Promise.resolve({ data: null }),
+    childTeamIds.length > 0
+      ? supabase.from('team_aliases').select('team_id, alias').in('team_id', childTeamIds)
+      : Promise.resolve({ data: [] as { team_id: string; alias: string }[] }),
+  ])
+  const parentTeam = parentTeamResult.data as { id: string; name: string } | null
+  const childAliasRows = (childAliasesResult.data ?? []) as { team_id: string; alias: string }[]
+
+  // Build tag lists for parent team
   const allTags = [
     ...([(team as AnyObj).short_name as string].filter(Boolean)),
     ...(aliasesData ?? []).flatMap((a: AnyObj) => {
@@ -45,6 +65,20 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   ].filter(Boolean)
   const uniqueTags = [...new Set(allTags)] as string[]
 
+  // Build tag lists for each child team
+  const childTeamTagsMap = new Map<string, string[]>()
+  for (const ct of childTeams) {
+    const ctAliases = childAliasRows.filter((a) => a.team_id === ct.id)
+    const ctTags = [
+      ct.short_name,
+      ...ctAliases.flatMap((a) => {
+        const dashIdx = a.alias.indexOf(' - ')
+        return dashIdx !== -1 ? [a.alias.slice(0, dashIdx).trim()] : [a.alias]
+      }),
+    ].filter(Boolean) as string[]
+    childTeamTagsMap.set(ct.id, [...new Set(ctTags)])
+  }
+
   const RESULT_SELECT = `
     id, placement, total_kills,
     matches(id, order_num, map, match_date,
@@ -53,29 +87,48 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         tournaments(id, name, short_name, start_date, end_date, type, currency, banner_url)))
   `
 
-  // Q1: explicitly linked results
-  const { data: linkedData } = await supabase
-    .from('match_team_results')
-    .select(RESULT_SELECT)
-    .eq('team_id', id)
-    .order('created_at', { ascending: false })
-    .limit(2000)
+  // Fetch parent + all child team results in parallel
+  const parentFetch = Promise.all([
+    supabase.from('match_team_results').select(RESULT_SELECT).eq('team_id', id).order('created_at', { ascending: false }).limit(2000),
+    uniqueTags.length > 0
+      ? supabase.from('match_team_results').select(RESULT_SELECT).in('pubg_team_name', uniqueTags).is('team_id', null).limit(2000)
+      : Promise.resolve({ data: [] as AnyObj[] }),
+  ])
+  const childFetches = childTeams.map((ct) => {
+    const ctTags = childTeamTagsMap.get(ct.id) ?? []
+    return Promise.all([
+      supabase.from('match_team_results').select(RESULT_SELECT).eq('team_id', ct.id).order('created_at', { ascending: false }).limit(2000),
+      ctTags.length > 0
+        ? supabase.from('match_team_results').select(RESULT_SELECT).in('pubg_team_name', ctTags).is('team_id', null).limit(2000)
+        : Promise.resolve({ data: [] as AnyObj[] }),
+    ])
+  })
 
-  // Q2: tag-matched results not yet linked to any team
-  const { data: tagData } = uniqueTags.length > 0
-    ? await supabase
-        .from('match_team_results')
-        .select(RESULT_SELECT)
-        .in('pubg_team_name', uniqueTags)
-        .is('team_id', null)
-        .limit(2000)
-    : { data: [] }
+  const [[{ data: linkedData }, { data: tagData }], ...childResultPairs] = await Promise.all([parentFetch, ...childFetches])
 
-  // Merge and deduplicate by id
+  // Combine: parent results first, then child results (deduplicated globally)
+  const seenIds = new Set<string>()
+  type TaggedResult = AnyObj & { _subTeamId: string | null; _subTeamName: string | null }
+  const allResults: TaggedResult[] = []
+
   const linkedResults = (linkedData ?? []) as AnyObj[]
   const tagResults = (tagData ?? []) as AnyObj[]
-  const seenIds = new Set(linkedResults.map((r) => r.id))
-  const results = [...linkedResults, ...tagResults.filter((r) => !seenIds.has(r.id))]
+  for (const r of linkedResults) { seenIds.add(r.id); allResults.push({ ...r, _subTeamId: null, _subTeamName: null }) }
+  for (const r of tagResults) {
+    if (!seenIds.has(r.id)) { seenIds.add(r.id); allResults.push({ ...r, _subTeamId: null, _subTeamName: null }) }
+  }
+  for (let i = 0; i < childTeams.length; i++) {
+    const ct = childTeams[i]
+    const ctName = ct.short_name ?? ct.name
+    const [{ data: ctLinked }, { data: ctTag }] = childResultPairs[i]
+    const ctLinkedArr = (ctLinked ?? []) as AnyObj[]
+    const ctTagArr = (ctTag ?? []) as AnyObj[]
+    const ctSeen = new Set(ctLinkedArr.map((r) => r.id))
+    const ctResults = [...ctLinkedArr, ...ctTagArr.filter((r) => !ctSeen.has(r.id))]
+    for (const r of ctResults) {
+      if (!seenIds.has(r.id)) { seenIds.add(r.id); allResults.push({ ...r, _subTeamId: ct.id, _subTeamName: ctName }) }
+    }
+  }
 
   // --- Build tournament map ---
   type TourEntry = {
@@ -85,13 +138,14 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     currency: string
     stages: Map<string, { id: string; name: string; type: string; order_num: number }>
     finalStageRank: number | null
-    finalStageRankLabel: string | null  // 'DQ' when disqualified
+    finalStageRankLabel: string | null
     finalStagePrize: number | null
+    subTeamResults: SubTeamResult[]
   }
   const tourMap = new Map<string, TourEntry>()
   const stageMatchInfo = new Map<string, Array<{ matchId: string; order_num: number }>>()
 
-  for (const r of results) {
+  for (const r of allResults) {
     const m = r.matches as AnyObj | null
     const stage = m?.stages as AnyObj | null
     const tour = stage?.tournaments as AnyObj | null
@@ -109,6 +163,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
         currency: (tour.currency as string) ?? 'USD',
         stages: new Map(),
         finalStageRank: null, finalStageRankLabel: null, finalStagePrize: null,
+        subTeamResults: [],
       })
     }
     const te = tourMap.get(tour.id)!
@@ -127,18 +182,31 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     matches.forEach((m, i) => matchNumMap.set(m.matchId, i + 1))
   }
 
-  // --- Resolve final rank + prize from the tournament's Final Standings table.
-  // Uses the same shared helper that the tournament Scoreboard uses, so the
-  // numbers shown here match the scoreboard exactly (including DQ + bonuses).
+  // --- Resolve final rank + prize for parent team and each child team ---
   await Promise.all(
     [...tourMap.values()].map(async (te) => {
       try {
         const standings = await getTournamentFinalStandings(te.id)
+        // Parent team's standing
         const my = standings.get(id)
-        if (!my) return
-        te.finalStageRank = my.rank === 'DQ' ? null : my.rank
-        te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
-        te.finalStagePrize = my.prize
+        if (my) {
+          te.finalStageRank = my.rank === 'DQ' ? null : (my.rank as number)
+          te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
+          te.finalStagePrize = my.prize
+        }
+        // Child teams' standings (shown per-team in breakdown)
+        for (const ct of childTeams) {
+          const ctS = standings.get(ct.id)
+          if (ctS) {
+            te.subTeamResults.push({
+              teamId: ct.id,
+              teamName: ct.short_name ?? ct.name,
+              rank: ctS.rank === 'DQ' ? null : (ctS.rank as number),
+              rankLabel: ctS.rank === 'DQ' ? 'DQ' : null,
+              prize: ctS.prize,
+            })
+          }
+        }
       } catch {
         // standings unavailable — skip
       }
@@ -173,8 +241,8 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     }
   }
 
-  // Serialize match results for client, sorted by match_date desc (most recent first)
-  const matchResults = results.map((r) => {
+  // Serialize match results for client, sorted by match_date desc
+  const matchResults = allResults.map((r) => {
     const m = r.matches as AnyObj | null
     const stage = m?.stages as AnyObj | null
     const series = stage?.series as AnyObj | null
@@ -196,6 +264,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
       year: tour?.start_date ? new Date(tour.start_date as string).getFullYear() :
             tour?.end_date ? new Date(tour.end_date as string).getFullYear() : null,
       tourType: tour?.type as string | null,
+      subTeamName: r._subTeamName ?? null,
     }
   }).sort((a, b) => (b.matchDate ?? '').localeCompare(a.matchDate ?? ''))
 
@@ -212,6 +281,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
     finalStageRankLabel: te.finalStageRankLabel,
     finalStagePrize: te.finalStagePrize,
     currency: te.currency,
+    subTeamResults: te.subTeamResults,
   }))
 
   return (
@@ -246,6 +316,17 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
               {team.description && (
                 <p className="text-sm text-gray-600 mt-3 leading-relaxed">{team.description}</p>
               )}
+
+              {/* Parent team link */}
+              {parentTeam && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <p className="text-xs font-medium text-gray-400 mb-1">소속 조직</p>
+                  <Link href={`/teams/${parentTeam.id}`} className="text-sm font-medium text-yellow-600 hover:text-yellow-700">
+                    {parentTeam.name}
+                  </Link>
+                </div>
+              )}
+
               {aliases.length > 0 && (
                 <div className="mt-4 pt-4 border-t border-gray-100">
                   <p className="text-xs font-medium text-gray-400 mb-2">Former Names / Aliases</p>
@@ -254,6 +335,21 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
                       <span key={a.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
                         {a.alias}
                       </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Child teams */}
+              {childTeams.length > 0 && (
+                <div className="mt-4 pt-4 border-t border-gray-100">
+                  <p className="text-xs font-medium text-gray-400 mb-2">산하 팀</p>
+                  <div className="flex flex-col gap-1">
+                    {childTeams.map((ct) => (
+                      <Link key={ct.id} href={`/teams/${ct.id}`} className="text-sm text-gray-700 hover:text-yellow-600 transition-colors">
+                        {ct.name}
+                        {ct.short_name && <span className="text-xs text-gray-400 ml-1">({ct.short_name})</span>}
+                      </Link>
                     ))}
                   </div>
                 </div>
