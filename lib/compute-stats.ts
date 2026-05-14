@@ -168,7 +168,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   }
 
   // Fetch ALL player stats (match, teams, players joins) for all imported matches
-  const PS_SELECT = 'match_id, player_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, players(id, nickname), teams(id, name, logo_url)'
+  const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, players(id, nickname), teams(id, name, logo_url)'
 
   const [allTrData, allPsData] = await Promise.all([
     // Fetch team results for ALL imported matches (needed for stage standings + final standings)
@@ -293,7 +293,18 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   await Promise.all([
     batchInsert('tournament_team_stats', teamRows),
     insertPlayerRows(db, 'tournament_player_stats', playerRows as AnyRow[]),
-    batchInsert('kill_club_100', killClubRows),
+    // UPSERT (not INSERT) so a failed prior DELETE does not leave stale rows
+    // that cause a UNIQUE(tournament_id, nickname) conflict on re-insert
+    (async () => {
+      for (let off = 0; off < killClubRows.length; off += BATCH) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const { error } = await (db.from('kill_club_100') as any).upsert(
+          killClubRows.slice(off, off + BATCH),
+          { onConflict: 'tournament_id,nickname' },
+        )
+        if (error) throw new Error(`[compute-stats] kill_club_100 upsert failed: ${error.message}`)
+      }
+    })(),
   ])
 
   // ── 6. Final standings (replicates TournamentContent rankBoard logic) ─

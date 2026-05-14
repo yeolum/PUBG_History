@@ -43,7 +43,8 @@ export async function POST(req: NextRequest) {
     revalidateTag('tournament-data', 'default')
     return NextResponse.json({ ok: true })
   } catch (err) {
-    console.error('[compute-tournament-stats]', err)
-    return NextResponse.json({ error: 'Computation failed' }, { status: 500 })
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[compute-tournament-stats]', tournamentId, msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

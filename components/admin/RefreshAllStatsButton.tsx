@@ -9,6 +9,7 @@ export default function RefreshAllStatsButton({ tournamentIds, tournamentNames }
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
   const [progress, setProgress] = useState(0)
   const [failedIds, setFailedIds] = useState<string[]>([])
+  const [failedReasons, setFailedReasons] = useState<Record<string, string>>({})
 
   async function handleClick() {
     if (state === 'running') return
@@ -17,6 +18,7 @@ export default function RefreshAllStatsButton({ tournamentIds, tournamentNames }
     setFailedIds([])
 
     const failed: string[] = []
+    const failReasons: Record<string, string> = {}
     for (let i = 0; i < tournamentIds.length; i++) {
       try {
         const res = await fetch('/api/admin/compute-tournament-stats', {
@@ -24,14 +26,22 @@ export default function RefreshAllStatsButton({ tournamentIds, tournamentNames }
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tournamentId: tournamentIds[i] }),
         })
-        if (!res.ok) failed.push(tournamentIds[i])
-      } catch {
+        if (!res.ok) {
+          failed.push(tournamentIds[i])
+          try {
+            const body = await res.json()
+            if (body?.error) failReasons[tournamentIds[i]] = body.error
+          } catch { /* ignore */ }
+        }
+      } catch (e) {
         failed.push(tournamentIds[i])
+        if (e instanceof Error) failReasons[tournamentIds[i]] = e.message
       }
       setProgress(i + 1)
     }
 
     setFailedIds(failed)
+    setFailedReasons(failReasons)
     setState(failed.length > 0 ? 'error' : 'done')
   }
 
@@ -60,9 +70,14 @@ export default function RefreshAllStatsButton({ tournamentIds, tournamentNames }
         {label}
       </button>
       {state === 'error' && failedIds.length > 0 && (
-        <div className="text-xs text-red-600 text-right max-w-xs">
+        <div className="text-xs text-red-600 text-right max-w-sm space-y-0.5">
           {failedIds.map((id) => (
-            <div key={id}>{tournamentNames[id] ?? id}</div>
+            <div key={id}>
+              <span className="font-medium">{tournamentNames[id] ?? id}</span>
+              {failedReasons[id] && (
+                <span className="block text-[10px] text-red-400 truncate max-w-xs">{failedReasons[id]}</span>
+              )}
+            </div>
           ))}
         </div>
       )}
