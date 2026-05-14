@@ -781,3 +781,8 @@ CREATE POLICY "tournament_final_standings_service_write" ON tournament_final_sta
 -- =====================================================
 ALTER TABLE teams ADD COLUMN IF NOT EXISTS parent_team_id UUID REFERENCES teams(id) ON DELETE SET NULL;
 CREATE INDEX IF NOT EXISTS idx_teams_parent_team ON teams(parent_team_id);
+
+-- =====================================================
+-- Migration: update tournament type values
+-- =====================================================
+UPDATE tournaments SET type = 'regional' WHERE type IN ('online', 'lan');

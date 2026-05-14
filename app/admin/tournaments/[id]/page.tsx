@@ -16,6 +16,14 @@ import type { ScoringRule } from '@/lib/types'
 import { CURRENCIES, currencySymbol, fmtNumberInput, parseNumberInput, formatPrize } from '@/lib/currency'
 import { revalidatePublic } from '@/lib/revalidate'
 
+function autoStatus(startDate: string, endDate: string): TournamentStatus {
+  const today = new Date().toISOString().slice(0, 10)
+  if (!startDate && !endDate) return 'upcoming'
+  if (startDate && today < startDate) return 'upcoming'
+  if (endDate && today > endDate) return 'completed'
+  return 'ongoing'
+}
+
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
 function navPrize(e: React.KeyboardEvent, rowIdx: number, colIdx: number) {
@@ -1073,10 +1081,9 @@ export default function AdminTournamentDetailPage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Format</label>
-              <select value={form.type ?? 'online'} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as TournamentType }))} className={INPUT_CLS}>
-                <option value="online">Online</option>
-                <option value="lan">LAN</option>
+              <select value={form.type ?? 'regional'} onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as TournamentType }))} className={INPUT_CLS}>
                 <option value="regional">Regional</option>
+                <option value="continental">Continental</option>
                 <option value="global">Global</option>
               </select>
             </div>
@@ -1086,11 +1093,17 @@ export default function AdminTournamentDetailPage() {
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Start Date</label>
-              <input type="date" value={form.start_date ?? ''} onChange={(e) => setForm((f) => ({ ...f, start_date: e.target.value }))} className={INPUT_CLS} />
+              <input type="date" value={form.start_date ?? ''} onChange={(e) => {
+                const v = e.target.value
+                setForm((f) => ({ ...f, start_date: v, status: autoStatus(v, f.end_date ?? '') }))
+              }} className={INPUT_CLS} />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">End Date</label>
-              <input type="date" value={form.end_date ?? ''} onChange={(e) => setForm((f) => ({ ...f, end_date: e.target.value }))} className={INPUT_CLS} />
+              <input type="date" value={form.end_date ?? ''} onChange={(e) => {
+                const v = e.target.value
+                setForm((f) => ({ ...f, end_date: v, status: autoStatus(f.start_date ?? '', v) }))
+              }} className={INPUT_CLS} />
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Prize Pool</label>

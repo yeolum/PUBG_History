@@ -1,5 +1,5 @@
 export type TournamentStatus = 'upcoming' | 'ongoing' | 'completed'
-export type TournamentType = 'online' | 'lan' | 'regional' | 'global'
+export type TournamentType = 'regional' | 'continental' | 'global'
 export type StageType = 'group' | 'playoff' | 'grand_final'
 export type MatchStatus = 'pending' | 'imported' | 'error'
 

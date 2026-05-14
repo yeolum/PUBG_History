@@ -1,10 +1,11 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { TournamentStatus, TournamentType } from '@/lib/types'
 import { CURRENCIES, currencySymbol, fmtNumberInput, parseNumberInput } from '@/lib/currency'
+import ImageUpload from '@/components/admin/ImageUpload'
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent'
 
@@ -17,18 +18,40 @@ function Field({ label, children, col2 }: { label: string; children: React.React
   )
 }
 
+function autoStatus(startDate: string, endDate: string): TournamentStatus {
+  const today = new Date().toISOString().slice(0, 10)
+  if (!startDate && !endDate) return 'upcoming'
+  if (startDate && today < startDate) return 'upcoming'
+  if (endDate && today > endDate) return 'completed'
+  return 'ongoing'
+}
+
+const STATUS_LABEL: Record<TournamentStatus, string> = {
+  upcoming: 'Upcoming',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+}
+
+const STATUS_COLOR: Record<TournamentStatus, string> = {
+  upcoming: 'bg-gray-100 text-gray-600',
+  ongoing: 'bg-green-100 text-green-700',
+  completed: 'bg-blue-100 text-blue-700',
+}
+
 export default function NewTournamentPage() {
   const router = useRouter()
   const supabase = createClient()
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
 
+  const [tournamentId] = useState(() => crypto.randomUUID())
+  const [bannerUrl, setBannerUrl] = useState<string | null>(null)
+
   const [form, setForm] = useState({
     name: '',
     short_name: '',
     tag: '',
-    status: 'upcoming' as TournamentStatus,
-    type: 'online' as TournamentType,
+    type: 'regional' as TournamentType,
     region: '',
     start_date: '',
     end_date: '',
@@ -39,6 +62,11 @@ export default function NewTournamentPage() {
   })
   const [prizeCurrency, setPrizeCurrency] = useState('USD')
   const [prizePoolInput, setPrizePoolInput] = useState('')
+
+  const computedStatus = useMemo(
+    () => autoStatus(form.start_date, form.end_date),
+    [form.start_date, form.end_date],
+  )
 
   function set<K extends keyof typeof form>(key: K, value: typeof form[K]) {
     setForm((f) => ({ ...f, [key]: value }))
@@ -51,10 +79,11 @@ export default function NewTournamentPage() {
     setError('')
     try {
       const { data, error: insertErr } = await supabase.from('tournaments').insert([{
+        id: tournamentId,
         name: form.name.trim(),
         short_name: form.short_name.trim() || null,
         tag: form.tag.trim() || null,
-        status: form.status,
+        status: computedStatus,
         type: form.type,
         region: form.region.trim() || null,
         start_date: form.start_date || null,
@@ -65,6 +94,7 @@ export default function NewTournamentPage() {
         has_prize: form.has_prize,
         has_pgs_points: form.has_pgs_points,
         has_pgc_points: form.has_pgc_points,
+        banner_url: bannerUrl,
       }]).select().single()
 
       if (insertErr) throw insertErr
@@ -111,19 +141,10 @@ export default function NewTournamentPage() {
             />
           </Field>
 
-          <Field label="Status">
-            <select value={form.status} onChange={(e) => set('status', e.target.value as TournamentStatus)} className={INPUT_CLS}>
-              <option value="upcoming">Upcoming</option>
-              <option value="ongoing">Ongoing</option>
-              <option value="completed">Completed</option>
-            </select>
-          </Field>
-
           <Field label="Format">
             <select value={form.type} onChange={(e) => set('type', e.target.value as TournamentType)} className={INPUT_CLS}>
-              <option value="online">Online</option>
-              <option value="lan">LAN</option>
               <option value="regional">Regional</option>
+              <option value="continental">Continental</option>
               <option value="global">Global</option>
             </select>
           </Field>
@@ -144,6 +165,13 @@ export default function NewTournamentPage() {
           <Field label="End Date">
             <input type="date" value={form.end_date} onChange={(e) => set('end_date', e.target.value)} className={INPUT_CLS} />
           </Field>
+
+          <div>
+            <label className="text-xs text-gray-500 block mb-1.5">Status (자동)</label>
+            <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium ${STATUS_COLOR[computedStatus]}`}>
+              {STATUS_LABEL[computedStatus]}
+            </span>
+          </div>
 
           <Field label="Prize Pool">
             <div className="flex gap-2">
@@ -201,9 +229,16 @@ export default function NewTournamentPage() {
             </div>
           </div>
 
-          <p className="col-span-2 text-xs text-gray-400">
-            * Tournament logo / banner can be uploaded after creation via the Edit button.
-          </p>
+          <div className="col-span-2">
+            <ImageUpload
+              currentUrl={bannerUrl}
+              storagePath={`tournaments/${tournamentId}/banner`}
+              onUpdate={(url) => setBannerUrl(url)}
+              shape="wide"
+              size="lg"
+              label="Tournament Logo / Banner"
+            />
+          </div>
 
         </div>
 
