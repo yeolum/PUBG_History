@@ -89,6 +89,7 @@ export default function CircuitContent({
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
   const [expandedPlayers, setExpandedPlayers] = useState<Set<string>>(new Set())
   const [expandedKillClub, setExpandedKillClub] = useState<Set<string>>(new Set())
+  const [expandedKillClubGroups, setExpandedKillClubGroups] = useState<Set<string>>(new Set())
   const [expandedChampTournaments, setExpandedChampTournaments] = useState<Set<string>>(new Set())
 
   function toggleTeam(key: string) {
@@ -99,6 +100,9 @@ export default function CircuitContent({
   }
   function toggleKillClub(key: string) {
     setExpandedKillClub((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
+  }
+  function toggleKillClubGroup(key: string) {
+    setExpandedKillClubGroups((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
   }
   function toggleChampTournament(key: string) {
     setExpandedChampTournaments((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
@@ -229,6 +233,28 @@ export default function CircuitContent({
     }
     return [...map.values()].sort((a, b) => b.count !== a.count ? b.count - a.count : a.nickname.localeCompare(b.nickname))
   }, [killClubRecent])
+
+  // 최근기록: 대회별 그룹 (tournament order preserved from killClubRecent)
+  const killClubByTournament = useMemo(() => {
+    const map = new Map<string, { tournamentId: string; tournamentName: string; entries: KillClub100Entry[] }>()
+    for (const e of killClubRecent) {
+      if (!map.has(e.tournamentId)) map.set(e.tournamentId, { tournamentId: e.tournamentId, tournamentName: e.tournamentName, entries: [] })
+      map.get(e.tournamentId)!.entries.push(e)
+    }
+    for (const g of map.values()) g.entries.sort((a, b) => b.kills - a.kills)
+    return [...map.values()]
+  }, [killClubRecent])
+
+  // 선수 종합기록: 횟수별 그룹
+  const killClubByCount = useMemo(() => {
+    type AggEntry = { playerId: string | null; nickname: string; count: number; entries: KillClub100Entry[] }
+    const map = new Map<number, AggEntry[]>()
+    for (const agg of killClubAggregate) {
+      if (!map.has(agg.count)) map.set(agg.count, [])
+      map.get(agg.count)!.push(agg)
+    }
+    return [...map.entries()].sort((a, b) => b[0] - a[0])
+  }, [killClubAggregate])
 
   const podiumTop3Teams = teamWinRanking.slice(0, 3)
   const podiumRestTeams = teamWinRanking.slice(3)
@@ -815,100 +841,135 @@ export default function CircuitContent({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+                  {/* 최근기록 — 대회별 그룹 */}
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
                       <h3 className="font-semibold text-sm text-gray-900">최근기록</h3>
-                      <span className="text-xs text-gray-400">{killClubRecent.length}건</span>
+                      <span className="text-xs text-gray-400">{killClubRecent.length}건 · {killClubByTournament.length}개 대회</span>
                     </div>
                     <div className="divide-y divide-gray-100">
-                      {killClubRecent.map((e) => (
-                        <div key={`${e.tournamentId}-${e.nickname}`} className="px-4 py-3">
+                      {killClubByTournament.map((group) => (
+                        <div key={group.tournamentId}>
+                          {/* 대회 헤더 */}
                           <Link
-                            href={`/tournaments/${e.tournamentId}`}
-                            className="text-xs font-medium text-gray-400 hover:text-yellow-600 transition-colors block truncate mb-1.5"
+                            href={`/tournaments/${group.tournamentId}`}
+                            className="px-4 py-2 bg-gray-50/80 flex items-center justify-between hover:bg-yellow-50 transition-colors group"
                           >
-                            {e.tournamentName}
+                            <span className="text-xs font-semibold text-gray-600 group-hover:text-yellow-600 transition-colors truncate">{group.tournamentName}</span>
+                            <span className="text-xs text-gray-400 ml-2 shrink-0">{group.entries.length}명</span>
                           </Link>
-                          <div className="flex items-center gap-2">
-                            <div className="flex-1 min-w-0">
-                              <div className="flex items-center gap-1.5 flex-wrap">
-                                {e.playerId ? (
-                                  <Link href={`/players/${e.playerId}`} className="font-semibold text-sm text-gray-900 hover:text-yellow-600 transition-colors">
-                                    {e.nickname}
-                                  </Link>
-                                ) : (
-                                  <span className="font-semibold text-sm text-gray-900">{e.nickname}</span>
-                                )}
-                                <span className="text-gray-200 text-xs">|</span>
-                                <div className="flex items-center gap-1 text-xs text-gray-500">
-                                  {e.logoUrl && (
-                                    // eslint-disable-next-line @next/next/no-img-element
-                                    <img src={e.logoUrl} alt={e.teamName} className="w-3.5 h-3.5 rounded object-contain shrink-0" />
-                                  )}
-                                  {e.teamId ? (
-                                    <Link href={`/teams/${e.teamId}`} className="hover:text-yellow-600 transition-colors">{e.teamName}</Link>
+                          {/* 선수 리스트 */}
+                          {group.entries.map((e) => (
+                            <div key={e.nickname} className="px-4 py-2.5 pl-7 flex items-center gap-2 border-t border-gray-50">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {e.playerId ? (
+                                    <Link href={`/players/${e.playerId}`} className="font-semibold text-sm text-gray-900 hover:text-yellow-600 transition-colors">
+                                      {e.nickname}
+                                    </Link>
                                   ) : (
-                                    <span>{e.teamName}</span>
+                                    <span className="font-semibold text-sm text-gray-900">{e.nickname}</span>
                                   )}
+                                  <span className="text-gray-200 text-xs">|</span>
+                                  <div className="flex items-center gap-1 text-xs text-gray-500">
+                                    {e.logoUrl && (
+                                      // eslint-disable-next-line @next/next/no-img-element
+                                      <img src={e.logoUrl} alt={e.teamName} className="w-3.5 h-3.5 rounded object-contain shrink-0" />
+                                    )}
+                                    {e.teamId ? (
+                                      <Link href={`/teams/${e.teamId}`} className="hover:text-yellow-600 transition-colors">{e.teamName}</Link>
+                                    ) : (
+                                      <span>{e.teamName}</span>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                <span className="font-bold text-yellow-600 text-sm">{e.kills}킬</span>
+                                <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{e.games}경기</span>
+                              </div>
                             </div>
-                            <div className="flex items-center gap-2 shrink-0">
-                              <span className="font-bold text-yellow-600 text-sm">{e.kills}킬</span>
-                              <span className="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded">{e.games}경기</span>
-                            </div>
-                          </div>
+                          ))}
                         </div>
                       ))}
                     </div>
                   </div>
 
+                  {/* 선수 종합기록 — 횟수별 그룹 */}
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
                       <h3 className="font-semibold text-sm text-gray-900">선수 종합기록</h3>
                       <span className="text-xs text-gray-400">{killClubAggregate.length}명</span>
                     </div>
                     <div className="divide-y divide-gray-100">
-                      {killClubAggregate.map((agg) => {
-                        const key = agg.playerId ?? `pubg:${agg.nickname.toLowerCase()}`
-                        const expanded = expandedKillClub.has(key)
+                      {killClubByCount.map(([count, players]) => {
+                        const groupKey = `count:${count}`
+                        const groupExpanded = expandedKillClubGroups.has(groupKey)
                         return (
-                          <div key={key}>
+                          <div key={count}>
+                            {/* 횟수 그룹 헤더 */}
                             <button
-                              onClick={() => toggleKillClub(key)}
+                              onClick={() => toggleKillClubGroup(groupKey)}
                               className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors text-left"
                             >
                               <div className="w-9 h-9 rounded-full bg-yellow-50 border-2 border-yellow-300 flex flex-col items-center justify-center shrink-0">
-                                <span className="text-sm font-bold text-yellow-600 leading-none">{agg.count}</span>
+                                <span className="text-sm font-bold text-yellow-600 leading-none">{count}</span>
                                 <span className="text-[8px] text-yellow-500 leading-none">회</span>
                               </div>
                               <div className="flex-1 min-w-0">
-                                {agg.playerId ? (
-                                  <Link
-                                    href={`/players/${agg.playerId}`}
-                                    onClick={(e) => e.stopPropagation()}
-                                    className="font-semibold text-sm text-gray-900 hover:text-yellow-600 transition-colors block"
-                                  >
-                                    {agg.nickname}
-                                  </Link>
-                                ) : (
-                                  <span className="font-semibold text-sm text-gray-900 block">{agg.nickname}</span>
-                                )}
-                                <span className="text-xs text-gray-400">{agg.count}회 100킬 달성</span>
+                                <p className="text-xs text-gray-500 truncate">
+                                  {players.slice(0, 4).map((p) => p.nickname).join(' · ')}
+                                  {players.length > 4 && <span className="text-gray-400"> 외 {players.length - 4}명</span>}
+                                </p>
+                                <p className="text-xs text-gray-400 mt-0.5">{players.length}명 · {count}회 달성</p>
                               </div>
-                              <span className="text-gray-300 text-[10px] shrink-0">{expanded ? '▼' : '▶'}</span>
+                              <span className="text-gray-300 text-[10px] shrink-0">{groupExpanded ? '▼' : '▶'}</span>
                             </button>
-                            {expanded && (
-                              <div className="px-4 pb-3 pt-1 bg-gray-50/60 space-y-2">
-                                {agg.entries.map((e) => (
-                                  <div key={e.tournamentId} className="flex items-center gap-2 text-xs bg-white border border-gray-100 rounded-lg px-3 py-2">
-                                    <Link href={`/tournaments/${e.tournamentId}`} className="text-gray-600 hover:text-yellow-600 transition-colors flex-1 min-w-0 truncate font-medium">
-                                      {e.tournamentName}
-                                    </Link>
-                                    <span className="text-gray-400 shrink-0">{e.games}경기</span>
-                                    <span className="font-bold text-yellow-600 shrink-0">{e.kills}킬</span>
-                                  </div>
-                                ))}
+
+                            {/* 그룹 펼치기 — 개별 선수 목록 */}
+                            {groupExpanded && (
+                              <div className="bg-gray-50/60 divide-y divide-gray-100 border-t border-gray-100">
+                                {players.map((agg) => {
+                                  const playerKey = agg.playerId ?? `pubg:${agg.nickname.toLowerCase()}`
+                                  const playerExpanded = expandedKillClub.has(playerKey)
+                                  return (
+                                    <div key={playerKey}>
+                                      <button
+                                        onClick={() => toggleKillClub(playerKey)}
+                                        className="w-full px-4 py-2.5 pl-8 flex items-center gap-2 hover:bg-gray-100/60 transition-colors text-left"
+                                      >
+                                        <div className="flex-1 min-w-0">
+                                          {agg.playerId ? (
+                                            <Link
+                                              href={`/players/${agg.playerId}`}
+                                              onClick={(e) => e.stopPropagation()}
+                                              className="font-semibold text-sm text-gray-900 hover:text-yellow-600 transition-colors"
+                                            >
+                                              {agg.nickname}
+                                            </Link>
+                                          ) : (
+                                            <span className="font-semibold text-sm text-gray-900">{agg.nickname}</span>
+                                          )}
+                                        </div>
+                                        <span className="text-gray-300 text-[10px] shrink-0">{playerExpanded ? '▼' : '▶'}</span>
+                                      </button>
+                                      {playerExpanded && (
+                                        <div className="px-4 pb-3 pt-1 pl-8 bg-gray-100/30 space-y-1.5">
+                                          {agg.entries.map((e) => (
+                                            <div key={e.tournamentId} className="flex items-center gap-2 text-xs bg-white border border-gray-100 rounded-lg px-3 py-2">
+                                              <Link href={`/tournaments/${e.tournamentId}`} className="text-gray-600 hover:text-yellow-600 transition-colors flex-1 min-w-0 truncate font-medium">
+                                                {e.tournamentName}
+                                              </Link>
+                                              <span className="text-gray-400 shrink-0">{e.games}경기</span>
+                                              <span className="font-bold text-yellow-600 shrink-0">{e.kills}킬</span>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                               </div>
                             )}
                           </div>
@@ -916,6 +977,7 @@ export default function CircuitContent({
                       })}
                     </div>
                   </div>
+
                 </div>
               )}
             </div>
