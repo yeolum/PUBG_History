@@ -90,7 +90,6 @@ export default function CircuitContent({
   const [expandedPlayers, setExpandedPlayers] = useState<Set<string>>(new Set())
   const [expandedKillClub, setExpandedKillClub] = useState<Set<string>>(new Set())
   const [expandedKillClubGroups, setExpandedKillClubGroups] = useState<Set<string>>(new Set())
-  const [expandedChampTournaments, setExpandedChampTournaments] = useState<Set<string>>(new Set())
 
   function toggleTeam(key: string) {
     setExpandedTeams((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
@@ -104,10 +103,6 @@ export default function CircuitContent({
   function toggleKillClubGroup(key: string) {
     setExpandedKillClubGroups((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
   }
-  function toggleChampTournament(key: string) {
-    setExpandedChampTournaments((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
-  }
-
   const championMap = useMemo(() => {
     const m = new Map<string, CircuitChampion>()
     for (const c of champions) m.set(c.tournamentId, c)
@@ -395,8 +390,8 @@ export default function CircuitContent({
           {/* 선수 서브탭 */}
           {winnersSubTab === 'player' && (
             <div className="flex gap-5 items-start flex-col lg:flex-row">
-              {/* 왼쪽: 선수 단상 + 4위 이하 */}
-              <div className="flex-1 min-w-0">
+              {/* 왼쪽: 선수 단상 + 4위 이하 (고정 너비, 오른쪽 패널에 더 많은 공간 확보) */}
+              <div className="w-full lg:w-72 shrink-0">
                 {podiumTop3Players.length > 0 ? (
                   <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
                     <div className="flex items-end justify-center gap-3">
@@ -469,8 +464,8 @@ export default function CircuitContent({
                 )}
               </div>
 
-              {/* 오른쪽: 대회별 우승팀 선수 리스트 */}
-              <div className="w-full lg:w-72 shrink-0">
+              {/* 오른쪽: 대회별 우승팀 선수 리스트 (flex-1로 넓게 확보) */}
+              <div className="flex-1 min-w-0">
                 <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                   <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
                     <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">대회별 우승 선수</span>
@@ -478,49 +473,29 @@ export default function CircuitContent({
                   <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
                     {tournaments.map((t) => {
                       const entry = champPlayerMap.get(t.id)
-                      const expanded = expandedChampTournaments.has(t.id)
-                      const PREVIEW = 3
                       return (
                         <div key={t.id} className="px-4 py-2.5">
                           <Link href={`/tournaments/${t.id}`} className="text-xs text-gray-500 hover:text-yellow-600 transition-colors block truncate mb-1">
                             {t.name}
                           </Link>
                           {entry && entry.players.length > 0 ? (
-                            <div>
-                              <div className="flex items-center gap-1.5 mb-1.5">
-                                <TeamLogo url={entry.logoUrl} name={entry.teamName} />
-                                <span className="text-xs font-medium text-gray-600 truncate">{entry.teamName}</span>
-                                <span className="text-xs ml-auto shrink-0">🏆</span>
-                              </div>
-                              <div className="flex flex-wrap gap-1">
-                                {(expanded ? entry.players : entry.players.slice(0, PREVIEW)).map((p) => (
-                                  <span key={p.playerId ?? p.nickname}>
-                                    {p.playerId ? (
-                                      <Link href={`/players/${p.playerId}`} className="text-xs text-gray-600 bg-gray-100 hover:bg-yellow-50 hover:text-yellow-700 px-1.5 py-0.5 rounded transition-colors">
-                                        {p.nickname}
-                                      </Link>
-                                    ) : (
-                                      <span className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{p.nickname}</span>
-                                    )}
-                                  </span>
-                                ))}
-                                {!expanded && entry.players.length > PREVIEW && (
-                                  <button
-                                    onClick={() => toggleChampTournament(t.id)}
-                                    className="text-xs text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 transition-colors"
-                                  >
-                                    +{entry.players.length - PREVIEW}명
-                                  </button>
-                                )}
-                                {expanded && entry.players.length > PREVIEW && (
-                                  <button
-                                    onClick={() => toggleChampTournament(t.id)}
-                                    className="text-xs text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 transition-colors"
-                                  >
-                                    접기
-                                  </button>
-                                )}
-                              </div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <TeamLogo url={entry.logoUrl} name={entry.teamName} />
+                              <span className="text-xs font-medium text-gray-700 shrink-0">{entry.teamName}</span>
+                              <span className="text-xs shrink-0">🏆</span>
+                              <span className="text-gray-200 text-xs shrink-0">·</span>
+                              {entry.players.map((p, i) => (
+                                <Fragment key={p.playerId ?? p.nickname}>
+                                  {i > 0 && <span className="text-gray-300 text-xs shrink-0">·</span>}
+                                  {p.playerId ? (
+                                    <Link href={`/players/${p.playerId}`} className="text-xs text-gray-600 hover:text-yellow-600 transition-colors shrink-0">
+                                      {p.nickname}
+                                    </Link>
+                                  ) : (
+                                    <span className="text-xs text-gray-600 shrink-0">{p.nickname}</span>
+                                  )}
+                                </Fragment>
+                              ))}
                             </div>
                           ) : (
                             <span className="text-xs text-gray-300">데이터 없음</span>

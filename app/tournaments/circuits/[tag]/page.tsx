@@ -267,8 +267,14 @@ export default async function CircuitPage({ params }: Props) {
     [...globalPlayerMap.values()].map((p) => p.playerId).filter((x): x is string => !!x),
   )]
 
-  // RTT3: matches + playerCurrentTeam in parallel
-  const [matches, playerCurrentTeamRows] = await Promise.all([
+  // Canonical team IDs from ttsRows + kcRows for DB-registered name/logo lookup
+  const circuitTeamIds = [...new Set([
+    ...ttsRows.map((r) => r.team_id as string | null).filter((x): x is string => !!x),
+    ...kcRows.map((r) => r.team_id as string | null).filter((x): x is string => !!x),
+  ])]
+
+  // RTT3: matches + playerCurrentTeam + canonicalTeams in parallel
+  const [matches, playerCurrentTeamRows, canonicalTeamRows] = await Promise.all([
     fetchInChunked<AnyRow>(
       (chunk) => supabase.from('matches').select('id, stage_id, status').in('stage_id', chunk).eq('status', 'imported'),
       stageIds,
@@ -279,7 +285,18 @@ export default async function CircuitPage({ params }: Props) {
           linkedPlayerIds,
         )
       : Promise.resolve([] as AnyRow[]),
+    circuitTeamIds.length > 0
+      ? fetchInChunked<AnyRow>(
+          (chunk) => supabase.from('teams').select('id, name, logo_url').in('id', chunk),
+          circuitTeamIds,
+        )
+      : Promise.resolve([] as AnyRow[]),
   ])
+
+  const canonicalTeam = new Map<string, { name: string; logoUrl: string | null }>()
+  for (const r of canonicalTeamRows) {
+    canonicalTeam.set(r.id as string, { name: r.name as string, logoUrl: (r.logo_url ?? null) as string | null })
+  }
 
   const stageToTournament = new Map<string, string>()
   for (const s of stages) stageToTournament.set(s.id as string, s.tournament_id as string)
@@ -412,7 +429,7 @@ export default async function CircuitPage({ params }: Props) {
   }
 
   // Build team stats from pre-computed tournament_team_stats.
-  // Use the most recent tournament's name/logo so rebranded teams show current identity.
+  // Name/logo: prefer canonical teams table (DB-registered), fall back to stored name.
   const globalTeamMap = new Map<string, {
     teamId: string | null; teamName: string; logoUrl: string | null
     latestDate: string
@@ -425,11 +442,12 @@ export default async function CircuitPage({ params }: Props) {
     const thisDate = tournamentById.get(tid)?.start_date ?? ''
     const key = (r.team_id ?? r.team_name ?? '?') as string
     const ex = globalTeamMap.get(key)
+    const canon = (r.team_id as string | null) ? canonicalTeam.get(r.team_id as string) : undefined
     if (!ex) {
       globalTeamMap.set(key, {
         teamId: (r.team_id ?? null) as string | null,
-        teamName: r.team_name as string,
-        logoUrl: (r.logo_url ?? null) as string | null,
+        teamName: canon?.name ?? r.team_name as string,
+        logoUrl: canon?.logoUrl ?? (r.logo_url ?? null) as string | null,
         latestDate: thisDate,
         tournamentSet: new Set<string>([tid]),
         matches: (r.games as number) ?? 0,
@@ -438,8 +456,11 @@ export default async function CircuitPage({ params }: Props) {
         damage: Number(r.total_damage ?? 0),
       })
     } else {
-      // Update name/logo from the most recent tournament to reflect rebrands
-      if (thisDate > ex.latestDate) {
+      // Canonical teams always win; for unlinked teams use most recent stored name
+      if (canon) {
+        ex.teamName = canon.name
+        ex.logoUrl = canon.logoUrl
+      } else if (thisDate > ex.latestDate) {
         ex.teamName = r.team_name as string
         ex.logoUrl = (r.logo_url ?? null) as string | null
         ex.latestDate = thisDate
@@ -569,18 +590,21 @@ export default async function CircuitPage({ params }: Props) {
   }))
 
   const killClub100: KillClub100Entry[] = kcRows
-    .map((r) => ({
-      tournamentId: r.tournament_id as string,
-      tournamentName: tournamentById.get(r.tournament_id as string)?.name ?? (r.tournament_id as string),
-      playerId: (r.player_id ?? null) as string | null,
-      nickname: r.nickname as string,
-      teamId: (r.team_id ?? null) as string | null,
-      teamName: (r.team_name ?? '') as string,
-      logoUrl: (r.logo_url ?? null) as string | null,
-      kills: (r.kills as number) ?? 0,
-      games: (r.games as number) ?? 0,
-      damage: Number(r.damage ?? 0),
-    }))
+    .map((r) => {
+      const canon = (r.team_id as string | null) ? canonicalTeam.get(r.team_id as string) : undefined
+      return {
+        tournamentId: r.tournament_id as string,
+        tournamentName: tournamentById.get(r.tournament_id as string)?.name ?? (r.tournament_id as string),
+        playerId: (r.player_id ?? null) as string | null,
+        nickname: r.nickname as string,
+        teamId: (r.team_id ?? null) as string | null,
+        teamName: canon?.name ?? (r.team_name ?? '') as string,
+        logoUrl: canon?.logoUrl ?? (r.logo_url ?? null) as string | null,
+        kills: (r.kills as number) ?? 0,
+        games: (r.games as number) ?? 0,
+        damage: Number(r.damage ?? 0),
+      }
+    })
     .sort((a, b) => {
       const da = tournamentById.get(a.tournamentId)?.start_date ?? ''
       const db = tournamentById.get(b.tournamentId)?.start_date ?? ''
