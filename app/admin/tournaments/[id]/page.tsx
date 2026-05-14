@@ -26,6 +26,17 @@ function autoStatus(startDate: string, endDate: string): TournamentStatus {
 
 const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
 
+const STATUS_LABEL: Record<TournamentStatus, string> = {
+  upcoming: 'Upcoming',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+}
+const STATUS_COLOR: Record<TournamentStatus, string> = {
+  upcoming: 'bg-gray-100 text-gray-600',
+  ongoing: 'bg-green-100 text-green-700',
+  completed: 'bg-blue-100 text-blue-700',
+}
+
 function navPrize(e: React.KeyboardEvent, rowIdx: number, colIdx: number) {
   const delta: Record<string, [number, number]> = {
     ArrowUp: [-1, 0], ArrowDown: [1, 0], ArrowLeft: [0, -1], ArrowRight: [0, 1],
@@ -461,7 +472,7 @@ export default function AdminTournamentDetailPage() {
       end_date: form.end_date || null,
       prize_pool: parseNumberInput(prizePoolInput),
       currency: prizeCurrency,
-      status: form.status,
+      status: autoStatus(form.start_date ?? '', form.end_date ?? ''),
       description: form.description || null,
       banner_url: form.banner_url ?? null,
       has_prize: form.has_prize ?? false,
@@ -1072,12 +1083,10 @@ export default function AdminTournamentDetailPage() {
               <input value={form.tag ?? ''} onChange={(e) => setForm((f) => ({ ...f, tag: e.target.value }))} placeholder="PGS25" className={INPUT_CLS} />
             </div>
             <div>
-              <label className="text-xs text-gray-500 block mb-1">Status</label>
-              <select value={form.status ?? 'upcoming'} onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as TournamentStatus }))} className={INPUT_CLS}>
-                <option value="upcoming">Upcoming</option>
-                <option value="ongoing">Ongoing</option>
-                <option value="completed">Completed</option>
-              </select>
+              <label className="text-xs text-gray-500 block mb-1.5">Status (자동)</label>
+              <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium ${STATUS_COLOR[autoStatus(form.start_date ?? '', form.end_date ?? '')]}`}>
+                {STATUS_LABEL[autoStatus(form.start_date ?? '', form.end_date ?? '')]}
+              </span>
             </div>
             <div>
               <label className="text-xs text-gray-500 block mb-1">Format</label>

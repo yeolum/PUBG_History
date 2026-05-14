@@ -1,13 +1,22 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { TournamentStatus, TournamentType } from '@/lib/types'
 import { CURRENCIES, currencySymbol, fmtNumberInput, parseNumberInput } from '@/lib/currency'
 import ImageUpload from '@/components/admin/ImageUpload'
 
-const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400'
+const INPUT_CLS = 'w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-yellow-400 focus:border-transparent'
+
+function Field({ label, children, col2 }: { label: string; children: React.ReactNode; col2?: boolean }) {
+  return (
+    <div className={col2 ? 'col-span-2' : ''}>
+      <label className="text-xs text-gray-500 block mb-1">{label}</label>
+      {children}
+    </div>
+  )
+}
 
 function autoStatus(startDate: string, endDate: string): TournamentStatus {
   const today = new Date().toISOString().slice(0, 10)
@@ -15,6 +24,18 @@ function autoStatus(startDate: string, endDate: string): TournamentStatus {
   if (startDate && today < startDate) return 'upcoming'
   if (endDate && today > endDate) return 'completed'
   return 'ongoing'
+}
+
+const STATUS_LABEL: Record<TournamentStatus, string> = {
+  upcoming: 'Upcoming',
+  ongoing: 'Ongoing',
+  completed: 'Completed',
+}
+
+const STATUS_COLOR: Record<TournamentStatus, string> = {
+  upcoming: 'bg-gray-100 text-gray-600',
+  ongoing: 'bg-green-100 text-green-700',
+  completed: 'bg-blue-100 text-blue-700',
 }
 
 export default function NewTournamentPage() {
@@ -30,7 +51,6 @@ export default function NewTournamentPage() {
     name: '',
     short_name: '',
     tag: '',
-    status: 'upcoming' as TournamentStatus,
     type: 'regional' as TournamentType,
     region: '',
     start_date: '',
@@ -43,6 +63,15 @@ export default function NewTournamentPage() {
   const [prizeCurrency, setPrizeCurrency] = useState('USD')
   const [prizePoolInput, setPrizePoolInput] = useState('')
 
+  const computedStatus = useMemo(
+    () => autoStatus(form.start_date, form.end_date),
+    [form.start_date, form.end_date],
+  )
+
+  function set<K extends keyof typeof form>(key: K, value: typeof form[K]) {
+    setForm((f) => ({ ...f, [key]: value }))
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!form.name.trim()) { setError('Tournament name is required'); return }
@@ -54,7 +83,7 @@ export default function NewTournamentPage() {
         name: form.name.trim(),
         short_name: form.short_name.trim() || null,
         tag: form.tag.trim() || null,
-        status: form.status,
+        status: computedStatus,
         type: form.type,
         region: form.region.trim() || null,
         start_date: form.start_date || null,
@@ -84,101 +113,67 @@ export default function NewTournamentPage() {
       <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="grid grid-cols-2 gap-4">
 
-          <div className="col-span-2">
-            <label className="text-xs text-gray-500 block mb-1">Tournament Name *</label>
+          <Field label="Tournament Name *" col2>
             <input
               value={form.name}
-              onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))}
+              onChange={(e) => set('name', e.target.value)}
               placeholder="e.g. PUBG Global Series 2025"
               className={INPUT_CLS}
               required
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Short Name</label>
+          <Field label="Short Name">
             <input
               value={form.short_name}
-              onChange={(e) => setForm((f) => ({ ...f, short_name: e.target.value }))}
+              onChange={(e) => set('short_name', e.target.value)}
               placeholder="PUBG Global Series 25"
               className={INPUT_CLS}
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Tag</label>
+          <Field label="Tag">
             <input
               value={form.tag}
-              onChange={(e) => setForm((f) => ({ ...f, tag: e.target.value }))}
+              onChange={(e) => set('tag', e.target.value)}
               placeholder="PGS25"
               className={INPUT_CLS}
             />
-          </div>
+          </Field>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Status</label>
-            <select
-              value={form.status}
-              onChange={(e) => setForm((f) => ({ ...f, status: e.target.value as TournamentStatus }))}
-              className={INPUT_CLS}
-            >
-              <option value="upcoming">Upcoming</option>
-              <option value="ongoing">Ongoing</option>
-              <option value="completed">Completed</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Format</label>
-            <select
-              value={form.type}
-              onChange={(e) => setForm((f) => ({ ...f, type: e.target.value as TournamentType }))}
-              className={INPUT_CLS}
-            >
+          <Field label="Format">
+            <select value={form.type} onChange={(e) => set('type', e.target.value as TournamentType)} className={INPUT_CLS}>
               <option value="regional">Regional</option>
               <option value="continental">Continental</option>
               <option value="global">Global</option>
             </select>
-          </div>
+          </Field>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Region</label>
+          <Field label="Region">
             <input
               value={form.region}
-              onChange={(e) => setForm((f) => ({ ...f, region: e.target.value }))}
+              onChange={(e) => set('region', e.target.value)}
               placeholder="Korea, Global..."
               className={INPUT_CLS}
             />
-          </div>
+          </Field>
+
+          <Field label="Start Date">
+            <input type="date" value={form.start_date} onChange={(e) => set('start_date', e.target.value)} className={INPUT_CLS} />
+          </Field>
+
+          <Field label="End Date">
+            <input type="date" value={form.end_date} onChange={(e) => set('end_date', e.target.value)} className={INPUT_CLS} />
+          </Field>
 
           <div>
-            <label className="text-xs text-gray-500 block mb-1">Start Date</label>
-            <input
-              type="date"
-              value={form.start_date}
-              onChange={(e) => {
-                const v = e.target.value
-                setForm((f) => ({ ...f, start_date: v, status: autoStatus(v, f.end_date) }))
-              }}
-              className={INPUT_CLS}
-            />
+            <label className="text-xs text-gray-500 block mb-1.5">Status (자동)</label>
+            <span className={`inline-flex items-center px-3 py-1.5 rounded-lg text-sm font-medium ${STATUS_COLOR[computedStatus]}`}>
+              {STATUS_LABEL[computedStatus]}
+            </span>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">End Date</label>
-            <input
-              type="date"
-              value={form.end_date}
-              onChange={(e) => {
-                const v = e.target.value
-                setForm((f) => ({ ...f, end_date: v, status: autoStatus(f.start_date, v) }))
-              }}
-              className={INPUT_CLS}
-            />
-          </div>
-
-          <div>
-            <label className="text-xs text-gray-500 block mb-1">Prize Pool</label>
+          <Field label="Prize Pool">
             <div className="flex gap-2">
               <select
                 value={prizeCurrency}
@@ -201,29 +196,17 @@ export default function NewTournamentPage() {
                 />
               </div>
             </div>
-          </div>
+          </Field>
 
-          <div className="col-span-2">
-            <label className="text-xs text-gray-500 block mb-1">Description</label>
+          <Field label="Description" col2>
             <textarea
               value={form.description}
-              onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+              onChange={(e) => set('description', e.target.value)}
               rows={2}
               placeholder="Tournament description..."
               className={INPUT_CLS}
             />
-          </div>
-
-          <div className="col-span-2">
-            <ImageUpload
-              currentUrl={bannerUrl}
-              storagePath={`tournaments/${tournamentId}/banner`}
-              onUpdate={(url) => setBannerUrl(url)}
-              shape="wide"
-              size="lg"
-              label="Tournament Logo / Banner"
-            />
-          </div>
+          </Field>
 
           <div className="col-span-2">
             <label className="text-xs text-gray-500 block mb-2">Display Options</label>
@@ -237,13 +220,24 @@ export default function NewTournamentPage() {
                   <input
                     type="checkbox"
                     checked={form[key]}
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.checked }))}
+                    onChange={(e) => set(key, e.target.checked)}
                     className="rounded border-gray-300 text-yellow-400 focus:ring-yellow-400"
                   />
                   <span className="text-sm text-gray-700">{label}</span>
                 </label>
               ))}
             </div>
+          </div>
+
+          <div className="col-span-2">
+            <ImageUpload
+              currentUrl={bannerUrl}
+              storagePath={`tournaments/${tournamentId}/banner`}
+              onUpdate={(url) => setBannerUrl(url)}
+              shape="wide"
+              size="lg"
+              label="Tournament Logo / Banner"
+            />
           </div>
 
         </div>
