@@ -3,10 +3,18 @@
 import { useState, useMemo, Fragment } from 'react'
 import Link from 'next/link'
 import type { Tournament } from '@/lib/types'
-import type { CircuitChampion, CircuitTeamStat, CircuitPlayerStat, KillClub100Entry } from './page'
+import type {
+  CircuitChampion,
+  CircuitTeamStat,
+  CircuitPlayerStat,
+  CircuitPlayerChampion,
+  CircuitTournamentChampionPlayers,
+  KillClub100Entry,
+} from './page'
 import { formatPrize } from '@/lib/currency'
 
 type Tab = 'tournaments' | 'champions' | 'teams' | 'players'
+type WinnersSubTab = 'team' | 'player'
 type PlayerSubTab = 'total' | 'killclub'
 
 type TeamSortKey = 'teamName' | 'tournaments' | 'matches' | 'wins' | 'kills' | 'kpg' | 'damage' | 'adr'
@@ -45,10 +53,18 @@ function SortTh({ label, sortKey, currentKey, dir, onSort }: {
   )
 }
 
+const PODIUM_STYLE = [
+  { order: 0, height: 'h-16', bg: 'bg-gray-200', textColor: 'text-gray-500', medal: '🥈', label: '2nd' },
+  { order: 1, height: 'h-24', bg: 'bg-yellow-400', textColor: 'text-gray-900', medal: '🥇', label: '1st' },
+  { order: 2, height: 'h-10', bg: 'bg-amber-200', textColor: 'text-amber-700', medal: '🥉', label: '3rd' },
+]
+
 export default function CircuitContent({
   tag,
   tournaments,
   champions,
+  playerChampions,
+  tournamentChampionPlayers,
   teamStats,
   playerStats,
   killClub100,
@@ -56,11 +72,14 @@ export default function CircuitContent({
   tag: string
   tournaments: Tournament[]
   champions: CircuitChampion[]
+  playerChampions: CircuitPlayerChampion[]
+  tournamentChampionPlayers: CircuitTournamentChampionPlayers[]
   teamStats: CircuitTeamStat[]
   playerStats: CircuitPlayerStat[]
   killClub100: KillClub100Entry[]
 }) {
   const [tab, setTab] = useState<Tab>('champions')
+  const [winnersSubTab, setWinnersSubTab] = useState<WinnersSubTab>('team')
   const [playerSubTab, setPlayerSubTab] = useState<PlayerSubTab>('total')
   const [teamSortKey, setTeamSortKey] = useState<TeamSortKey>('kills')
   const [teamSortDir, setTeamSortDir] = useState<'asc' | 'desc'>('desc')
@@ -70,6 +89,7 @@ export default function CircuitContent({
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
   const [expandedPlayers, setExpandedPlayers] = useState<Set<string>>(new Set())
   const [expandedKillClub, setExpandedKillClub] = useState<Set<string>>(new Set())
+  const [expandedChampTournaments, setExpandedChampTournaments] = useState<Set<string>>(new Set())
 
   function toggleTeam(key: string) {
     setExpandedTeams((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
@@ -80,12 +100,21 @@ export default function CircuitContent({
   function toggleKillClub(key: string) {
     setExpandedKillClub((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
   }
+  function toggleChampTournament(key: string) {
+    setExpandedChampTournaments((prev) => { const n = new Set(prev); if (n.has(key)) n.delete(key); else n.add(key); return n })
+  }
 
   const championMap = useMemo(() => {
     const m = new Map<string, CircuitChampion>()
     for (const c of champions) m.set(c.tournamentId, c)
     return m
   }, [champions])
+
+  const champPlayerMap = useMemo(() => {
+    const m = new Map<string, CircuitTournamentChampionPlayers>()
+    for (const e of tournamentChampionPlayers) m.set(e.tournamentId, e)
+    return m
+  }, [tournamentChampionPlayers])
 
   // 팀별 우승 횟수 집계 (podium용)
   const teamWinRanking = useMemo(() => {
@@ -101,11 +130,25 @@ export default function CircuitContent({
     return [...map.values()].sort((a, b) => b.count - a.count)
   }, [champions])
 
+  // playerChampions already sorted by wins desc from server
+  const playerWinRanking = playerChampions
+
   function tabBtn(t: Tab, label: string) {
     return (
       <button
         onClick={() => setTab(t)}
         className={`px-5 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
+      >
+        {label}
+      </button>
+    )
+  }
+
+  function winnersSubBtn(t: WinnersSubTab, label: string) {
+    return (
+      <button
+        onClick={() => setWinnersSubTab(t)}
+        className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${winnersSubTab === t ? 'border-yellow-400 text-gray-900' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
       >
         {label}
       </button>
@@ -187,139 +230,283 @@ export default function CircuitContent({
     return [...map.values()].sort((a, b) => b.count !== a.count ? b.count - a.count : a.nickname.localeCompare(b.nickname))
   }, [killClubRecent])
 
-  // Podium: [1]=center-top, [0]=left, [2]=right
-  const podiumTop3 = teamWinRanking.slice(0, 3)
-  const podiumRest = teamWinRanking.slice(3)
+  const podiumTop3Teams = teamWinRanking.slice(0, 3)
+  const podiumRestTeams = teamWinRanking.slice(3)
+  const podiumTop3Players = playerWinRanking.slice(0, 3)
+  const podiumRestPlayers = playerWinRanking.slice(3)
 
-  const PODIUM_STYLE = [
-    // 2nd: left
-    { order: 0, height: 'h-16', bg: 'bg-gray-200', textColor: 'text-gray-500', medal: '🥈', label: '2nd' },
-    // 1st: center
-    { order: 1, height: 'h-24', bg: 'bg-yellow-400', textColor: 'text-gray-900', medal: '🥇', label: '1st' },
-    // 3rd: right
-    { order: 2, height: 'h-10', bg: 'bg-amber-200', textColor: 'text-amber-700', medal: '🥉', label: '3rd' },
-  ]
+  // suppress unused warning
+  void tag
 
   return (
     <div>
-      {/* 탭 순서: 역대 우승팀, 대회 목록, 팀 통계, 선수 통계 */}
+      {/* 메인 탭 */}
       <div className="flex border-b border-gray-200 mb-4 bg-white rounded-t-xl overflow-x-auto">
-        {tabBtn('champions', '역대 우승팀')}
+        {tabBtn('champions', '역대 우승')}
         {tabBtn('tournaments', '대회 목록')}
         {tabBtn('teams', '팀 통계')}
         {tabBtn('players', '선수 통계')}
       </div>
 
-      {/* 역대 우승팀 */}
+      {/* 역대 우승 */}
       {tab === 'champions' && (
-        <div className="flex gap-5 items-start flex-col lg:flex-row">
-          {/* 왼쪽: 단상 + 4위 이하 */}
-          <div className="flex-1 min-w-0">
-            {/* 단상 */}
-            {podiumTop3.length > 0 ? (
-              <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
-                <div className="flex items-end justify-center gap-3 mb-0">
-                  {/* 2nd / 1st / 3rd 순서로 렌더 */}
-                  {[
-                    podiumTop3[1] ? { team: podiumTop3[1], style: PODIUM_STYLE[0] } : null,
-                    podiumTop3[0] ? { team: podiumTop3[0], style: PODIUM_STYLE[1] } : null,
-                    podiumTop3[2] ? { team: podiumTop3[2], style: PODIUM_STYLE[2] } : null,
-                  ].map((item, idx) => {
-                    if (!item) return <div key={idx} className="w-28" />
-                    const { team, style } = item
-                    return (
-                      <div key={team.teamId ?? team.teamName} className="flex flex-col items-center gap-1.5 w-28">
-                        <span className="text-xl">{style.medal}</span>
-                        {team.logoUrl && (
-                          // eslint-disable-next-line @next/next/no-img-element
-                          <img src={team.logoUrl} alt={team.teamName} className="w-10 h-10 rounded object-contain" />
-                        )}
-                        {team.teamId ? (
-                          <Link href={`/teams/${team.teamId}`} className="text-xs font-semibold text-gray-800 hover:text-yellow-600 text-center leading-tight">
-                            {team.teamName}
-                          </Link>
-                        ) : (
-                          <span className="text-xs font-semibold text-gray-800 text-center leading-tight">{team.teamName}</span>
-                        )}
-                        <span className="text-xs text-gray-500">{team.count}회 우승</span>
-                        <div className={`w-full ${style.height} ${style.bg} rounded-t-lg flex items-center justify-center`}>
-                          <span className={`text-lg font-bold ${style.textColor}`}>{style.label}</span>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            ) : (
-              <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400 mb-4">
-                우승 데이터가 없습니다
-              </div>
-            )}
-
-            {/* 4위 이하 리스트 */}
-            {podiumRest.length > 0 && (
-              <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
-                  <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">그 외 우승팀</span>
-                </div>
-                <div className="divide-y divide-gray-100">
-                  {podiumRest.map((team, idx) => (
-                    <div key={team.teamId ?? team.teamName} className="flex items-center gap-3 px-4 py-2.5">
-                      <span className="text-sm font-medium text-gray-400 w-5 shrink-0">{idx + 4}</span>
-                      {team.logoUrl && (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={team.logoUrl} alt={team.teamName} className="w-6 h-6 rounded object-contain shrink-0" />
-                      )}
-                      {team.teamId ? (
-                        <Link href={`/teams/${team.teamId}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600 flex-1 min-w-0 truncate">
-                          {team.teamName}
-                        </Link>
-                      ) : (
-                        <span className="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate">{team.teamName}</span>
-                      )}
-                      <span className="text-xs text-gray-400 shrink-0">{team.count}회</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
+        <div>
+          {/* 서브탭: 팀 / 선수 */}
+          <div className="flex gap-1 mb-4 border-b border-gray-100">
+            {winnersSubBtn('team', '팀')}
+            {winnersSubBtn('player', '선수')}
           </div>
 
-          {/* 오른쪽: 대회별 우승팀 리스트 (대회명 + 우승팀) */}
-          <div className="w-full lg:w-72 shrink-0">
-            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
-                <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">대회별 우승팀</span>
-              </div>
-              <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
-                {tournaments.map((t) => {
-                  const champ = championMap.get(t.id)
-                  return (
-                    <div key={t.id} className="px-4 py-2.5">
-                      <Link href={`/tournaments/${t.id}`} className="text-xs text-gray-500 hover:text-yellow-600 transition-colors block truncate mb-1">
-                        {t.name}
-                      </Link>
-                      {champ ? (
-                        <div className="flex items-center gap-1.5">
-                          <TeamLogo url={champ.logoUrl} name={champ.teamName} />
-                          {champ.teamId ? (
-                            <Link href={`/teams/${champ.teamId}`} className="text-sm font-semibold text-gray-900 hover:text-yellow-600 transition-colors truncate">
-                              {champ.teamName}
+          {/* 팀 서브탭 */}
+          {winnersSubTab === 'team' && (
+            <div className="flex gap-5 items-start flex-col lg:flex-row">
+              {/* 왼쪽: 단상 + 4위 이하 */}
+              <div className="flex-1 min-w-0">
+                {podiumTop3Teams.length > 0 ? (
+                  <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
+                    <div className="flex items-end justify-center gap-3">
+                      {[
+                        podiumTop3Teams[1] ? { team: podiumTop3Teams[1], style: PODIUM_STYLE[0] } : null,
+                        podiumTop3Teams[0] ? { team: podiumTop3Teams[0], style: PODIUM_STYLE[1] } : null,
+                        podiumTop3Teams[2] ? { team: podiumTop3Teams[2], style: PODIUM_STYLE[2] } : null,
+                      ].map((item, idx) => {
+                        if (!item) return <div key={idx} className="w-28" />
+                        const { team, style } = item
+                        return (
+                          <div key={team.teamId ?? team.teamName} className="flex flex-col items-center gap-1.5 w-28">
+                            <span className="text-xl">{style.medal}</span>
+                            {team.logoUrl && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={team.logoUrl} alt={team.teamName} className="w-10 h-10 rounded object-contain" />
+                            )}
+                            {team.teamId ? (
+                              <Link href={`/teams/${team.teamId}`} className="text-xs font-semibold text-gray-800 hover:text-yellow-600 text-center leading-tight">
+                                {team.teamName}
+                              </Link>
+                            ) : (
+                              <span className="text-xs font-semibold text-gray-800 text-center leading-tight">{team.teamName}</span>
+                            )}
+                            <span className="text-xs text-gray-500">{team.count}회 우승</span>
+                            <div className={`w-full ${style.height} ${style.bg} rounded-t-lg flex items-center justify-center`}>
+                              <span className={`text-lg font-bold ${style.textColor}`}>{style.label}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400 mb-4">
+                    우승 데이터가 없습니다
+                  </div>
+                )}
+                {podiumRestTeams.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">그 외 우승팀</span>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {podiumRestTeams.map((team, idx) => (
+                        <div key={team.teamId ?? team.teamName} className="flex items-center gap-3 px-4 py-2.5">
+                          <span className="text-sm font-medium text-gray-400 w-5 shrink-0">{idx + 4}</span>
+                          {team.logoUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={team.logoUrl} alt={team.teamName} className="w-6 h-6 rounded object-contain shrink-0" />
+                          )}
+                          {team.teamId ? (
+                            <Link href={`/teams/${team.teamId}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600 flex-1 min-w-0 truncate">
+                              {team.teamName}
                             </Link>
                           ) : (
-                            <span className="text-sm font-semibold text-gray-900 truncate">{champ.teamName}</span>
+                            <span className="text-sm font-medium text-gray-800 flex-1 min-w-0 truncate">{team.teamName}</span>
                           )}
-                          <span className="text-sm ml-auto shrink-0">🏆</span>
+                          <span className="text-xs text-gray-400 shrink-0">{team.count}회</span>
                         </div>
-                      ) : (
-                        <span className="text-xs text-gray-300">데이터 없음</span>
-                      )}
+                      ))}
                     </div>
-                  )
-                })}
+                  </div>
+                )}
+              </div>
+
+              {/* 오른쪽: 대회별 우승팀 리스트 */}
+              <div className="w-full lg:w-72 shrink-0">
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">대회별 우승팀</span>
+                  </div>
+                  <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
+                    {tournaments.map((t) => {
+                      const champ = championMap.get(t.id)
+                      return (
+                        <div key={t.id} className="px-4 py-2.5">
+                          <Link href={`/tournaments/${t.id}`} className="text-xs text-gray-500 hover:text-yellow-600 transition-colors block truncate mb-1">
+                            {t.name}
+                          </Link>
+                          {champ ? (
+                            <div className="flex items-center gap-1.5">
+                              <TeamLogo url={champ.logoUrl} name={champ.teamName} />
+                              {champ.teamId ? (
+                                <Link href={`/teams/${champ.teamId}`} className="text-sm font-semibold text-gray-900 hover:text-yellow-600 transition-colors truncate">
+                                  {champ.teamName}
+                                </Link>
+                              ) : (
+                                <span className="text-sm font-semibold text-gray-900 truncate">{champ.teamName}</span>
+                              )}
+                              <span className="text-sm ml-auto shrink-0">🏆</span>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-300">데이터 없음</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
+
+          {/* 선수 서브탭 */}
+          {winnersSubTab === 'player' && (
+            <div className="flex gap-5 items-start flex-col lg:flex-row">
+              {/* 왼쪽: 선수 단상 + 4위 이하 */}
+              <div className="flex-1 min-w-0">
+                {podiumTop3Players.length > 0 ? (
+                  <div className="bg-white border border-gray-200 rounded-xl p-6 mb-4">
+                    <div className="flex items-end justify-center gap-3">
+                      {[
+                        podiumTop3Players[1] ? { p: podiumTop3Players[1], style: PODIUM_STYLE[0] } : null,
+                        podiumTop3Players[0] ? { p: podiumTop3Players[0], style: PODIUM_STYLE[1] } : null,
+                        podiumTop3Players[2] ? { p: podiumTop3Players[2], style: PODIUM_STYLE[2] } : null,
+                      ].map((item, idx) => {
+                        if (!item) return <div key={idx} className="w-28" />
+                        const { p, style } = item
+                        return (
+                          <div key={p.playerId ?? p.nickname} className="flex flex-col items-center gap-1.5 w-28">
+                            <span className="text-xl">{style.medal}</span>
+                            {p.logoUrl && (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img src={p.logoUrl} alt={p.teamName} className="w-10 h-10 rounded object-contain" />
+                            )}
+                            {p.playerId ? (
+                              <Link href={`/players/${p.playerId}`} className="text-xs font-semibold text-gray-800 hover:text-yellow-600 text-center leading-tight">
+                                {p.nickname}
+                              </Link>
+                            ) : (
+                              <span className="text-xs font-semibold text-gray-800 text-center leading-tight">{p.nickname}</span>
+                            )}
+                            {p.teamName && (
+                              <span className="text-[10px] text-gray-400 text-center leading-tight truncate w-full px-1">{p.teamName}</span>
+                            )}
+                            <span className="text-xs text-gray-500">{p.wins}회 우승</span>
+                            <div className={`w-full ${style.height} ${style.bg} rounded-t-lg flex items-center justify-center`}>
+                              <span className={`text-lg font-bold ${style.textColor}`}>{style.label}</span>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </div>
+                ) : (
+                  <div className="bg-white border border-gray-200 rounded-xl p-8 text-center text-gray-400 mb-4">
+                    우승 데이터가 없습니다
+                  </div>
+                )}
+                {podiumRestPlayers.length > 0 && (
+                  <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                    <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                      <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">그 외 우승 선수</span>
+                    </div>
+                    <div className="divide-y divide-gray-100">
+                      {podiumRestPlayers.map((p, idx) => (
+                        <div key={p.playerId ?? p.nickname} className="flex items-center gap-3 px-4 py-2.5">
+                          <span className="text-sm font-medium text-gray-400 w-5 shrink-0">{idx + 4}</span>
+                          {p.logoUrl && (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={p.logoUrl} alt={p.teamName} className="w-6 h-6 rounded object-contain shrink-0" />
+                          )}
+                          <div className="flex-1 min-w-0">
+                            {p.playerId ? (
+                              <Link href={`/players/${p.playerId}`} className="text-sm font-medium text-gray-800 hover:text-yellow-600 block truncate">
+                                {p.nickname}
+                              </Link>
+                            ) : (
+                              <span className="text-sm font-medium text-gray-800 block truncate">{p.nickname}</span>
+                            )}
+                            {p.teamName && <span className="text-xs text-gray-400 truncate block">{p.teamName}</span>}
+                          </div>
+                          <span className="text-xs text-gray-400 shrink-0">{p.wins}회</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* 오른쪽: 대회별 우승팀 선수 리스트 */}
+              <div className="w-full lg:w-72 shrink-0">
+                <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-gray-100 bg-gray-50">
+                    <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">대회별 우승 선수</span>
+                  </div>
+                  <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
+                    {tournaments.map((t) => {
+                      const entry = champPlayerMap.get(t.id)
+                      const expanded = expandedChampTournaments.has(t.id)
+                      const PREVIEW = 3
+                      return (
+                        <div key={t.id} className="px-4 py-2.5">
+                          <Link href={`/tournaments/${t.id}`} className="text-xs text-gray-500 hover:text-yellow-600 transition-colors block truncate mb-1">
+                            {t.name}
+                          </Link>
+                          {entry && entry.players.length > 0 ? (
+                            <div>
+                              <div className="flex items-center gap-1.5 mb-1.5">
+                                <TeamLogo url={entry.logoUrl} name={entry.teamName} />
+                                <span className="text-xs font-medium text-gray-600 truncate">{entry.teamName}</span>
+                                <span className="text-xs ml-auto shrink-0">🏆</span>
+                              </div>
+                              <div className="flex flex-wrap gap-1">
+                                {(expanded ? entry.players : entry.players.slice(0, PREVIEW)).map((p) => (
+                                  <span key={p.playerId ?? p.nickname}>
+                                    {p.playerId ? (
+                                      <Link href={`/players/${p.playerId}`} className="text-xs text-gray-600 bg-gray-100 hover:bg-yellow-50 hover:text-yellow-700 px-1.5 py-0.5 rounded transition-colors">
+                                        {p.nickname}
+                                      </Link>
+                                    ) : (
+                                      <span className="text-xs text-gray-600 bg-gray-100 px-1.5 py-0.5 rounded">{p.nickname}</span>
+                                    )}
+                                  </span>
+                                ))}
+                                {!expanded && entry.players.length > PREVIEW && (
+                                  <button
+                                    onClick={() => toggleChampTournament(t.id)}
+                                    className="text-xs text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 transition-colors"
+                                  >
+                                    +{entry.players.length - PREVIEW}명
+                                  </button>
+                                )}
+                                {expanded && entry.players.length > PREVIEW && (
+                                  <button
+                                    onClick={() => toggleChampTournament(t.id)}
+                                    className="text-xs text-gray-400 hover:text-yellow-600 px-1.5 py-0.5 transition-colors"
+                                  >
+                                    접기
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <span className="text-xs text-gray-300">데이터 없음</span>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -496,7 +683,6 @@ export default function CircuitContent({
             </button>
           </div>
 
-          {/* 전체 탭 */}
           {playerSubTab === 'total' && (
             <div>
               <div className="mb-3">
@@ -618,7 +804,6 @@ export default function CircuitContent({
             </div>
           )}
 
-          {/* 100킬 클럽 탭 */}
           {playerSubTab === 'killclub' && (
             <div>
               <p className="text-xs text-gray-400 mb-4">한 대회에서 100킬 이상을 달성한 선수 기록입니다. 통계 재계산 후 갱신됩니다.</p>
@@ -630,8 +815,6 @@ export default function CircuitContent({
                 </div>
               ) : (
                 <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-
-                  {/* 최근기록 — 대회명 상단, 선수/팀/킬/경기 하단 */}
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
                       <h3 className="font-semibold text-sm text-gray-900">최근기록</h3>
@@ -640,14 +823,12 @@ export default function CircuitContent({
                     <div className="divide-y divide-gray-100">
                       {killClubRecent.map((e) => (
                         <div key={`${e.tournamentId}-${e.nickname}`} className="px-4 py-3">
-                          {/* 대회명 — 상단 */}
                           <Link
                             href={`/tournaments/${e.tournamentId}`}
                             className="text-xs font-medium text-gray-400 hover:text-yellow-600 transition-colors block truncate mb-1.5"
                           >
                             {e.tournamentName}
                           </Link>
-                          {/* 선수 + 팀 + 킬/경기 */}
                           <div className="flex items-center gap-2">
                             <div className="flex-1 min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
@@ -682,7 +863,6 @@ export default function CircuitContent({
                     </div>
                   </div>
 
-                  {/* 선수 종합기록 — 횟수 배지 + 선수명 블록 */}
                   <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
                     <div className="px-4 py-3 border-b border-gray-100 bg-gray-50 flex items-center justify-between">
                       <h3 className="font-semibold text-sm text-gray-900">선수 종합기록</h3>
@@ -698,12 +878,10 @@ export default function CircuitContent({
                               onClick={() => toggleKillClub(key)}
                               className="w-full px-4 py-3 flex items-center gap-3 hover:bg-gray-50 transition-colors text-left"
                             >
-                              {/* 횟수 — 원형 배지 */}
                               <div className="w-9 h-9 rounded-full bg-yellow-50 border-2 border-yellow-300 flex flex-col items-center justify-center shrink-0">
                                 <span className="text-sm font-bold text-yellow-600 leading-none">{agg.count}</span>
                                 <span className="text-[8px] text-yellow-500 leading-none">회</span>
                               </div>
-                              {/* 선수명 */}
                               <div className="flex-1 min-w-0">
                                 {agg.playerId ? (
                                   <Link
@@ -738,7 +916,6 @@ export default function CircuitContent({
                       })}
                     </div>
                   </div>
-
                 </div>
               )}
             </div>

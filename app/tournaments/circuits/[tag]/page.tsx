@@ -104,6 +104,23 @@ export interface CircuitChampion {
   matches: number
 }
 
+export interface CircuitPlayerChampion {
+  playerId: string | null
+  nickname: string
+  teamId: string | null
+  teamName: string
+  logoUrl: string | null
+  wins: number
+  breakdown: Array<{ tournamentId: string; tournamentName: string; teamName: string }>
+}
+
+export interface CircuitTournamentChampionPlayers {
+  tournamentId: string
+  teamName: string
+  logoUrl: string | null
+  players: Array<{ playerId: string | null; nickname: string }>
+}
+
 export interface KillClub100Entry {
   tournamentId: string
   tournamentName: string
@@ -176,6 +193,8 @@ export default async function CircuitPage({ params }: Props) {
             tag={tag}
             tournaments={tournaments}
             champions={[]}
+            playerChampions={[]}
+            tournamentChampionPlayers={[]}
             teamStats={[]}
             playerStats={[]}
             killClub100={[]}
@@ -482,6 +501,73 @@ export default async function CircuitPage({ params }: Props) {
     })
     .sort((a, b) => b.kills - a.kills)
 
+  // Championship player data — who was on winning teams across the circuit
+  const championLookup = new Map<string, CircuitChampion>()
+  for (const c of champions) championLookup.set(c.tournamentId, c)
+
+  const champTeamByTournament = new Map<string, string | null>()
+  for (const c of champions) champTeamByTournament.set(c.tournamentId, c.teamId)
+
+  const champPlayersByTournament = new Map<string, Array<{ playerId: string | null; nickname: string }>>()
+  const playerChampMap = new Map<string, {
+    playerId: string | null; nickname: string; wins: number
+    breakdown: Array<{ tournamentId: string; tournamentName: string; teamName: string }>
+  }>()
+
+  for (const r of tpsRows) {
+    const tid = r.tournament_id as string
+    const champTeamId = champTeamByTournament.get(tid)
+    if (champTeamId === undefined || champTeamId === null) continue
+    if (r.team_id !== champTeamId) continue
+
+    if (!champPlayersByTournament.has(tid)) champPlayersByTournament.set(tid, [])
+    champPlayersByTournament.get(tid)!.push({
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+    })
+
+    const key = (r.player_id ?? `pubg:${(r.nickname as string ?? '').toLowerCase()}`) as string
+    const champ = championLookup.get(tid)!
+    const ex = playerChampMap.get(key) ?? {
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+      wins: 0, breakdown: [],
+    }
+    ex.wins++
+    ex.breakdown.push({
+      tournamentId: tid,
+      tournamentName: tournamentById.get(tid)?.name ?? tid,
+      teamName: champ.teamName,
+    })
+    playerChampMap.set(key, ex)
+  }
+
+  const playerChampions: CircuitPlayerChampion[] = [...playerChampMap.values()]
+    .map((p) => {
+      const current = p.playerId ? playerCurrentTeam.get(p.playerId) : null
+      return {
+        playerId: p.playerId,
+        nickname: p.nickname,
+        teamId: current?.teamId ?? null,
+        teamName: current?.teamName ?? '',
+        logoUrl: current?.logoUrl ?? null,
+        wins: p.wins,
+        breakdown: p.breakdown.sort((a, b) => {
+          const ta = tournamentById.get(a.tournamentId)?.start_date ?? ''
+          const tb = tournamentById.get(b.tournamentId)?.start_date ?? ''
+          return tb > ta ? 1 : tb < ta ? -1 : 0
+        }),
+      }
+    })
+    .sort((a, b) => b.wins - a.wins || a.nickname.localeCompare(b.nickname))
+
+  const tournamentChampionPlayers: CircuitTournamentChampionPlayers[] = champions.map((c) => ({
+    tournamentId: c.tournamentId,
+    teamName: c.teamName,
+    logoUrl: c.logoUrl,
+    players: champPlayersByTournament.get(c.tournamentId) ?? [],
+  }))
+
   const killClub100: KillClub100Entry[] = kcRows
     .map((r) => ({
       tournamentId: r.tournament_id as string,
@@ -510,6 +596,8 @@ export default async function CircuitPage({ params }: Props) {
           tag={tag}
           tournaments={tournaments}
           champions={champions}
+          playerChampions={playerChampions}
+          tournamentChampionPlayers={tournamentChampionPlayers}
           teamStats={teamStats}
           playerStats={playerStats}
           killClub100={killClub100}
