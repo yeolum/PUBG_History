@@ -24,12 +24,14 @@ const ID_CHUNK = 80
 // already constrained to a single chunk by the helpers below.
 async function fetchPaged<T>(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  query: any,
+  build: () => any,
 ): Promise<T[]> {
   const rows: T[] = []
   let page = 0
   while (true) {
-    const { data: batch } = await query.order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: batch, error } = await build().order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
+    if (error) throw new Error(`DB fetch failed: ${(error as any)?.message ?? String(error)}`)
     if (!batch || batch.length === 0) break
     rows.push(...(batch as T[]))
     if (batch.length < PAGE_SIZE) break
@@ -49,7 +51,8 @@ async function fetchInChunked<T>(
   if (ids.length === 0) return []
   const chunks: string[][] = []
   for (let off = 0; off < ids.length; off += ID_CHUNK) chunks.push(ids.slice(off, off + ID_CHUNK))
-  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(build(c))))
+  // Wrap in thunk so fetchPaged gets a fresh builder each page iteration
+  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(() => build(c))))
   return out.flat()
 }
 

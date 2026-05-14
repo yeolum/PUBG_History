@@ -11,11 +11,16 @@ const BATCH = 500
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
-async function fetchPaged<T>(query: any): Promise<T[]> {
+// build() is called fresh on every page so the query object is never reused
+// across iterations — some versions of the Supabase JS client are mutable and
+// accumulate extra .order()/.range() clauses when the same instance is chained
+// multiple times.
+async function fetchPaged<T>(build: () => any): Promise<T[]> {
   const rows: T[] = []
   let page = 0
   while (true) {
-    const { data: batch } = await query.order('id').range(page * PAGE, (page + 1) * PAGE - 1)
+    const { data: batch, error } = await build().order('id').range(page * PAGE, (page + 1) * PAGE - 1)
+    if (error) throw new Error(`DB fetch failed: ${(error as { message?: string }).message ?? String(error)}`)
     if (!batch || batch.length === 0) break
     rows.push(...(batch as T[]))
     if (batch.length < PAGE) break
@@ -28,7 +33,8 @@ async function fetchInChunked<T>(build: (chunk: string[]) => any, ids: string[])
   if (ids.length === 0) return []
   const chunks: string[][] = []
   for (let off = 0; off < ids.length; off += ID_CHUNK) chunks.push(ids.slice(off, off + ID_CHUNK))
-  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(build(c))))
+  // Wrap build(c) in a thunk so fetchPaged gets a fresh builder each page
+  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(() => build(c))))
   return out.flat()
 }
 
