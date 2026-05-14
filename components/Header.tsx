@@ -3,13 +3,22 @@
 import Link from 'next/link'
 import { useEffect, useRef, useState } from 'react'
 
-const CIRCUITS = {
-  Global: ['PGC', 'PGS', 'PNC'] as const,
-  Regional: ['PWS', 'PEC', 'PAS', 'PCL', 'PTS', 'PVS', 'PMS'] as const,
-}
+type Scope = 'Global' | 'PCS' | 'Regional'
+
+const GLOBAL_CIRCUITS = ['PGC', 'PGS', 'PNC'] as const
+
+const PCS_CIRCUITS = [
+  { label: 'Asia',          tag: 'PAS' },
+  { label: 'APAC',          tag: 'APAC' },
+  { label: 'Europe',        tag: 'PEC' },
+  { label: 'Americas',      tag: 'PCS-AMC' },
+  { label: 'North America', tag: 'PCS-NA' },
+] as const
+
+const REGIONAL_CIRCUITS = ['PWS', 'PEC', 'PAS', 'PCL', 'PTS', 'PVS', 'PMS'] as const
 
 export default function Header() {
-  const [open, setOpen] = useState<null | 'Global' | 'Regional'>(null)
+  const [open, setOpen] = useState<null | Scope>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -51,9 +60,10 @@ export default function Header() {
               </svg>
             </button>
             {open && (
-              <div className="absolute left-0 top-full mt-1 bg-white text-gray-700 rounded-lg shadow-lg border border-gray-200 py-1 min-w-[300px] flex z-30">
-                <ul className="flex-1 border-r border-gray-100">
-                  {(['Global', 'Regional'] as const).map((scope) => (
+              <div className="absolute left-0 top-full mt-1 bg-white text-gray-700 rounded-lg shadow-lg border border-gray-200 py-1 min-w-[320px] flex z-30">
+                {/* 왼쪽: 카테고리 */}
+                <ul className="w-28 shrink-0 border-r border-gray-100">
+                  {(['Global', 'PCS', 'Regional'] as const).map((scope) => (
                     <li key={scope}>
                       <button
                         onMouseEnter={() => setOpen(scope)}
@@ -66,8 +76,35 @@ export default function Header() {
                     </li>
                   ))}
                 </ul>
+
+                {/* 오른쪽: 선택된 카테고리 항목 */}
                 <ul className="flex-1 py-0">
-                  {CIRCUITS[open].map((tag) => (
+                  {open === 'Global' && GLOBAL_CIRCUITS.map((tag) => (
+                    <li key={tag}>
+                      <Link
+                        href={`/tournaments/circuits/${tag}`}
+                        onClick={() => setOpen(null)}
+                        className="block px-4 py-2 text-sm font-mono hover:bg-yellow-50 hover:text-yellow-700"
+                      >
+                        {tag}
+                      </Link>
+                    </li>
+                  ))}
+
+                  {open === 'PCS' && PCS_CIRCUITS.map((item) => (
+                    <li key={item.tag}>
+                      <Link
+                        href={`/tournaments/circuits/${item.tag}`}
+                        onClick={() => setOpen(null)}
+                        className="block px-4 py-2 text-sm hover:bg-yellow-50 hover:text-yellow-700 flex items-center justify-between gap-3"
+                      >
+                        <span className="font-medium">{item.label}</span>
+                        <span className="text-xs text-gray-400 font-mono shrink-0">{item.tag}</span>
+                      </Link>
+                    </li>
+                  ))}
+
+                  {open === 'Regional' && REGIONAL_CIRCUITS.map((tag) => (
                     <li key={tag}>
                       <Link
                         href={`/tournaments/circuits/${tag}`}
