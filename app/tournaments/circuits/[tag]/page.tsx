@@ -31,7 +31,7 @@ async function fetchPaged<T>(
   while (true) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: batch, error } = await build().order('id').range(page * PAGE_SIZE, (page + 1) * PAGE_SIZE - 1)
-    if (error) throw new Error(`DB fetch failed: ${(error as any)?.message ?? String(error)}`)
+    if (error) { console.error('DB fetch failed:', (error as any)?.message ?? String(error)); break }
     if (!batch || batch.length === 0) break
     rows.push(...(batch as T[]))
     if (batch.length < PAGE_SIZE) break
