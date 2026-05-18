@@ -64,6 +64,9 @@ export default function AdminDropLocationsPage() {
   const [stageItems, setStageItems] = useState<StageItem[]>([])
   const [seriesItems, setSeriesItems] = useState<SeriesItem[]>([])
   const [stagedDrops, setStagedDrops] = useState<Map<string, DropLoc[]>>(new Map())
+  const [stageMatchesMap, setStageMatchesMap] = useState<Map<string, { id: string; status: string }[]>>(new Map())
+  const [activeDropStageId, setActiveDropStageId] = useState<string | null>(null)
+  const [matchDropCache, setMatchDropCache] = useState<Map<string, DropLoc[]>>(new Map())
   const [selectedMap, setSelectedMap] = useState<string>('')
   const [selectedTeamId, setSelectedTeamId] = useState<string>('')
   const [selectedScopeKey, setSelectedScopeKey] = useState<string>('total')
@@ -99,16 +102,21 @@ export default function AdminDropLocationsPage() {
     const mapsFound = new Set<string>()
     const allMatchIdsList: string[] = []
     const allStageIds: string[] = []
+    const newStageMatchesMap = new Map<string, { id: string; status: string }[]>()
 
     for (const stage of stages) {
       allStageIds.push(stage.id)
+      const stageMatches: { id: string; status: string }[] = []
       for (const m of (stage.matches ?? []) as { id: string; map: string | null; status: string }[]) {
+        stageMatches.push({ id: m.id, status: m.status })
         if (m.status === 'imported') {
           if (m.map) mapsFound.add(m.map)
           allMatchIdsList.push(m.id)
         }
       }
+      newStageMatchesMap.set(stage.id, stageMatches)
     }
+    setStageMatchesMap(newStageMatchesMap)
 
     const mapArr = [...mapsFound].sort()
     setMapKeys(mapArr)
@@ -165,9 +173,24 @@ export default function AdminDropLocationsPage() {
     return items.sort((a, b) => a.key - b.key)
   }, [seriesItems, stageItems])
 
+  async function loadMatchDrops(matchId: string) {
+    if (matchDropCache.has(matchId)) return
+    const { data } = await supabase
+      .from('match_team_drop_locations')
+      .select('id, team_id, map_name, x, y')
+      .eq('match_id', matchId)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const rows: DropLoc[] = (data ?? []).map((d: any) => ({ id: d.id, teamId: d.team_id, mapName: d.map_name, x: d.x, y: d.y }))
+    setMatchDropCache((prev) => new Map(prev).set(matchId, rows))
+  }
+
   const currentDrops = useMemo(() => {
     if (selectedScopeKey === 'total') {
       return drops.filter((d) => d.mapName === selectedMap)
+    }
+    if (selectedScopeKey.startsWith('match:')) {
+      const matchId = selectedScopeKey.slice(6)
+      return (matchDropCache.get(matchId) ?? []).filter((d) => d.mapName === selectedMap)
     }
     let stageDropList: DropLoc[] = []
     if (selectedScopeKey.startsWith('stage:')) {
@@ -178,7 +201,6 @@ export default function AdminDropLocationsPage() {
       for (const s of stageItems) {
         if (s.series_id === seriesId) stageDrop.push(...(stagedDrops.get(s.id) ?? []))
       }
-      // Aggregate per (team, map): median across stages
       const grouped = new Map<string, { x: number[]; y: number[] }>()
       for (const d of stageDrop) {
         const key = `${d.teamId}\0${d.mapName}`
@@ -189,17 +211,11 @@ export default function AdminDropLocationsPage() {
       for (const [key, coords] of grouped.entries()) {
         const sep = key.indexOf('\0')
         const peak = densityPeak(coords.x.map((x, i) => ({ x, y: coords.y[i] })))
-        stageDropList.push({
-          id: `series_${key}`,
-          teamId: key.slice(0, sep),
-          mapName: key.slice(sep + 1),
-          x: peak.x,
-          y: peak.y,
-        })
+        stageDropList.push({ id: `series_${key}`, teamId: key.slice(0, sep), mapName: key.slice(sep + 1), x: peak.x, y: peak.y })
       }
     }
     return stageDropList.filter((d) => d.mapName === selectedMap)
-  }, [selectedScopeKey, selectedMap, drops, stagedDrops, stageItems])
+  }, [selectedScopeKey, selectedMap, drops, stagedDrops, stageItems, matchDropCache])
 
   const isTotalScope = selectedScopeKey === 'total'
   const teamById = new Map(teams.map((t) => [t.teamId, t]))
@@ -335,18 +351,47 @@ export default function AdminDropLocationsPage() {
 
           {/* Stage scope selector */}
           {topScopes.length > 0 && (
-            <div className="flex flex-wrap gap-1.5 mb-4">
-              <button onClick={() => setSelectedScopeKey('total')} className={scopeBtn(selectedScopeKey === 'total')}>
-                Total
-              </button>
-              {topScopes.map((sc) => {
-                const key = sc.kind === 'series' ? `series:${sc.item.id}` : `stage:${sc.item.id}`
+            <div className="space-y-2 mb-4">
+              <div className="flex flex-wrap gap-1.5">
+                <button onClick={() => { setSelectedScopeKey('total'); setActiveDropStageId(null) }} className={scopeBtn(selectedScopeKey === 'total')}>
+                  Total
+                </button>
+                {topScopes.map((sc) => {
+                  if (sc.kind === 'series') {
+                    const key = `series:${sc.item.id}`
+                    return (
+                      <button key={key} onClick={() => { setSelectedScopeKey(key); setActiveDropStageId(null) }} className={scopeBtn(selectedScopeKey === key)}>
+                        {sc.item.name}
+                      </button>
+                    )
+                  }
+                  const key = `stage:${sc.item.id}`
+                  const isActive = selectedScopeKey === key || (selectedScopeKey.startsWith('match:') && activeDropStageId === sc.item.id)
+                  return (
+                    <button key={key} onClick={() => { setSelectedScopeKey(key); setActiveDropStageId(sc.item.id) }} className={scopeBtn(isActive)}>
+                      {sc.item.name}
+                    </button>
+                  )
+                })}
+              </div>
+              {/* Match buttons for selected stage */}
+              {activeDropStageId && (() => {
+                const matches = (stageMatchesMap.get(activeDropStageId) ?? []).filter(m => m.status === 'imported')
+                if (matches.length === 0) return null
                 return (
-                  <button key={key} onClick={() => setSelectedScopeKey(key)} className={scopeBtn(selectedScopeKey === key)}>
-                    {sc.item.name}
-                  </button>
+                  <div className="flex flex-wrap gap-1 pl-3 border-l-2 border-gray-200">
+                    {matches.map((m, i) => (
+                      <button
+                        key={m.id}
+                        onClick={() => { setSelectedScopeKey(`match:${m.id}`); loadMatchDrops(m.id) }}
+                        className={scopeBtn(selectedScopeKey === `match:${m.id}`)}
+                      >
+                        M{i + 1}
+                      </button>
+                    ))}
+                  </div>
                 )
-              })}
+              })()}
             </div>
           )}
 

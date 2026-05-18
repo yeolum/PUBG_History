@@ -82,8 +82,10 @@ export default function TeamStatsTable({
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
   const [dropScopeKey, setDropScopeKey] = useState<string>('total')
+  const [dropStageId, setDropStageId] = useState<string | null>(null)
   const [stagedDrops, setStagedDrops] = useState<Map<string, StageDrop[]>>(new Map())
   const [stageDropsLoaded, setStageDropsLoaded] = useState(false)
+  const [matchDropCache, setMatchDropCache] = useState<Map<string, DropLocationRow[]>>(new Map())
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -242,8 +244,40 @@ export default function TeamStatsTable({
       })
   }, [subTab, stageDropsLoaded, stages])
 
+  useEffect(() => {
+    if (!dropScopeKey.startsWith('match:') || !stageDropsLoaded) return
+    const matchId = dropScopeKey.slice(6)
+    if (matchDropCache.has(matchId)) return
+    const supabase = createClient()
+    supabase
+      .from('match_team_drop_locations')
+      .select('team_id, map_name, x, y')
+      .eq('match_id', matchId)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const rows: DropLocationRow[] = (data ?? []).map((d: any) => {
+          const info = teamInfoById.get(d.team_id)
+          return {
+            id: `${matchId}_${d.team_id}`,
+            teamId: d.team_id,
+            teamName: info?.teamName ?? d.team_id,
+            logoUrl: info?.logoUrl ?? null,
+            mapName: d.map_name,
+            x: d.x,
+            y: d.y,
+          }
+        })
+        setMatchDropCache((prev) => new Map(prev).set(matchId, rows))
+      })
+  }, [dropScopeKey, stageDropsLoaded, matchDropCache, teamInfoById])
+
   const dropsForScope = useMemo((): DropLocationRow[] => {
     if (dropScopeKey === 'total' || !stageDropsLoaded) return dropLocations
+    if (dropScopeKey.startsWith('match:')) {
+      const matchId = dropScopeKey.slice(6)
+      return matchDropCache.get(matchId) ?? []
+    }
 
     let rawDrops: StageDrop[] = []
     if (dropScopeKey.startsWith('stage:')) {
@@ -281,7 +315,7 @@ export default function TeamStatsTable({
         y: d.y,
       }
     })
-  }, [dropScopeKey, stageDropsLoaded, dropLocations, stagedDrops, stages, teamInfoById])
+  }, [dropScopeKey, stageDropsLoaded, dropLocations, stagedDrops, stages, teamInfoById, matchDropCache])
 
   const mapsWithDrops = [...new Set(dropLocations.map((d) => d.mapName))].filter((m) => mapKeys.includes(m))
   const allDropMaps = [...new Set([...mapKeys, ...mapsWithDrops])]
@@ -429,19 +463,70 @@ export default function TeamStatsTable({
 
               {/* Stage scope filter */}
               {topScopes.length > 0 && (
-                <div className="flex flex-wrap gap-1.5 mb-4">
-                  <button onClick={() => { setDropScopeKey('total'); setVisibleTeams(null) }} className={scopeBtn(dropScopeKey === 'total')}>
-                    Total
-                  </button>
-                  {topScopes.map((item) => {
-                    const key = item.kind === 'series' ? `series:${item.series.id}` : `stage:${item.stage.id}`
-                    const label = item.kind === 'series' ? item.series.name : item.stage.name
+                <div className="space-y-2 mb-4">
+                  <div className="flex flex-wrap gap-1.5">
+                    <button
+                      onClick={() => { setDropScopeKey('total'); setDropStageId(null); setVisibleTeams(null) }}
+                      className={scopeBtn(dropScopeKey === 'total')}
+                    >
+                      Total
+                    </button>
+                    {topScopes.map((item) => {
+                      if (item.kind === 'series') {
+                        const key = `series:${item.series.id}`
+                        const isActive = dropScopeKey === key
+                        return (
+                          <button key={key} onClick={() => { setDropScopeKey(key); setDropStageId(null); setVisibleTeams(null) }} className={scopeBtn(isActive)}>
+                            {item.series.name}
+                          </button>
+                        )
+                      }
+                      const stageKey = `stage:${item.stage.id}`
+                      const isActive = stageKey === dropScopeKey || (dropScopeKey.startsWith('match:') && dropStageId === item.stage.id)
+                      return (
+                        <button key={stageKey} onClick={() => { setDropScopeKey(stageKey); setDropStageId(item.stage.id); setVisibleTeams(null) }} className={scopeBtn(isActive)}>
+                          {item.stage.name}
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {/* Series sub-stages */}
+                  {dropScopeKey.startsWith('series:') && (() => {
+                    const seriesId = dropScopeKey.slice(7)
+                    const subStages = stages.filter(s => s.series_id === seriesId)
+                    if (subStages.length === 0) return null
                     return (
-                      <button key={key} onClick={() => { setDropScopeKey(key); setVisibleTeams(null) }} className={scopeBtn(dropScopeKey === key)}>
-                        {label}
-                      </button>
+                      <div className="flex flex-wrap gap-1.5 pl-3 border-l-2 border-yellow-300">
+                        {subStages.map(s => {
+                          const isActive = `stage:${s.id}` === dropScopeKey || (dropScopeKey.startsWith('match:') && dropStageId === s.id)
+                          return (
+                            <button key={s.id} onClick={() => { setDropScopeKey(`stage:${s.id}`); setDropStageId(s.id); setVisibleTeams(null) }} className={scopeBtn(isActive)}>
+                              {s.name}
+                            </button>
+                          )
+                        })}
+                      </div>
                     )
-                  })}
+                  })()}
+                  {/* Match buttons for selected stage */}
+                  {dropStageId && (() => {
+                    const stage = stages.find(s => s.id === dropStageId)
+                    const matchList = stage?.matches.filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num) ?? []
+                    if (matchList.length === 0) return null
+                    return (
+                      <div className="flex flex-wrap gap-1 pl-3 border-l-2 border-gray-200">
+                        {matchList.map((m, i) => (
+                          <button
+                            key={m.id}
+                            onClick={() => { setDropScopeKey(`match:${m.id}`); setVisibleTeams(null) }}
+                            className={matchBtn(dropScopeKey === `match:${m.id}`)}
+                          >
+                            M{i + 1}
+                          </button>
+                        ))}
+                      </div>
+                    )
+                  })()}
                 </div>
               )}
 
@@ -461,7 +546,7 @@ export default function TeamStatsTable({
                       <p className="text-gray-400 text-xs bg-white/80 px-3 py-2 rounded-lg">이 맵의 낙하 지점 데이터가 없습니다</p>
                     </div>
                   )}
-                  {!stageDropsLoaded && dropScopeKey !== 'total' && (
+                  {((!stageDropsLoaded && dropScopeKey !== 'total') || (dropScopeKey.startsWith('match:') && !matchDropCache.has(dropScopeKey.slice(6)))) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/40">
                       <span className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
                     </div>
