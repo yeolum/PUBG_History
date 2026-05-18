@@ -15,6 +15,26 @@ export interface ComputeDropsResult {
   errors: string[]
 }
 
+const PAGE = 1000
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function fetchAllLandingRows(db: SupabaseClient<any, any, any>, matchIds: string[], selectCols: string, extraFilter?: (q: ReturnType<typeof db.from>) => ReturnType<typeof db.from>) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rows: any[] = []
+  let pg = 0
+  while (true) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let q: any = db.from('match_player_landings').select(selectCols).in('match_id', matchIds).range(pg * PAGE, (pg + 1) * PAGE - 1)
+    if (extraFilter) q = extraFilter(q)
+    const { data } = await q
+    if (!data || data.length === 0) break
+    rows.push(...data)
+    if (data.length < PAGE) break
+    pg++
+  }
+  return rows
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function computeDropLocations(tournamentId: string, db: SupabaseClient<any, any, any>, opts?: { skipTelemetryFetch?: boolean }): Promise<ComputeDropsResult> {
   const result: ComputeDropsResult = { newlyProcessed: 0, skipped: 0, dropLocationsUpdated: 0, errors: [] }
@@ -34,12 +54,9 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
 
   // 텔레메트리 다운로드 (매치 임포트 시에만 실행, 새로고침 시에는 건너뜀)
   if (!opts?.skipTelemetryFetch) {
-    const { data: existingRows } = await db
-      .from('match_player_landings')
-      .select('match_id')
-      .in('match_id', matches.map((m: { id: string }) => m.id))
-
-    const matchesWithData = new Set((existingRows ?? []).map((r: { match_id: string }) => r.match_id))
+    // 1000행 캡 우회: 페이지네이션으로 전체 match_id 수집
+    const existingRows = await fetchAllLandingRows(db, matches.map((m: { id: string }) => m.id), 'match_id')
+    const matchesWithData = new Set(existingRows.map((r: { match_id: string }) => r.match_id))
     const toFetch = matches.filter((m: { id: string }) => !matchesWithData.has(m.id))
     result.skipped = matchesWithData.size
 
@@ -83,18 +100,19 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
   }
 
   // Aggregate all landings → median drop location per (team, map)
+  // 페이지네이션 필수: 80매치 × 64명 = 5120행, 기본 1000행 캡 초과
   const allMatchIds = matches.map((m: { id: string }) => m.id)
-  const { data: allLandings } = await db
-    .from('match_player_landings')
-    .select('match_id, team_id, x_norm, y_norm')
-    .in('match_id', allMatchIds)
-    .not('team_id', 'is', null)
+  const allLandings = await fetchAllLandingRows(
+    db, allMatchIds, 'match_id, team_id, x_norm, y_norm',
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (q: any) => q.not('team_id', 'is', null),
+  )
 
   const matchMapLookup = new Map(matches.map((m: { id: string; map: string | null }) => [m.id, m.map ?? '']))
 
   type Pos = { x: number; y: number }
   const grouped: Record<string, Record<string, Record<string, Pos[]>>> = {}
-  for (const l of allLandings ?? []) {
+  for (const l of allLandings) {
     const mapName = matchMapLookup.get(l.match_id) ?? 'unknown'
     const teamId = l.team_id as string
     if (!grouped[mapName]) grouped[mapName] = {}

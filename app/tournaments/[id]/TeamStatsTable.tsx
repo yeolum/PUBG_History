@@ -263,15 +263,31 @@ export default function TeamStatsTable({
     const matchIds = stages.flatMap((s) => s.matches.filter((m) => m.status === 'imported').map((m) => m.id))
     if (matchIds.length === 0) { setLandingsLoaded(true); return }
     const supabase = createClient()
-    Promise.all([
-      supabase.from('match_player_landings').select('match_id, team_id, x_norm, y_norm').in('match_id', matchIds).not('team_id', 'is', null),
-      supabase.from('matches').select('id, map').in('id', matchIds),
-    ]).then(([{ data: landings }, { data: matchMaps }]) => {
+    const fetchLandings = async () => {
+      // 1000행 캡 우회: 페이지네이션 (80매치 × ~64명 = ~5000행 이상)
+      const PAGE = 1000
+      const rows: LandingRow[] = []
+      let pg = 0
+      while (true) {
+        const { data } = await supabase
+          .from('match_player_landings')
+          .select('match_id, team_id, x_norm, y_norm')
+          .in('match_id', matchIds)
+          .not('team_id', 'is', null)
+          .range(pg * PAGE, (pg + 1) * PAGE - 1)
+        if (!data || data.length === 0) break
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        rows.push(...data.map((l: any) => ({ matchId: l.match_id, teamId: l.team_id, xNorm: l.x_norm, yNorm: l.y_norm })))
+        if (data.length < PAGE) break
+        pg++
+      }
+      return rows
+    }
+    Promise.all([fetchLandings(), supabase.from('matches').select('id, map').in('id', matchIds)]).then(([landings, { data: matchMaps }]) => {
       const mapLookup = new Map<string, string>()
       for (const m of matchMaps ?? []) { if (m.map) mapLookup.set(m.id, m.map) }
       setMatchMapLookup(mapLookup)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      setAllLandings((landings ?? []).map((l: any) => ({ matchId: l.match_id, teamId: l.team_id, xNorm: l.x_norm, yNorm: l.y_norm })))
+      setAllLandings(landings)
       setLandingsLoaded(true)
     })
   }, [subTab, landingsLoaded, stages])
