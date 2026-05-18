@@ -42,49 +42,13 @@ function mapImageUrl(mapKey: string) {
   return `${SUPABASE_URL}/storage/v1/object/public/map-images/${encodeURIComponent(mapKey)}.jpg`
 }
 
-interface LandingRow { matchId: string; teamId: string; xNorm: number; yNorm: number }
+interface StageDrop { teamId: string; mapName: string; x: number; y: number }
 
 function median(values: number[]): number {
   if (!values.length) return 0
   const sorted = [...values].sort((a, b) => a - b)
   const mid = Math.floor(sorted.length / 2)
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
-}
-
-function computeDropsFromLandings(
-  landings: LandingRow[],
-  matchMapLookup: Map<string, string>,
-  teamInfoById: Map<string, { teamName: string; logoUrl: string | null }>,
-): DropLocationRow[] {
-  type Pos = { x: number; y: number }
-  const grouped: Record<string, Record<string, Record<string, Pos[]>>> = {}
-  for (const l of landings) {
-    const mapName = matchMapLookup.get(l.matchId) ?? 'unknown'
-    if (!grouped[mapName]) grouped[mapName] = {}
-    if (!grouped[mapName][l.teamId]) grouped[mapName][l.teamId] = {}
-    if (!grouped[mapName][l.teamId][l.matchId]) grouped[mapName][l.teamId][l.matchId] = []
-    grouped[mapName][l.teamId][l.matchId].push({ x: l.xNorm, y: l.yNorm })
-  }
-  const result: DropLocationRow[] = []
-  for (const [mapName, byTeam] of Object.entries(grouped)) {
-    for (const [teamId, byMatch] of Object.entries(byTeam)) {
-      const centroids = Object.values(byMatch).map((pos) => ({
-        x: pos.reduce((s, p) => s + p.x, 0) / pos.length,
-        y: pos.reduce((s, p) => s + p.y, 0) / pos.length,
-      }))
-      const info = teamInfoById.get(teamId)
-      result.push({
-        id: `computed_${teamId}_${mapName}`,
-        teamId,
-        teamName: info?.teamName ?? teamId,
-        logoUrl: info?.logoUrl ?? null,
-        mapName,
-        x: median(centroids.map((c) => c.x)),
-        y: median(centroids.map((c) => c.y)),
-      })
-    }
-  }
-  return result
 }
 
 export default function TeamStatsTable({
@@ -111,9 +75,8 @@ export default function TeamStatsTable({
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
   const [dropScopeKey, setDropScopeKey] = useState<string>('total')
-  const [allLandings, setAllLandings] = useState<LandingRow[]>([])
-  const [matchMapLookup, setMatchMapLookup] = useState<Map<string, string>>(new Map())
-  const [landingsLoaded, setLandingsLoaded] = useState(false)
+  const [stagedDrops, setStagedDrops] = useState<Map<string, StageDrop[]>>(new Map())
+  const [stageDropsLoaded, setStageDropsLoaded] = useState(false)
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -242,13 +205,6 @@ export default function TeamStatsTable({
     ? [...currentStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
     : []
 
-  // Drop points — stage-aware
-  const stageMatchIdsMap = useMemo(() => {
-    const map = new Map<string, string[]>()
-    for (const s of stages) map.set(s.id, s.matches.filter((m) => m.status === 'imported').map((m) => m.id))
-    return map
-  }, [stages])
-
   const teamInfoById = useMemo(() => {
     const map = new Map<string, { teamName: string; logoUrl: string | null }>()
     for (const d of dropLocations) map.set(d.teamId, { teamName: d.teamName, logoUrl: d.logoUrl })
@@ -259,55 +215,65 @@ export default function TeamStatsTable({
   }, [dropLocations, teamStats])
 
   useEffect(() => {
-    if (subTab !== 'drops' || landingsLoaded || stages.length === 0) return
-    const matchIds = stages.flatMap((s) => s.matches.filter((m) => m.status === 'imported').map((m) => m.id))
-    if (matchIds.length === 0) { setLandingsLoaded(true); return }
+    if (subTab !== 'drops' || stageDropsLoaded || stages.length === 0) return
+    const stageIds = stages.map((s) => s.id)
     const supabase = createClient()
-    const fetchLandings = async () => {
-      // 1000행 캡 우회: 페이지네이션 (80매치 × ~64명 = ~5000행 이상)
-      const PAGE = 1000
-      const rows: LandingRow[] = []
-      let pg = 0
-      while (true) {
-        const { data } = await supabase
-          .from('match_player_landings')
-          .select('match_id, team_id, x_norm, y_norm')
-          .in('match_id', matchIds)
-          .not('team_id', 'is', null)
-          .range(pg * PAGE, (pg + 1) * PAGE - 1)
-        if (!data || data.length === 0) break
+    supabase
+      .from('stage_drop_locations')
+      .select('stage_id, team_id, map_name, x, y')
+      .in('stage_id', stageIds)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .then(({ data }) => {
+        const byStage = new Map<string, StageDrop[]>()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        rows.push(...data.map((l: any) => ({ matchId: l.match_id, teamId: l.team_id, xNorm: l.x_norm, yNorm: l.y_norm })))
-        if (data.length < PAGE) break
-        pg++
-      }
-      return rows
-    }
-    Promise.all([fetchLandings(), supabase.from('matches').select('id, map').in('id', matchIds)]).then(([landings, { data: matchMaps }]) => {
-      const mapLookup = new Map<string, string>()
-      for (const m of matchMaps ?? []) { if (m.map) mapLookup.set(m.id, m.map) }
-      setMatchMapLookup(mapLookup)
-      setAllLandings(landings)
-      setLandingsLoaded(true)
-    })
-  }, [subTab, landingsLoaded, stages])
+        for (const r of (data ?? []) as any[]) {
+          if (!byStage.has(r.stage_id)) byStage.set(r.stage_id, [])
+          byStage.get(r.stage_id)!.push({ teamId: r.team_id, mapName: r.map_name, x: r.x, y: r.y })
+        }
+        setStagedDrops(byStage)
+        setStageDropsLoaded(true)
+      })
+  }, [subTab, stageDropsLoaded, stages])
 
   const dropsForScope = useMemo((): DropLocationRow[] => {
-    if (dropScopeKey === 'total' || !landingsLoaded) return dropLocations
-    let scopeIds: Set<string>
+    if (dropScopeKey === 'total' || !stageDropsLoaded) return dropLocations
+
+    let rawDrops: StageDrop[] = []
     if (dropScopeKey.startsWith('stage:')) {
-      scopeIds = new Set(stageMatchIdsMap.get(dropScopeKey.slice(6)) ?? [])
+      rawDrops = stagedDrops.get(dropScopeKey.slice(6)) ?? []
     } else if (dropScopeKey.startsWith('series:')) {
       const seriesId = dropScopeKey.slice(7)
-      const ids: string[] = []
-      for (const s of stages) { if (s.series_id === seriesId) ids.push(...(stageMatchIdsMap.get(s.id) ?? [])) }
-      scopeIds = new Set(ids)
+      const collected: StageDrop[] = []
+      for (const s of stages) { if (s.series_id === seriesId) collected.push(...(stagedDrops.get(s.id) ?? [])) }
+      // Aggregate per (team, map): median across stages
+      const grouped = new Map<string, { x: number[]; y: number[] }>()
+      for (const d of collected) {
+        const key = `${d.teamId}\0${d.mapName}`
+        if (!grouped.has(key)) grouped.set(key, { x: [], y: [] })
+        grouped.get(key)!.x.push(d.x)
+        grouped.get(key)!.y.push(d.y)
+      }
+      for (const [key, coords] of grouped.entries()) {
+        const sep = key.indexOf('\0')
+        rawDrops.push({ teamId: key.slice(0, sep), mapName: key.slice(sep + 1), x: median(coords.x), y: median(coords.y) })
+      }
     } else {
       return dropLocations
     }
-    const filtered = allLandings.filter((l) => scopeIds.has(l.matchId))
-    return computeDropsFromLandings(filtered, matchMapLookup, teamInfoById)
-  }, [dropScopeKey, landingsLoaded, dropLocations, allLandings, matchMapLookup, stageMatchIdsMap, stages, teamInfoById])
+
+    return rawDrops.map((d) => {
+      const info = teamInfoById.get(d.teamId)
+      return {
+        id: `scope_${d.teamId}_${d.mapName}`,
+        teamId: d.teamId,
+        teamName: info?.teamName ?? d.teamId,
+        logoUrl: info?.logoUrl ?? null,
+        mapName: d.mapName,
+        x: d.x,
+        y: d.y,
+      }
+    })
+  }, [dropScopeKey, stageDropsLoaded, dropLocations, stagedDrops, stages, teamInfoById])
 
   const mapsWithDrops = [...new Set(dropLocations.map((d) => d.mapName))].filter((m) => mapKeys.includes(m))
   const allDropMaps = [...new Set([...mapKeys, ...mapsWithDrops])]
@@ -487,7 +453,7 @@ export default function TeamStatsTable({
                       <p className="text-gray-400 text-xs bg-white/80 px-3 py-2 rounded-lg">이 맵의 낙하 지점 데이터가 없습니다</p>
                     </div>
                   )}
-                  {!landingsLoaded && dropScopeKey !== 'total' && (
+                  {!stageDropsLoaded && dropScopeKey !== 'total' && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/40">
                       <span className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
                     </div>

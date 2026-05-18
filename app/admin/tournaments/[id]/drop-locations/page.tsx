@@ -33,13 +33,6 @@ interface SeriesItem {
   tab_order: number
 }
 
-interface LandingRow {
-  matchId: string
-  teamId: string
-  xNorm: number
-  yNorm: number
-}
-
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
 function mapImageUrl(mapKey: string) {
@@ -53,38 +46,6 @@ function median(values: number[]): number {
   return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
 }
 
-function computeDropsFromLandings(
-  landings: LandingRow[],
-  matchMapLookup: Map<string, string>,
-): DropLoc[] {
-  type Pos = { x: number; y: number }
-  const grouped: Record<string, Record<string, Record<string, Pos[]>>> = {}
-  for (const l of landings) {
-    const mapName = matchMapLookup.get(l.matchId) ?? 'unknown'
-    if (!grouped[mapName]) grouped[mapName] = {}
-    if (!grouped[mapName][l.teamId]) grouped[mapName][l.teamId] = {}
-    if (!grouped[mapName][l.teamId][l.matchId]) grouped[mapName][l.teamId][l.matchId] = []
-    grouped[mapName][l.teamId][l.matchId].push({ x: l.xNorm, y: l.yNorm })
-  }
-  const result: DropLoc[] = []
-  for (const [mapName, byTeam] of Object.entries(grouped)) {
-    for (const [teamId, byMatch] of Object.entries(byTeam)) {
-      const centroids = Object.values(byMatch).map((positions) => ({
-        x: positions.reduce((s, p) => s + p.x, 0) / positions.length,
-        y: positions.reduce((s, p) => s + p.y, 0) / positions.length,
-      }))
-      result.push({
-        id: `computed_${teamId}_${mapName}`,
-        teamId,
-        mapName,
-        x: median(centroids.map((c) => c.x)),
-        y: median(centroids.map((c) => c.y)),
-      })
-    }
-  }
-  return result
-}
-
 export default function AdminDropLocationsPage() {
   const { id } = useParams() as { id: string }
   const supabase = createClient()
@@ -95,9 +56,7 @@ export default function AdminDropLocationsPage() {
   const [drops, setDrops] = useState<DropLoc[]>([])
   const [stageItems, setStageItems] = useState<StageItem[]>([])
   const [seriesItems, setSeriesItems] = useState<SeriesItem[]>([])
-  const [allLandings, setAllLandings] = useState<LandingRow[]>([])
-  const [matchMapLookup, setMatchMapLookup] = useState<Map<string, string>>(new Map())
-  const [stageMatchIds, setStageMatchIds] = useState<Map<string, string[]>>(new Map())
+  const [stagedDrops, setStagedDrops] = useState<Map<string, DropLoc[]>>(new Map())
   const [selectedMap, setSelectedMap] = useState<string>('')
   const [selectedTeamId, setSelectedTeamId] = useState<string>('')
   const [selectedScopeKey, setSelectedScopeKey] = useState<string>('total')
@@ -131,24 +90,18 @@ export default function AdminDropLocationsPage() {
     setSeriesItems((seriesRaw ?? []).map((sr: any) => ({ id: sr.id, name: sr.name ?? '', tab_order: sr.tab_order ?? 0 })))
 
     const mapsFound = new Set<string>()
-    const mapLookup = new Map<string, string>()
-    const stageMatchMap = new Map<string, string[]>()
     const allMatchIdsList: string[] = []
+    const allStageIds: string[] = []
 
     for (const stage of stages) {
-      const matchesInStage: string[] = []
+      allStageIds.push(stage.id)
       for (const m of (stage.matches ?? []) as { id: string; map: string | null; status: string }[]) {
         if (m.status === 'imported') {
-          if (m.map) { mapsFound.add(m.map); mapLookup.set(m.id, m.map) }
-          matchesInStage.push(m.id)
+          if (m.map) mapsFound.add(m.map)
           allMatchIdsList.push(m.id)
         }
       }
-      stageMatchMap.set(stage.id, matchesInStage)
     }
-
-    setMatchMapLookup(mapLookup)
-    setStageMatchIds(stageMatchMap)
 
     const mapArr = [...mapsFound].sort()
     setMapKeys(mapArr)
@@ -159,17 +112,16 @@ export default function AdminDropLocationsPage() {
 
     if (allMatchIdsList.length === 0) return
 
-    const [{ data: results }, { data: landingsRaw }] = await Promise.all([
+    const [{ data: results }, { data: stageDropsRaw }] = await Promise.all([
       supabase
         .from('match_team_results')
         .select('team_id, display_name, teams(id, name, logo_url)')
         .in('match_id', allMatchIdsList)
         .not('team_id', 'is', null),
       supabase
-        .from('match_player_landings')
-        .select('match_id, team_id, x_norm, y_norm')
-        .in('match_id', allMatchIdsList)
-        .not('team_id', 'is', null),
+        .from('stage_drop_locations')
+        .select('id, stage_id, team_id, map_name, x, y')
+        .in('stage_id', allStageIds),
     ])
 
     const seen = new Map<string, TeamParticipant>()
@@ -185,13 +137,13 @@ export default function AdminDropLocationsPage() {
     }
     setTeams([...seen.values()].sort((a, b) => a.teamName.localeCompare(b.teamName)))
 
+    const byStage = new Map<string, DropLoc[]>()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    setAllLandings((landingsRaw ?? []).map((l: any) => ({
-      matchId: l.match_id,
-      teamId: l.team_id,
-      xNorm: l.x_norm,
-      yNorm: l.y_norm,
-    })))
+    for (const d of (stageDropsRaw ?? []) as any[]) {
+      if (!byStage.has(d.stage_id)) byStage.set(d.stage_id, [])
+      byStage.get(d.stage_id)!.push({ id: d.id, teamId: d.team_id, mapName: d.map_name, x: d.x, y: d.y })
+    }
+    setStagedDrops(byStage)
   }, [id, supabase])
 
   useEffect(() => { load() }, [load])
@@ -210,24 +162,36 @@ export default function AdminDropLocationsPage() {
     if (selectedScopeKey === 'total') {
       return drops.filter((d) => d.mapName === selectedMap)
     }
-    let scopeIds: Set<string>
+    let stageDropList: DropLoc[] = []
     if (selectedScopeKey.startsWith('stage:')) {
-      const stageId = selectedScopeKey.slice(6)
-      scopeIds = new Set(stageMatchIds.get(stageId) ?? [])
+      stageDropList = stagedDrops.get(selectedScopeKey.slice(6)) ?? []
     } else if (selectedScopeKey.startsWith('series:')) {
       const seriesId = selectedScopeKey.slice(7)
-      const ids: string[] = []
-      for (const [sId, mIds] of stageMatchIds.entries()) {
-        const stage = stageItems.find((s) => s.id === sId)
-        if (stage?.series_id === seriesId) ids.push(...mIds)
+      const stageDrop: DropLoc[] = []
+      for (const s of stageItems) {
+        if (s.series_id === seriesId) stageDrop.push(...(stagedDrops.get(s.id) ?? []))
       }
-      scopeIds = new Set(ids)
-    } else {
-      return drops.filter((d) => d.mapName === selectedMap)
+      // Aggregate per (team, map): median across stages
+      const grouped = new Map<string, { x: number[]; y: number[] }>()
+      for (const d of stageDrop) {
+        const key = `${d.teamId}\0${d.mapName}`
+        if (!grouped.has(key)) grouped.set(key, { x: [], y: [] })
+        grouped.get(key)!.x.push(d.x)
+        grouped.get(key)!.y.push(d.y)
+      }
+      for (const [key, coords] of grouped.entries()) {
+        const sep = key.indexOf('\0')
+        stageDropList.push({
+          id: `series_${key}`,
+          teamId: key.slice(0, sep),
+          mapName: key.slice(sep + 1),
+          x: median(coords.x),
+          y: median(coords.y),
+        })
+      }
     }
-    const filtered = allLandings.filter((l) => scopeIds.has(l.matchId))
-    return computeDropsFromLandings(filtered, matchMapLookup).filter((d) => d.mapName === selectedMap)
-  }, [selectedScopeKey, selectedMap, drops, allLandings, matchMapLookup, stageMatchIds, stageItems])
+    return stageDropList.filter((d) => d.mapName === selectedMap)
+  }, [selectedScopeKey, selectedMap, drops, stagedDrops, stageItems])
 
   const isTotalScope = selectedScopeKey === 'total'
   const teamById = new Map(teams.map((t) => [t.teamId, t]))
@@ -290,7 +254,7 @@ export default function AdminDropLocationsPage() {
       if (!res.ok) {
         setComputeResult(`오류: ${json.error ?? '알 수 없는 오류'}`)
       } else {
-        const msg = `완료 — 신규 처리 ${json.newlyProcessed}경기 / 건너뜀 ${json.skipped}경기 / 낙하 지점 ${json.dropLocationsUpdated}개 업데이트`
+        const msg = `완료 — 신규 처리 ${json.newlyProcessed}경기 / 건너뜀 ${json.skipped}경기 / 스테이지 ${json.stageDropsUpdated}개 · 토너먼트 ${json.tournamentDropsUpdated}개 업데이트`
         setComputeResult(msg + (json.errors?.length ? `\n오류: ${json.errors.join(', ')}` : ''))
         await load()
       }

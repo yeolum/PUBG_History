@@ -41,7 +41,8 @@ export async function POST(req: NextRequest) {
     success: true,
     newlyProcessed: stats.newlyProcessed,
     skipped: stats.skipped,
-    dropLocationsUpdated: stats.dropLocationsUpdated,
+    stageDropsUpdated: stats.stageDropsUpdated,
+    tournamentDropsUpdated: stats.tournamentDropsUpdated,
     errors: stats.errors,
   })
 }
