@@ -249,20 +249,21 @@ export default function AdminDropLocationsPage() {
     if (img) img.src = mapImageUrl(selectedMap) + '?t=' + Date.now()
   }
 
-  async function handleAutoCompute() {
+  async function handleAutoCompute(forceRecompute = false) {
     setComputing(true)
     setComputeResult(null)
     try {
       const res = await fetch('/api/admin/pubg/compute-drops', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tournamentId: id }),
+        body: JSON.stringify({ tournamentId: id, forceRecompute }),
       })
       const json = await res.json()
       if (!res.ok) {
         setComputeResult(`오류: ${json.error ?? '알 수 없는 오류'}`)
       } else {
-        const msg = `완료 — 신규 처리 ${json.newlyProcessed}경기 / 건너뜀 ${json.skipped}경기 / 스테이지 ${json.stageDropsUpdated}개 · 토너먼트 ${json.tournamentDropsUpdated}개 업데이트`
+        const prefix = forceRecompute ? '[강제 재계산] ' : ''
+        const msg = `${prefix}완료 — 신규 처리 ${json.newlyProcessed}경기 / 건너뜀 ${json.skipped}경기 / 스테이지 ${json.stageDropsUpdated}개 · 토너먼트 ${json.tournamentDropsUpdated}개 업데이트`
         setComputeResult(msg + (json.errors?.length ? `\n오류: ${json.errors.join(', ')}` : ''))
         await load()
       }
@@ -285,18 +286,27 @@ export default function AdminDropLocationsPage() {
 
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-bold text-gray-900">낙하 지점 관리</h1>
-        <button
-          onClick={handleAutoCompute}
-          disabled={computing}
-          className="flex items-center gap-2 px-4 py-2 bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-200 disabled:text-gray-400 text-gray-900 text-sm font-semibold rounded-lg transition-colors"
-        >
-          {computing ? (
-            <>
-              <span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              계산 중...
-            </>
-          ) : '자동 계산 (텔레메트리)'}
-        </button>
+        <div className="flex gap-2">
+          <button
+            onClick={() => handleAutoCompute(false)}
+            disabled={computing}
+            className="flex items-center gap-2 px-4 py-2 bg-yellow-400 hover:bg-yellow-500 disabled:bg-gray-200 disabled:text-gray-400 text-gray-900 text-sm font-semibold rounded-lg transition-colors"
+          >
+            {computing ? (
+              <>
+                <span className="w-3.5 h-3.5 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
+                계산 중...
+              </>
+            ) : '자동 계산 (텔레메트리)'}
+          </button>
+          <button
+            onClick={() => { if (confirm('기존 centroid 데이터를 모두 삭제하고 텔레메트리를 재다운로드합니다. 시간이 걸릴 수 있습니다. 계속하시겠습니까?')) handleAutoCompute(true) }}
+            disabled={computing}
+            className="flex items-center gap-2 px-4 py-2 bg-red-50 hover:bg-red-100 disabled:bg-gray-200 disabled:text-gray-400 text-red-700 border border-red-200 text-sm font-semibold rounded-lg transition-colors"
+          >
+            강제 재계산
+          </button>
+        </div>
       </div>
       {computeResult && (
         <div className={`mb-4 px-4 py-3 rounded-lg text-sm whitespace-pre-line ${computeResult.startsWith('오류') || computeResult.startsWith('네트워크') ? 'bg-red-50 text-red-700' : 'bg-green-50 text-green-700'}`}>

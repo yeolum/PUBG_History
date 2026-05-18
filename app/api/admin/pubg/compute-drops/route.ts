@@ -29,12 +29,22 @@ export async function POST(req: NextRequest) {
   const user = await getAuthUser()
   if (!user) return NextResponse.json({ error: 'Authentication required' }, { status: 401 })
 
-  let body: { tournamentId?: string }
+  let body: { tournamentId?: string; forceRecompute?: boolean }
   try { body = await req.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
-  const { tournamentId } = body
+  const { tournamentId, forceRecompute } = body
   if (!tournamentId) return NextResponse.json({ error: 'tournamentId required' }, { status: 400 })
 
   const db = serviceClient()
+
+  if (forceRecompute) {
+    // 기존 centroid 전체 삭제 → 텔레메트리 재다운로드 강제
+    const { data: stagesRaw } = await db.from('stages').select('id, matches(id)').eq('tournament_id', tournamentId) as { data: { id: string; matches: { id: string }[] }[] | null }
+    const matchIds = (stagesRaw ?? []).flatMap((s) => (s.matches ?? []).map((m) => m.id))
+    if (matchIds.length > 0) {
+      await db.from('match_team_drop_locations').delete().in('match_id', matchIds)
+    }
+  }
+
   const stats = await computeDropLocations(tournamentId, db)
 
   return NextResponse.json({
