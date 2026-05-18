@@ -407,7 +407,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
                   <div className="relative" style={{ aspectRatio: '1' }}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={`${supabaseUrl}/storage/v1/object/public/images/maps/${mapName}.jpg`}
+                      src={`${supabaseUrl}/storage/v1/object/public/map-images/${mapName}.jpg`}
                       alt={getMapDisplayName(mapName)}
                       className="absolute inset-0 w-full h-full object-cover"
                     />

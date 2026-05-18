@@ -10,7 +10,7 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 const ALL_MAPS = Object.entries(MAP_NAMES).map(([key, displayName]) => ({ key, displayName }))
 
 function mapImageUrl(mapKey: string, bust?: number) {
-  const base = `${SUPABASE_URL}/storage/v1/object/public/images/maps/${mapKey}.jpg`
+  const base = `${SUPABASE_URL}/storage/v1/object/public/map-images/${mapKey}.jpg`
   return bust ? `${base}?t=${bust}` : base
 }
 
@@ -24,8 +24,8 @@ export default function AdminMapsPage() {
   async function handleUpload(mapKey: string, file: File) {
     setUploading(mapKey)
     const { error } = await supabase.storage
-      .from('images')
-      .upload(`maps/${mapKey}.jpg`, file, { upsert: true, contentType: file.type })
+      .from('map-images')
+      .upload(`${mapKey}.jpg`, file, { upsert: true, contentType: file.type })
     setUploading(null)
     if (error) { alert('업로드 실패: ' + error.message); return }
     setBusts((prev) => ({ ...prev, [mapKey]: Date.now() }))

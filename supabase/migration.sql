@@ -13,6 +13,37 @@ VALUES (
 )
 ON CONFLICT (id) DO NOTHING;
 
+-- Create public 'map-images' bucket (high-res map images up to 150MB)
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'map-images',
+  'map-images',
+  true,
+  157286400,  -- 150MB
+  ARRAY['image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Public read
+CREATE POLICY IF NOT EXISTS "map_images_public_read"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'map-images');
+
+-- Authenticated upload
+CREATE POLICY IF NOT EXISTS "map_images_auth_insert"
+  ON storage.objects FOR INSERT
+  WITH CHECK (bucket_id = 'map-images');
+
+-- Authenticated update
+CREATE POLICY IF NOT EXISTS "map_images_auth_update"
+  ON storage.objects FOR UPDATE
+  USING (bucket_id = 'map-images');
+
+-- Authenticated delete
+CREATE POLICY IF NOT EXISTS "map_images_auth_delete"
+  ON storage.objects FOR DELETE
+  USING (bucket_id = 'map-images');
+
 -- Public read (anyone can view uploaded images)
 CREATE POLICY IF NOT EXISTS "images_public_read"
   ON storage.objects FOR SELECT

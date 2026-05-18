@@ -22,12 +22,8 @@ interface DropLoc {
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
-function mapStoragePath(mapKey: string) {
-  return `maps/${mapKey}.jpg`
-}
-
 function mapImageUrl(mapKey: string) {
-  return `${SUPABASE_URL}/storage/v1/object/public/images/${mapStoragePath(mapKey)}`
+  return `${SUPABASE_URL}/storage/v1/object/public/map-images/${mapKey}.jpg`
 }
 
 export default function AdminDropLocationsPage() {
@@ -139,8 +135,7 @@ export default function AdminDropLocationsPage() {
 
   async function uploadMapImage(file: File) {
     setUploadingMap(true)
-    const path = mapStoragePath(selectedMap)
-    const { error } = await supabase.storage.from('images').upload(path, file, { upsert: true, contentType: file.type })
+    const { error } = await supabase.storage.from('map-images').upload(`${selectedMap}.jpg`, file, { upsert: true, contentType: file.type })
     setUploadingMap(false)
     if (error) { alert('업로드 실패: ' + error.message); return }
     setMapImgError(false)

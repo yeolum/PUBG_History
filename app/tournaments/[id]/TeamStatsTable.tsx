@@ -38,7 +38,7 @@ type AnyRow = Record<string, any>
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
 function mapImageUrl(mapKey: string) {
-  return `${SUPABASE_URL}/storage/v1/object/public/images/maps/${encodeURIComponent(mapKey)}.jpg`
+  return `${SUPABASE_URL}/storage/v1/object/public/map-images/${encodeURIComponent(mapKey)}.jpg`
 }
 
 export default function TeamStatsTable({
