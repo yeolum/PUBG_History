@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -20,10 +20,69 @@ interface DropLoc {
   y: number
 }
 
+interface StageItem {
+  id: string
+  name: string
+  tab_order: number
+  series_id: string | null
+}
+
+interface SeriesItem {
+  id: string
+  name: string
+  tab_order: number
+}
+
+interface LandingRow {
+  matchId: string
+  teamId: string
+  xNorm: number
+  yNorm: number
+}
+
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
 function mapImageUrl(mapKey: string) {
   return `${SUPABASE_URL}/storage/v1/object/public/map-images/${mapKey}.jpg`
+}
+
+function median(values: number[]): number {
+  if (!values.length) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+function computeDropsFromLandings(
+  landings: LandingRow[],
+  matchMapLookup: Map<string, string>,
+): DropLoc[] {
+  type Pos = { x: number; y: number }
+  const grouped: Record<string, Record<string, Record<string, Pos[]>>> = {}
+  for (const l of landings) {
+    const mapName = matchMapLookup.get(l.matchId) ?? 'unknown'
+    if (!grouped[mapName]) grouped[mapName] = {}
+    if (!grouped[mapName][l.teamId]) grouped[mapName][l.teamId] = {}
+    if (!grouped[mapName][l.teamId][l.matchId]) grouped[mapName][l.teamId][l.matchId] = []
+    grouped[mapName][l.teamId][l.matchId].push({ x: l.xNorm, y: l.yNorm })
+  }
+  const result: DropLoc[] = []
+  for (const [mapName, byTeam] of Object.entries(grouped)) {
+    for (const [teamId, byMatch] of Object.entries(byTeam)) {
+      const centroids = Object.values(byMatch).map((positions) => ({
+        x: positions.reduce((s, p) => s + p.x, 0) / positions.length,
+        y: positions.reduce((s, p) => s + p.y, 0) / positions.length,
+      }))
+      result.push({
+        id: `computed_${teamId}_${mapName}`,
+        teamId,
+        mapName,
+        x: median(centroids.map((c) => c.x)),
+        y: median(centroids.map((c) => c.y)),
+      })
+    }
+  }
+  return result
 }
 
 export default function AdminDropLocationsPage() {
@@ -34,8 +93,14 @@ export default function AdminDropLocationsPage() {
   const [mapKeys, setMapKeys] = useState<string[]>([])
   const [teams, setTeams] = useState<TeamParticipant[]>([])
   const [drops, setDrops] = useState<DropLoc[]>([])
+  const [stageItems, setStageItems] = useState<StageItem[]>([])
+  const [seriesItems, setSeriesItems] = useState<SeriesItem[]>([])
+  const [allLandings, setAllLandings] = useState<LandingRow[]>([])
+  const [matchMapLookup, setMatchMapLookup] = useState<Map<string, string>>(new Map())
+  const [stageMatchIds, setStageMatchIds] = useState<Map<string, string[]>>(new Map())
   const [selectedMap, setSelectedMap] = useState<string>('')
   const [selectedTeamId, setSelectedTeamId] = useState<string>('')
+  const [selectedScopeKey, setSelectedScopeKey] = useState<string>('total')
   const [saving, setSaving] = useState(false)
   const [uploadingMap, setUploadingMap] = useState(false)
   const [mapImgError, setMapImgError] = useState(false)
@@ -45,20 +110,46 @@ export default function AdminDropLocationsPage() {
   const mapFileRef = useRef<HTMLInputElement>(null)
 
   const load = useCallback(async () => {
-    const [{ data: t }, { data: stages }, { data: existing }] = await Promise.all([
+    const [{ data: t }, { data: stagesRaw }, { data: seriesRaw }, { data: existing }] = await Promise.all([
       supabase.from('tournaments').select('name').eq('id', id).single(),
-      supabase.from('stages').select('id, matches(id, map, status)').eq('tournament_id', id),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      supabase.from('stages').select('id, name, tab_order, series_id, matches(id, map, status)').eq('tournament_id', id) as any,
+      supabase.from('series').select('id, name, tab_order').eq('tournament_id', id),
       supabase.from('team_drop_locations').select('id, team_id, map_name, x, y').eq('tournament_id', id),
     ])
     setTournamentName(t?.name ?? '')
 
-    // Collect maps from imported matches
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stages: any[] = stagesRaw ?? []
+    setStageItems(stages.map((s) => ({
+      id: s.id,
+      name: s.name ?? '',
+      tab_order: s.tab_order ?? 0,
+      series_id: s.series_id ?? null,
+    })))
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setSeriesItems((seriesRaw ?? []).map((sr: any) => ({ id: sr.id, name: sr.name ?? '', tab_order: sr.tab_order ?? 0 })))
+
     const mapsFound = new Set<string>()
-    for (const stage of stages ?? []) {
-      for (const m of (stage.matches as { id: string; map: string | null; status: string }[]) ?? []) {
-        if (m.status === 'imported' && m.map) mapsFound.add(m.map)
+    const mapLookup = new Map<string, string>()
+    const stageMatchMap = new Map<string, string[]>()
+    const allMatchIdsList: string[] = []
+
+    for (const stage of stages) {
+      const matchesInStage: string[] = []
+      for (const m of (stage.matches ?? []) as { id: string; map: string | null; status: string }[]) {
+        if (m.status === 'imported') {
+          if (m.map) { mapsFound.add(m.map); mapLookup.set(m.id, m.map) }
+          matchesInStage.push(m.id)
+          allMatchIdsList.push(m.id)
+        }
       }
+      stageMatchMap.set(stage.id, matchesInStage)
     }
+
+    setMatchMapLookup(mapLookup)
+    setStageMatchIds(stageMatchMap)
+
     const mapArr = [...mapsFound].sort()
     setMapKeys(mapArr)
     if (mapArr.length > 0) setSelectedMap((prev) => prev || mapArr[0])
@@ -66,24 +157,20 @@ export default function AdminDropLocationsPage() {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     setDrops((existing ?? []).map((d: any) => ({ id: d.id, teamId: d.team_id, mapName: d.map_name, x: d.x, y: d.y })))
 
-    // Load teams from match_team_results
-    const stageIds = (stages ?? []).map((s: { id: string }) => s.id)
-    if (stageIds.length === 0) return
+    if (allMatchIdsList.length === 0) return
 
-    const { data: matchData } = await supabase
-      .from('matches')
-      .select('id')
-      .in('stage_id', stageIds)
-      .eq('status', 'imported')
-
-    const matchIds = (matchData ?? []).map((m: { id: string }) => m.id)
-    if (matchIds.length === 0) return
-
-    const { data: results } = await supabase
-      .from('match_team_results')
-      .select('team_id, display_name, teams(id, name, logo_url)')
-      .in('match_id', matchIds)
-      .not('team_id', 'is', null)
+    const [{ data: results }, { data: landingsRaw }] = await Promise.all([
+      supabase
+        .from('match_team_results')
+        .select('team_id, display_name, teams(id, name, logo_url)')
+        .in('match_id', allMatchIdsList)
+        .not('team_id', 'is', null),
+      supabase
+        .from('match_player_landings')
+        .select('match_id, team_id, x_norm, y_norm')
+        .in('match_id', allMatchIdsList)
+        .not('team_id', 'is', null),
+    ])
 
     const seen = new Map<string, TeamParticipant>()
     for (const r of results ?? []) {
@@ -97,12 +184,59 @@ export default function AdminDropLocationsPage() {
       })
     }
     setTeams([...seen.values()].sort((a, b) => a.teamName.localeCompare(b.teamName)))
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setAllLandings((landingsRaw ?? []).map((l: any) => ({
+      matchId: l.match_id,
+      teamId: l.team_id,
+      xNorm: l.x_norm,
+      yNorm: l.y_norm,
+    })))
   }, [id, supabase])
 
   useEffect(() => { load() }, [load])
 
+  const topScopes = useMemo(() => {
+    const items: ({ kind: 'series'; item: SeriesItem; key: number } | { kind: 'stage'; item: StageItem; key: number })[] = []
+    for (const sr of seriesItems) items.push({ kind: 'series', item: sr, key: sr.tab_order })
+    for (const s of stageItems) {
+      if (s.series_id) continue
+      items.push({ kind: 'stage', item: s, key: s.tab_order })
+    }
+    return items.sort((a, b) => a.key - b.key)
+  }, [seriesItems, stageItems])
+
+  const currentDrops = useMemo(() => {
+    if (selectedScopeKey === 'total') {
+      return drops.filter((d) => d.mapName === selectedMap)
+    }
+    let scopeIds: Set<string>
+    if (selectedScopeKey.startsWith('stage:')) {
+      const stageId = selectedScopeKey.slice(6)
+      scopeIds = new Set(stageMatchIds.get(stageId) ?? [])
+    } else if (selectedScopeKey.startsWith('series:')) {
+      const seriesId = selectedScopeKey.slice(7)
+      const ids: string[] = []
+      for (const [sId, mIds] of stageMatchIds.entries()) {
+        const stage = stageItems.find((s) => s.id === sId)
+        if (stage?.series_id === seriesId) ids.push(...mIds)
+      }
+      scopeIds = new Set(ids)
+    } else {
+      return drops.filter((d) => d.mapName === selectedMap)
+    }
+    const filtered = allLandings.filter((l) => scopeIds.has(l.matchId))
+    return computeDropsFromLandings(filtered, matchMapLookup).filter((d) => d.mapName === selectedMap)
+  }, [selectedScopeKey, selectedMap, drops, allLandings, matchMapLookup, stageMatchIds, stageItems])
+
+  const isTotalScope = selectedScopeKey === 'total'
+  const teamById = new Map(teams.map((t) => [t.teamId, t]))
+
+  const scopeBtn = (active: boolean) =>
+    `px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
+
   async function handleMapClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (!selectedTeamId || !selectedMap) return
+    if (!isTotalScope || !selectedTeamId || !selectedMap) return
     const rect = e.currentTarget.getBoundingClientRect()
     const x = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width))
     const y = Math.max(0, Math.min(1, (e.clientY - rect.top) / rect.height))
@@ -139,7 +273,6 @@ export default function AdminDropLocationsPage() {
     setUploadingMap(false)
     if (error) { alert('업로드 실패: ' + error.message); return }
     setMapImgError(false)
-    // Force refresh the img
     const img = mapRef.current?.querySelector('img') as HTMLImageElement | null
     if (img) img.src = mapImageUrl(selectedMap) + '?t=' + Date.now()
   }
@@ -167,9 +300,6 @@ export default function AdminDropLocationsPage() {
       setComputing(false)
     }
   }
-
-  const currentDrops = drops.filter((d) => d.mapName === selectedMap)
-  const teamById = new Map(teams.map((t) => [t.teamId, t]))
 
   return (
     <div className="p-8 max-w-5xl">
@@ -209,7 +339,7 @@ export default function AdminDropLocationsPage() {
       ) : (
         <>
           {/* Map selector */}
-          <div className="flex gap-2 mb-4 flex-wrap">
+          <div className="flex gap-2 mb-3 flex-wrap">
             {mapKeys.map((mk) => (
               <button
                 key={mk}
@@ -221,22 +351,42 @@ export default function AdminDropLocationsPage() {
             ))}
           </div>
 
-          <div className="flex gap-6 items-start">
-            {/* Left: Team list + selector */}
-            <div className="w-52 shrink-0">
-              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200">
-                  <p className="text-xs font-semibold text-gray-500">팀 선택 → 맵 클릭으로 배치</p>
+          {/* Stage scope selector */}
+          {topScopes.length > 0 && (
+            <div className="flex flex-wrap gap-1.5 mb-4">
+              <button onClick={() => setSelectedScopeKey('total')} className={scopeBtn(selectedScopeKey === 'total')}>
+                Total
+              </button>
+              {topScopes.map((sc) => {
+                const key = sc.kind === 'series' ? `series:${sc.item.id}` : `stage:${sc.item.id}`
+                return (
+                  <button key={key} onClick={() => setSelectedScopeKey(key)} className={scopeBtn(selectedScopeKey === key)}>
+                    {sc.item.name}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Main layout: left team panel + right map */}
+          <div className="grid gap-6" style={{ gridTemplateColumns: '208px 1fr' }}>
+            {/* Left: Team list + upload + drop list */}
+            <div className="flex flex-col min-h-0">
+              <div className="bg-white rounded-xl border border-gray-200 overflow-hidden flex-1 flex flex-col min-h-0">
+                <div className="px-4 py-2.5 bg-gray-50 border-b border-gray-200 shrink-0">
+                  <p className="text-xs font-semibold text-gray-500">
+                    {isTotalScope ? '팀 선택 → 맵 클릭으로 배치' : '스테이지 필터 (보기 전용)'}
+                  </p>
                 </div>
-                <div className="max-h-96 overflow-y-auto">
+                <div className="flex-1 overflow-y-auto min-h-0">
                   {teams.map((team) => {
                     const hasDrop = currentDrops.some((d) => d.teamId === team.teamId)
                     const isSelected = selectedTeamId === team.teamId
                     return (
                       <button
                         key={team.teamId}
-                        onClick={() => setSelectedTeamId(isSelected ? '' : team.teamId)}
-                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left border-b border-gray-50 last:border-0 transition-colors ${isSelected ? 'bg-yellow-50 text-gray-900' : 'hover:bg-gray-50 text-gray-700'}`}
+                        onClick={() => isTotalScope && setSelectedTeamId(isSelected ? '' : team.teamId)}
+                        className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left border-b border-gray-50 last:border-0 transition-colors ${isSelected ? 'bg-yellow-50 text-gray-900' : isTotalScope ? 'hover:bg-gray-50 text-gray-700' : 'text-gray-700 cursor-default'}`}
                       >
                         {team.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
@@ -253,7 +403,7 @@ export default function AdminDropLocationsPage() {
               </div>
 
               {/* Map image upload */}
-              <div className="mt-3 bg-white rounded-xl border border-gray-200 p-3">
+              <div className="mt-3 shrink-0 bg-white rounded-xl border border-gray-200 p-3">
                 <p className="text-[11px] font-semibold text-gray-400 mb-2 uppercase">맵 이미지</p>
                 <input
                   ref={mapFileRef}
@@ -274,7 +424,7 @@ export default function AdminDropLocationsPage() {
 
               {/* Current drop list */}
               {currentDrops.length > 0 && (
-                <div className="mt-3 bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="mt-3 shrink-0 bg-white rounded-xl border border-gray-200 overflow-hidden">
                   <div className="px-3 py-2 bg-gray-50 border-b border-gray-100">
                     <p className="text-[11px] font-semibold text-gray-500">{getMapDisplayName(selectedMap)} 낙하 지점 ({currentDrops.length})</p>
                   </div>
@@ -290,10 +440,12 @@ export default function AdminDropLocationsPage() {
                         )}
                         <span className="text-xs text-gray-700 flex-1 truncate">{team?.teamName ?? drop.teamId}</span>
                         <span className="text-[10px] text-gray-400 font-mono">{(drop.x * 100).toFixed(0)},{(drop.y * 100).toFixed(0)}</span>
-                        <button
-                          onClick={() => deleteDrop(drop.id)}
-                          className="text-gray-300 hover:text-red-500 text-sm leading-none px-1"
-                        >×</button>
+                        {isTotalScope && (
+                          <button
+                            onClick={() => deleteDrop(drop.id)}
+                            className="text-gray-300 hover:text-red-500 text-sm leading-none px-1"
+                          >×</button>
+                        )}
                       </div>
                     )
                   })}
@@ -302,11 +454,11 @@ export default function AdminDropLocationsPage() {
             </div>
 
             {/* Right: Map view */}
-            <div className="flex-1">
+            <div>
               <div
                 ref={mapRef}
                 onClick={handleMapClick}
-                className={`relative rounded-xl overflow-hidden border border-gray-200 bg-gray-100 ${selectedTeamId ? 'cursor-crosshair' : 'cursor-default'}`}
+                className={`relative rounded-xl overflow-hidden border border-gray-200 bg-gray-100 ${isTotalScope && selectedTeamId ? 'cursor-crosshair' : 'cursor-default'}`}
                 style={{ aspectRatio: '1' }}
               >
                 {/* Map image */}
@@ -332,10 +484,17 @@ export default function AdminDropLocationsPage() {
                   </div>
                 )}
 
-                {/* Hint when team selected */}
-                {selectedTeamId && (
+                {/* Hint when team selected in total mode */}
+                {isTotalScope && selectedTeamId && (
                   <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-yellow-400 text-gray-900 text-xs font-semibold px-3 py-1.5 rounded-full shadow">
                     {teamById.get(selectedTeamId)?.teamName} — 클릭하여 낙하 지점 설정
+                  </div>
+                )}
+
+                {/* Stage mode read-only notice */}
+                {!isTotalScope && (
+                  <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-gray-800/80 text-white text-xs px-3 py-1.5 rounded-full">
+                    보기 전용 — 편집하려면 Total 선택
                   </div>
                 )}
 
@@ -346,7 +505,7 @@ export default function AdminDropLocationsPage() {
                   </div>
                 )}
 
-                {/* Existing drop locations */}
+                {/* Drop location markers */}
                 {currentDrops.map((drop) => {
                   const team = teamById.get(drop.teamId)
                   const isSelected = selectedTeamId === drop.teamId
@@ -376,7 +535,9 @@ export default function AdminDropLocationsPage() {
                 })}
               </div>
               <p className="text-[11px] text-gray-400 mt-2 text-center">
-                왼쪽에서 팀을 선택한 후 맵을 클릭하면 낙하 지점이 저장됩니다. 다시 클릭하면 위치가 이동합니다.
+                {isTotalScope
+                  ? '왼쪽에서 팀을 선택한 후 맵을 클릭하면 낙하 지점이 저장됩니다. 다시 클릭하면 위치가 이동합니다.'
+                  : '텔레메트리 데이터 기반으로 계산된 낙하 지점입니다. 편집하려면 Total을 선택하세요.'}
               </p>
             </div>
           </div>
