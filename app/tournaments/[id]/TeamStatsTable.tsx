@@ -4,7 +4,7 @@ import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
 import { createClient } from '@/lib/supabase/client'
-import { calcPlacementPts } from '@/lib/scoring'
+import { calcPlacementPtsWithRule, ruleFromStage, DEFAULT_RULE } from '@/lib/scoring'
 import type { Stage, Match } from '@/lib/types'
 
 export interface TeamStatRow {
@@ -159,11 +159,23 @@ export default function TeamStatsTable({
     return m
   }, [teamStats])
 
+  // matchId → scoring rule (mirrors TournamentContent server-side logic)
+  const matchToRule = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof ruleFromStage>>()
+    for (const s of stages) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const rule = ruleFromStage((s as any).scoring_rules)
+      for (const m of s.matches) map.set(m.id, rule)
+    }
+    return map
+  }, [stages])
+
   const displayTeamStats = useMemo((): TeamStatRow[] => {
     if (!activeMatchIds) return teamStats
     const map = new Map<string, TeamStatRow>()
     for (const [matchId, rows] of Object.entries(resultsByMatch)) {
       if (!activeMatchIds.has(matchId)) continue
+      const rule = matchToRule.get(matchId) ?? DEFAULT_RULE
       for (const r of rows) {
         const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
         const teamName = r._resolvedName ?? r.teams?.name ?? r.pubg_team_name ?? '?'
@@ -180,12 +192,12 @@ export default function TeamStatsTable({
         if (r.placement === 1) e.wwcd++
         e.totalKills += r.total_kills ?? 0
         e.totalDamage += Number(r.total_damage ?? 0)
-        e.totalPoints += calcPlacementPts(r.placement ?? 99) + (r.total_kills ?? 0)
+        e.totalPoints += calcPlacementPtsWithRule(r.placement ?? 99, rule) + Math.round((r.total_kills ?? 0) * rule.kill_pts)
         if (r.placement) { e.placementsSum += r.placement; e.gamesWithPlacement++ }
       }
     }
     return [...map.values()].sort((a, b) => b.totalPoints - a.totalPoints)
-  }, [activeMatchIds, teamStats, resultsByMatch, logoById])
+  }, [activeMatchIds, teamStats, resultsByMatch, logoById, matchToRule])
 
   const enriched = useMemo(() => displayTeamStats.map((t) => ({
     ...t,
