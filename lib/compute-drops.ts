@@ -87,8 +87,16 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
       await Promise.allSettled(
         batch.map(async (match) => {
           try {
-            const { landings } = await fetchTelemetryLandings(match.pubg_match_id!, 'tournament')
+            const { landings, mapName: apiMapName } = await fetchTelemetryLandings(match.pubg_match_id!, 'tournament')
             if (landings.length === 0) { result.newlyProcessed++; return }
+
+            // Use API's mapName as authoritative source; fall back to DB value
+            const effectiveMapName = apiMapName || match.map || 'unknown'
+
+            // If match.map was null, patch it in the DB so future queries are consistent
+            if (!match.map && apiMapName) {
+              await db.from('matches').update({ map: apiMapName }).eq('id', match.id)
+            }
 
             const { data: playerStats } = await db
               .from('match_player_stats')
@@ -126,7 +134,7 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
               centroidInserts.push({
                 match_id: match.id,
                 team_id: teamId,
-                map_name: match.map ?? 'unknown',
+                map_name: effectiveMapName,
                 x: coords.x.reduce((s, v) => s + v, 0) / coords.x.length,
                 y: coords.y.reduce((s, v) => s + v, 0) / coords.y.length,
               })
