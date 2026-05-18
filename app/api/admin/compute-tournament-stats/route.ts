@@ -4,6 +4,7 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { computeTournamentStats } from '@/lib/compute-stats'
+import { computeDropLocations } from '@/lib/compute-drops'
 
 async function getAuthUser() {
   const cookieStore = await cookies()
@@ -38,13 +39,21 @@ export async function POST(req: NextRequest) {
   const { tournamentId } = body
   if (!tournamentId) return NextResponse.json({ error: 'tournamentId required' }, { status: 400 })
 
+  const db = serviceClient()
   try {
-    await computeTournamentStats(tournamentId, serviceClient())
-    revalidateTag('tournament-data', 'default')
-    return NextResponse.json({ ok: true })
+    await computeTournamentStats(tournamentId, db)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[compute-tournament-stats]', tournamentId, msg)
     return NextResponse.json({ error: msg }, { status: 500 })
   }
+
+  try {
+    await computeDropLocations(tournamentId, db)
+  } catch (err) {
+    console.error('[compute-tournament-stats] computeDropLocations failed:', err)
+  }
+
+  revalidateTag('tournament-data', 'default')
+  return NextResponse.json({ ok: true })
 }
