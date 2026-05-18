@@ -189,8 +189,9 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
     }
   }
 
-  // Step 4: team_drop_locations — median of ALL match centroids for tournament
-  const allMatchIds = allMatches.map((m) => m.id)
+  // Step 4: team_drop_locations — density peak of ALL match centroids for tournament
+  // Use the same match ID set as Step 3 (all imported matches, not just ones with pubg_match_id)
+  const allMatchIds = stages.flatMap((s) => (s.matches ?? []).filter((m) => m.status === 'imported').map((m) => m.id))
   const allCentroids = await paginateQuery<{ team_id: string; map_name: string; x: number; y: number }>(
     (from, to) => db
       .from('match_team_drop_locations')
