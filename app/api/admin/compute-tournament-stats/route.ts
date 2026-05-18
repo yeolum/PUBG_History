@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
   }
 
   try {
-    await computeDropLocations(tournamentId, db)
+    // 새로고침 시에는 텔레메트리 재다운로드 없이 기존 착지 데이터만 재집계
+    await computeDropLocations(tournamentId, db, { skipTelemetryFetch: true })
   } catch (err) {
     console.error('[compute-tournament-stats] computeDropLocations failed:', err)
   }

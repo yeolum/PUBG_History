@@ -16,7 +16,7 @@ export interface ComputeDropsResult {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function computeDropLocations(tournamentId: string, db: SupabaseClient<any, any, any>): Promise<ComputeDropsResult> {
+export async function computeDropLocations(tournamentId: string, db: SupabaseClient<any, any, any>, opts?: { skipTelemetryFetch?: boolean }): Promise<ComputeDropsResult> {
   const result: ComputeDropsResult = { newlyProcessed: 0, skipped: 0, dropLocationsUpdated: 0, errors: [] }
 
   const { data: stages } = await db.from('stages').select('id').eq('tournament_id', tournamentId)
@@ -32,43 +32,46 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
 
   if (!matches || matches.length === 0) return result
 
-  const { data: existingRows } = await db
-    .from('match_player_landings')
-    .select('match_id')
-    .in('match_id', matches.map((m: { id: string }) => m.id))
+  // 텔레메트리 다운로드 (매치 임포트 시에만 실행, 새로고침 시에는 건너뜀)
+  if (!opts?.skipTelemetryFetch) {
+    const { data: existingRows } = await db
+      .from('match_player_landings')
+      .select('match_id')
+      .in('match_id', matches.map((m: { id: string }) => m.id))
 
-  const matchesWithData = new Set((existingRows ?? []).map((r: { match_id: string }) => r.match_id))
-  const toFetch = matches.filter((m: { id: string }) => !matchesWithData.has(m.id))
-  result.skipped = matchesWithData.size
+    const matchesWithData = new Set((existingRows ?? []).map((r: { match_id: string }) => r.match_id))
+    const toFetch = matches.filter((m: { id: string }) => !matchesWithData.has(m.id))
+    result.skipped = matchesWithData.size
 
-  for (const match of toFetch) {
-    try {
-      const { landings } = await fetchTelemetryLandings(match.pubg_match_id, 'tournament')
-      if (landings.length === 0) { result.newlyProcessed++; continue }
+    for (const match of toFetch) {
+      try {
+        const { landings } = await fetchTelemetryLandings(match.pubg_match_id, 'tournament')
+        if (landings.length === 0) { result.newlyProcessed++; continue }
 
-      const { data: playerStats } = await db
-        .from('match_player_stats')
-        .select('pubg_player_name, team_id')
-        .eq('match_id', match.id)
+        const { data: playerStats } = await db
+          .from('match_player_stats')
+          .select('pubg_player_name, team_id')
+          .eq('match_id', match.id)
 
-      const playerTeamMap = new Map<string, string | null>()
-      for (const ps of playerStats ?? []) {
-        playerTeamMap.set((ps.pubg_player_name ?? '').toLowerCase(), ps.team_id ?? null)
+        const playerTeamMap = new Map<string, string | null>()
+        for (const ps of playerStats ?? []) {
+          playerTeamMap.set((ps.pubg_player_name ?? '').toLowerCase(), ps.team_id ?? null)
+        }
+
+        const inserts = landings.map((l) => ({
+          match_id: match.id,
+          pubg_player_name: l.pubgPlayerName,
+          team_id: playerTeamMap.get(l.pubgPlayerName.toLowerCase()) ?? null,
+          pubg_team_name: null as string | null,
+          x_norm: l.xNorm,
+          y_norm: l.yNorm,
+        }))
+
+        await db.from('match_player_landings').insert(inserts)
+        result.newlyProcessed++
+      } catch (err) {
+        result.errors.push(`${match.pubg_match_id}: ${err instanceof Error ? err.message : 'error'}`)
       }
-
-      const inserts = landings.map((l) => ({
-        match_id: match.id,
-        pubg_player_name: l.pubgPlayerName,
-        team_id: playerTeamMap.get(l.pubgPlayerName.toLowerCase()) ?? null,
-        pubg_team_name: null as string | null,
-        x_norm: l.xNorm,
-        y_norm: l.yNorm,
-      }))
-
-      await db.from('match_player_landings').insert(inserts)
-      result.newlyProcessed++
-    } catch (err) {
-      result.errors.push(`${match.pubg_match_id}: ${err instanceof Error ? err.message : 'error'}`)
     }
   }
 
