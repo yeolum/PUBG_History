@@ -1,8 +1,9 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
+import { createClient } from '@/lib/supabase/client'
 import { calcPlacementPts } from '@/lib/scoring'
 import type { Stage, Match } from '@/lib/types'
 
@@ -41,6 +42,51 @@ function mapImageUrl(mapKey: string) {
   return `${SUPABASE_URL}/storage/v1/object/public/map-images/${encodeURIComponent(mapKey)}.jpg`
 }
 
+interface LandingRow { matchId: string; teamId: string; xNorm: number; yNorm: number }
+
+function median(values: number[]): number {
+  if (!values.length) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const mid = Math.floor(sorted.length / 2)
+  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+}
+
+function computeDropsFromLandings(
+  landings: LandingRow[],
+  matchMapLookup: Map<string, string>,
+  teamInfoById: Map<string, { teamName: string; logoUrl: string | null }>,
+): DropLocationRow[] {
+  type Pos = { x: number; y: number }
+  const grouped: Record<string, Record<string, Record<string, Pos[]>>> = {}
+  for (const l of landings) {
+    const mapName = matchMapLookup.get(l.matchId) ?? 'unknown'
+    if (!grouped[mapName]) grouped[mapName] = {}
+    if (!grouped[mapName][l.teamId]) grouped[mapName][l.teamId] = {}
+    if (!grouped[mapName][l.teamId][l.matchId]) grouped[mapName][l.teamId][l.matchId] = []
+    grouped[mapName][l.teamId][l.matchId].push({ x: l.xNorm, y: l.yNorm })
+  }
+  const result: DropLocationRow[] = []
+  for (const [mapName, byTeam] of Object.entries(grouped)) {
+    for (const [teamId, byMatch] of Object.entries(byTeam)) {
+      const centroids = Object.values(byMatch).map((pos) => ({
+        x: pos.reduce((s, p) => s + p.x, 0) / pos.length,
+        y: pos.reduce((s, p) => s + p.y, 0) / pos.length,
+      }))
+      const info = teamInfoById.get(teamId)
+      result.push({
+        id: `computed_${teamId}_${mapName}`,
+        teamId,
+        teamName: info?.teamName ?? teamId,
+        logoUrl: info?.logoUrl ?? null,
+        mapName,
+        x: median(centroids.map((c) => c.x)),
+        y: median(centroids.map((c) => c.y)),
+      })
+    }
+  }
+  return result
+}
+
 export default function TeamStatsTable({
   teamStats,
   dropLocations,
@@ -64,6 +110,10 @@ export default function TeamStatsTable({
   const [selectedSeriesId, setSelectedSeriesId] = useState<string | null>(null)
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
+  const [dropScopeKey, setDropScopeKey] = useState<string>('total')
+  const [allLandings, setAllLandings] = useState<LandingRow[]>([])
+  const [matchMapLookup, setMatchMapLookup] = useState<Map<string, string>>(new Map())
+  const [landingsLoaded, setLandingsLoaded] = useState(false)
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -180,10 +230,60 @@ export default function TeamStatsTable({
     ? [...currentStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
     : []
 
-  // Drop points
+  // Drop points — stage-aware
+  const stageMatchIdsMap = useMemo(() => {
+    const map = new Map<string, string[]>()
+    for (const s of stages) map.set(s.id, s.matches.filter((m) => m.status === 'imported').map((m) => m.id))
+    return map
+  }, [stages])
+
+  const teamInfoById = useMemo(() => {
+    const map = new Map<string, { teamName: string; logoUrl: string | null }>()
+    for (const d of dropLocations) map.set(d.teamId, { teamName: d.teamName, logoUrl: d.logoUrl })
+    for (const t of teamStats) {
+      if (t.teamId && !map.has(t.teamId)) map.set(t.teamId, { teamName: t.teamName, logoUrl: t.logoUrl })
+    }
+    return map
+  }, [dropLocations, teamStats])
+
+  useEffect(() => {
+    if (subTab !== 'drops' || landingsLoaded || stages.length === 0) return
+    const matchIds = stages.flatMap((s) => s.matches.filter((m) => m.status === 'imported').map((m) => m.id))
+    if (matchIds.length === 0) { setLandingsLoaded(true); return }
+    const supabase = createClient()
+    Promise.all([
+      supabase.from('match_player_landings').select('match_id, team_id, x_norm, y_norm').in('match_id', matchIds).not('team_id', 'is', null),
+      supabase.from('matches').select('id, map').in('id', matchIds),
+    ]).then(([{ data: landings }, { data: matchMaps }]) => {
+      const mapLookup = new Map<string, string>()
+      for (const m of matchMaps ?? []) { if (m.map) mapLookup.set(m.id, m.map) }
+      setMatchMapLookup(mapLookup)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      setAllLandings((landings ?? []).map((l: any) => ({ matchId: l.match_id, teamId: l.team_id, xNorm: l.x_norm, yNorm: l.y_norm })))
+      setLandingsLoaded(true)
+    })
+  }, [subTab, landingsLoaded, stages])
+
+  const dropsForScope = useMemo((): DropLocationRow[] => {
+    if (dropScopeKey === 'total' || !landingsLoaded) return dropLocations
+    let scopeIds: Set<string>
+    if (dropScopeKey.startsWith('stage:')) {
+      scopeIds = new Set(stageMatchIdsMap.get(dropScopeKey.slice(6)) ?? [])
+    } else if (dropScopeKey.startsWith('series:')) {
+      const seriesId = dropScopeKey.slice(7)
+      const ids: string[] = []
+      for (const s of stages) { if (s.series_id === seriesId) ids.push(...(stageMatchIdsMap.get(s.id) ?? [])) }
+      scopeIds = new Set(ids)
+    } else {
+      return dropLocations
+    }
+    const filtered = allLandings.filter((l) => scopeIds.has(l.matchId))
+    return computeDropsFromLandings(filtered, matchMapLookup, teamInfoById)
+  }, [dropScopeKey, landingsLoaded, dropLocations, allLandings, matchMapLookup, stageMatchIdsMap, stages, teamInfoById])
+
   const mapsWithDrops = [...new Set(dropLocations.map((d) => d.mapName))].filter((m) => mapKeys.includes(m))
   const allDropMaps = [...new Set([...mapKeys, ...mapsWithDrops])]
-  const currentMapDrops = dropLocations.filter((d) => d.mapName === selectedMap)
+  const currentMapDrops = dropsForScope.filter((d) => d.mapName === selectedMap)
   const visibleDrops = visibleTeams === null ? currentMapDrops : currentMapDrops.filter((d) => visibleTeams.has(d.teamId))
 
   function toggleTeamVisibility(teamId: string) {
@@ -312,7 +412,8 @@ export default function TeamStatsTable({
             </div>
           ) : (
             <>
-              <div className="flex gap-1.5 flex-wrap mb-4">
+              {/* Map selector */}
+              <div className="flex gap-1.5 flex-wrap mb-3">
                 {allDropMaps.map((mapKey) => (
                   <button
                     key={mapKey}
@@ -324,8 +425,27 @@ export default function TeamStatsTable({
                 ))}
               </div>
 
-              <div className="flex gap-4 items-start">
-                <div className="flex-1 relative rounded-xl overflow-hidden border border-gray-200 bg-gray-100" style={{ aspectRatio: '1' }}>
+              {/* Stage scope filter */}
+              {topScopes.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 mb-4">
+                  <button onClick={() => { setDropScopeKey('total'); setVisibleTeams(null) }} className={scopeBtn(dropScopeKey === 'total')}>
+                    Total
+                  </button>
+                  {topScopes.map((item) => {
+                    const key = item.kind === 'series' ? `series:${item.series.id}` : `stage:${item.stage.id}`
+                    const label = item.kind === 'series' ? item.series.name : item.stage.name
+                    return (
+                      <button key={key} onClick={() => { setDropScopeKey(key); setVisibleTeams(null) }} className={scopeBtn(dropScopeKey === key)}>
+                        {label}
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* Map + team list */}
+              <div className="grid gap-4" style={{ gridTemplateColumns: '1fr 176px' }}>
+                <div className="relative rounded-xl overflow-hidden border border-gray-200 bg-gray-100" style={{ aspectRatio: '1' }}>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={mapImageUrl(selectedMap)}
@@ -337,6 +457,11 @@ export default function TeamStatsTable({
                   {currentMapDrops.length === 0 && (
                     <div className="absolute inset-0 flex items-center justify-center">
                       <p className="text-gray-400 text-xs bg-white/80 px-3 py-2 rounded-lg">이 맵의 낙하 지점 데이터가 없습니다</p>
+                    </div>
+                  )}
+                  {!landingsLoaded && dropScopeKey !== 'total' && (
+                    <div className="absolute inset-0 flex items-center justify-center bg-white/40">
+                      <span className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
                     </div>
                   )}
                   {visibleDrops.map((drop) => (
@@ -359,12 +484,14 @@ export default function TeamStatsTable({
                     </div>
                   ))}
                 </div>
-                <div className="w-44 shrink-0">
-                  <div className="flex items-center justify-between mb-2">
+
+                {/* Team list — height matches map via CSS grid */}
+                <div className="flex flex-col min-h-0">
+                  <div className="flex items-center justify-between mb-2 shrink-0">
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Teams</p>
                     <button onClick={() => setVisibleTeams(null)} className="text-[11px] text-gray-400 hover:text-gray-600">All</button>
                   </div>
-                  <div className="space-y-1 max-h-96 overflow-y-auto">
+                  <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
                     {currentMapDrops.length === 0 ? (
                       <p className="text-xs text-gray-400">낙하 지점 없음</p>
                     ) : (
