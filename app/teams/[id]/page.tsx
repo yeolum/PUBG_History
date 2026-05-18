@@ -8,6 +8,7 @@ import type { Player, TeamAlias } from '@/lib/types'
 import type { Metadata } from 'next'
 import TeamHistoryClient from './TeamHistoryClient'
 import { getTournamentFinalStandings } from '@/lib/tournament-standings'
+import { getMapDisplayName } from '@/lib/pubg-api'
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }): Promise<Metadata> {
   const { id } = await params
@@ -26,14 +27,28 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   const { id } = await params
   const supabase = createPublicClient()
 
-  const [{ data: team }, { data: playersData }, { data: aliasesData }, { data: childTeamsData }] = await Promise.all([
+  const [{ data: team }, { data: playersData }, { data: aliasesData }, { data: childTeamsData }, { data: dropLocsRaw }] = await Promise.all([
     supabase.from('teams').select('*').eq('id', id).single(),
     supabase.from('players').select('*').eq('team_id', id).eq('is_active', true).order('nickname'),
     supabase.from('team_aliases').select('*').eq('team_id', id),
     supabase.from('teams').select('id, name, short_name').eq('parent_team_id', id),
+    supabase.from('team_drop_locations').select('map_name, x, y').eq('team_id', id),
   ])
 
   if (!team) notFound()
+
+  const dropsByMap = new Map<string, { x: number; y: number }[]>()
+  for (const d of (dropLocsRaw ?? []) as { map_name: string; x: number; y: number }[]) {
+    if (!dropsByMap.has(d.map_name)) dropsByMap.set(d.map_name, [])
+    dropsByMap.get(d.map_name)!.push({ x: d.x, y: d.y })
+  }
+  const dropZones = [...dropsByMap.entries()].map(([mapName, entries]) => ({
+    mapName,
+    x: entries.reduce((s, e) => s + e.x, 0) / entries.length,
+    y: entries.reduce((s, e) => s + e.y, 0) / entries.length,
+  }))
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+
   const players = (playersData ?? []) as Player[]
   const aliases = (aliasesData ?? []) as TeamAlias[]
   const childTeams = (childTeamsData ?? []) as ChildTeam[]
@@ -382,6 +397,46 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
             tourRosters={tourRosters}
           />
         </div>
+
+        {dropZones.length > 0 && (
+          <section className="mt-8">
+            <h2 className="text-sm font-semibold text-gray-700 mb-4">낙하 지점</h2>
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              {dropZones.map(({ mapName, x, y }) => (
+                <div key={mapName} className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                  <div className="relative" style={{ aspectRatio: '1' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={`${supabaseUrl}/storage/v1/object/public/images/maps/${mapName}.jpg`}
+                      alt={getMapDisplayName(mapName)}
+                      className="absolute inset-0 w-full h-full object-cover"
+                    />
+                    <div
+                      className="absolute -translate-x-1/2 -translate-y-1/2"
+                      style={{ left: `${x * 100}%`, top: `${y * 100}%` }}
+                    >
+                      {(team as AnyObj).logo_url ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={(team as AnyObj).logo_url}
+                          alt={team.name}
+                          className="w-8 h-8 rounded-full border-2 border-white shadow-lg object-contain bg-white"
+                        />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full border-2 border-white shadow-lg bg-gray-600 flex items-center justify-center text-white text-xs font-bold">
+                          {team.name[0]}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="px-3 py-2">
+                    <p className="text-xs font-medium text-gray-700">{getMapDisplayName(mapName)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
       </main>
     </>
   )

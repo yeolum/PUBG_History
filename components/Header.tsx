@@ -8,11 +8,10 @@ type Scope = 'Global' | 'PCS' | 'Regional'
 const GLOBAL_CIRCUITS = ['PGC', 'PGS', 'PNC'] as const
 
 const PCS_CIRCUITS = [
-  { label: 'Asia',          tag: 'PAS' },
-  { label: 'APAC',          tag: 'APAC' },
-  { label: 'Europe',        tag: 'PEC' },
-  { label: 'Americas',      tag: 'PCS-AMC' },
-  { label: 'North America', tag: 'PCS-NA' },
+  { label: 'Asia',     tag: 'PAS' },
+  { label: 'APAC',     tag: 'APAC' },
+  { label: 'Europe',   tag: 'PEC' },
+  { label: 'Americas', tag: 'PCS-AMC' },
 ] as const
 
 const REGIONAL_CIRCUITS = ['PWS', 'PEC', 'PAS', 'PCL', 'PTS', 'PVS', 'PMS'] as const

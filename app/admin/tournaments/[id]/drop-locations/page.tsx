@@ -274,7 +274,7 @@ export default function AdminDropLocationsPage() {
                 >
                   {uploadingMap ? '업로드 중...' : `${getMapDisplayName(selectedMap)} 이미지 업로드`}
                 </button>
-                <p className="text-[10px] text-gray-400 mt-1">권장: 정사각형 이미지 (1024×1024px)</p>
+                <p className="text-[10px] text-gray-400 mt-1">권장: 8192×8192px</p>
               </div>
 
               {/* Current drop list */}
