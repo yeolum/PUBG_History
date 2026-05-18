@@ -44,11 +44,18 @@ function mapImageUrl(mapKey: string) {
 
 interface StageDrop { teamId: string; mapName: string; x: number; y: number }
 
-function median(values: number[]): number {
-  if (!values.length) return 0
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+function densityPeak(points: { x: number; y: number }[], radius = 0.05): { x: number; y: number } {
+  if (points.length === 0) return { x: 0, y: 0 }
+  if (points.length === 1) return points[0]
+  let bestCount = 0; let bestCenter = points[0]
+  for (const p of points) {
+    const neighbors = points.filter((q) => { const dx = q.x - p.x; const dy = q.y - p.y; return dx * dx + dy * dy <= radius * radius })
+    if (neighbors.length > bestCount) {
+      bestCount = neighbors.length
+      bestCenter = { x: neighbors.reduce((s, n) => s + n.x, 0) / neighbors.length, y: neighbors.reduce((s, n) => s + n.y, 0) / neighbors.length }
+    }
+  }
+  return bestCenter
 }
 
 export default function TeamStatsTable({
@@ -255,7 +262,8 @@ export default function TeamStatsTable({
       }
       for (const [key, coords] of grouped.entries()) {
         const sep = key.indexOf('\0')
-        rawDrops.push({ teamId: key.slice(0, sep), mapName: key.slice(sep + 1), x: median(coords.x), y: median(coords.y) })
+        const peak = densityPeak(coords.x.map((x, i) => ({ x, y: coords.y[i] })))
+        rawDrops.push({ teamId: key.slice(0, sep), mapName: key.slice(sep + 1), x: peak.x, y: peak.y })
       }
     } else {
       return dropLocations

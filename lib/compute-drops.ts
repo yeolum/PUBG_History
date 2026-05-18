@@ -1,11 +1,27 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchTelemetryLandings } from '@/lib/pubg-api'
 
-function median(values: number[]): number {
-  if (values.length === 0) return 0
-  const sorted = [...values].sort((a, b) => a - b)
-  const mid = Math.floor(sorted.length / 2)
-  return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid]
+// Returns the center of the densest cluster within `radius` (normalized 0–1 coords).
+// Falls back to simple average when all points are isolated.
+function densityPeak(points: { x: number; y: number }[], radius = 0.05): { x: number; y: number } {
+  if (points.length === 0) return { x: 0, y: 0 }
+  if (points.length === 1) return points[0]
+  let bestCount = 0
+  let bestCenter = points[0]
+  for (const p of points) {
+    const neighbors = points.filter((q) => {
+      const dx = q.x - p.x; const dy = q.y - p.y
+      return dx * dx + dy * dy <= radius * radius
+    })
+    if (neighbors.length > bestCount) {
+      bestCount = neighbors.length
+      bestCenter = {
+        x: neighbors.reduce((s, n) => s + n.x, 0) / neighbors.length,
+        y: neighbors.reduce((s, n) => s + n.y, 0) / neighbors.length,
+      }
+    }
+  }
+  return bestCenter
 }
 
 export interface ComputeDropsResult {
@@ -154,12 +170,13 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
     const stageUpserts: { stage_id: string; team_id: string; map_name: string; x: number; y: number }[] = []
     for (const [key, coords] of grouped.entries()) {
       const sep = key.indexOf('\0')
+      const peak = densityPeak(coords.x.map((x, i) => ({ x, y: coords.y[i] })))
       stageUpserts.push({
         stage_id: stage.id,
         team_id: key.slice(0, sep),
         map_name: key.slice(sep + 1),
-        x: median(coords.x),
-        y: median(coords.y),
+        x: peak.x,
+        y: peak.y,
       })
     }
 
@@ -194,12 +211,13 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
   const tournamentUpserts: { tournament_id: string; team_id: string; map_name: string; x: number; y: number }[] = []
   for (const [key, coords] of tournamentGrouped.entries()) {
     const sep = key.indexOf('\0')
+    const peak = densityPeak(coords.x.map((x, i) => ({ x, y: coords.y[i] })))
     tournamentUpserts.push({
       tournament_id: tournamentId,
       team_id: key.slice(0, sep),
       map_name: key.slice(sep + 1),
-      x: median(coords.x),
-      y: median(coords.y),
+      x: peak.x,
+      y: peak.y,
     })
   }
 
