@@ -4,6 +4,8 @@ import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import { cookies } from 'next/headers'
 import { computeDropLocations } from '@/lib/compute-drops'
 
+export const maxDuration = 300 // 5분 — 텔레메트리 일괄 다운로드 허용
+
 async function getAuthUser() {
   const cookieStore = await cookies()
   const supabase = createServerClient(

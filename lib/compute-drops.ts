@@ -43,35 +43,42 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
     const toFetch = matches.filter((m: { id: string }) => !matchesWithData.has(m.id))
     result.skipped = matchesWithData.size
 
-    for (const match of toFetch) {
-      try {
-        const { landings } = await fetchTelemetryLandings(match.pubg_match_id, 'tournament')
-        if (landings.length === 0) { result.newlyProcessed++; continue }
+    // 5개씩 병렬 처리 — 직렬 대비 ~5배 빠름 (rate limit 안전)
+    const CONCURRENCY = 5
+    for (let i = 0; i < toFetch.length; i += CONCURRENCY) {
+      const batch = toFetch.slice(i, i + CONCURRENCY)
+      await Promise.allSettled(
+        batch.map(async (match) => {
+          try {
+            const { landings } = await fetchTelemetryLandings(match.pubg_match_id, 'tournament')
+            if (landings.length === 0) { result.newlyProcessed++; return }
 
-        const { data: playerStats } = await db
-          .from('match_player_stats')
-          .select('pubg_player_name, team_id')
-          .eq('match_id', match.id)
+            const { data: playerStats } = await db
+              .from('match_player_stats')
+              .select('pubg_player_name, team_id')
+              .eq('match_id', match.id)
 
-        const playerTeamMap = new Map<string, string | null>()
-        for (const ps of playerStats ?? []) {
-          playerTeamMap.set((ps.pubg_player_name ?? '').toLowerCase(), ps.team_id ?? null)
-        }
+            const playerTeamMap = new Map<string, string | null>()
+            for (const ps of playerStats ?? []) {
+              playerTeamMap.set((ps.pubg_player_name ?? '').toLowerCase(), ps.team_id ?? null)
+            }
 
-        const inserts = landings.map((l) => ({
-          match_id: match.id,
-          pubg_player_name: l.pubgPlayerName,
-          team_id: playerTeamMap.get(l.pubgPlayerName.toLowerCase()) ?? null,
-          pubg_team_name: null as string | null,
-          x_norm: l.xNorm,
-          y_norm: l.yNorm,
-        }))
+            const inserts = landings.map((l) => ({
+              match_id: match.id,
+              pubg_player_name: l.pubgPlayerName,
+              team_id: playerTeamMap.get(l.pubgPlayerName.toLowerCase()) ?? null,
+              pubg_team_name: null as string | null,
+              x_norm: l.xNorm,
+              y_norm: l.yNorm,
+            }))
 
-        await db.from('match_player_landings').insert(inserts)
-        result.newlyProcessed++
-      } catch (err) {
-        result.errors.push(`${match.pubg_match_id}: ${err instanceof Error ? err.message : 'error'}`)
-      }
+            await db.from('match_player_landings').insert(inserts)
+            result.newlyProcessed++
+          } catch (err) {
+            result.errors.push(`${match.pubg_match_id}: ${err instanceof Error ? err.message : 'error'}`)
+          }
+        }),
+      )
     }
   }
 
