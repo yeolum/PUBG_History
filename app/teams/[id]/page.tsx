@@ -95,7 +95,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   }
 
   const RESULT_SELECT = `
-    id, placement, total_kills,
+    id, placement, total_kills, total_damage,
     matches(id, order_num, map, match_date,
       stages(id, name, type, order_num,
         series(id, name, order_num),
@@ -266,6 +266,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
       id: r.id as string,
       placement: r.placement as number | null,
       total_kills: r.total_kills as number,
+      total_damage: Number(r.total_damage ?? 0),
       matchId: m?.id as string | null,
       matchNum: m ? (matchNumMap.get(m.id) ?? 0) : 0,
       matchDate: m?.match_date as string | null,

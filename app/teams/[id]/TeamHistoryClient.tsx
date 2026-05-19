@@ -34,6 +34,7 @@ interface MatchResult {
   id: string
   placement: number | null
   total_kills: number
+  total_damage: number
   matchId: string | null
   matchNum: number
   matchDate: string | null
@@ -63,6 +64,7 @@ interface GroupedRow {
   games: number
   wwcd: number
   kills: number
+  damage: number
   placements: number[]
 }
 
@@ -142,11 +144,12 @@ export default function TeamHistoryClient({
         label = r.tourName ?? '—'
       }
       if (!map.has(key)) {
-        map.set(key, { key, tourId: r.tourId, tourName: r.tourName, label, year: r.year, games: 0, wwcd: 0, kills: 0, placements: [] })
+        map.set(key, { key, tourId: r.tourId, tourName: r.tourName, label, year: r.year, games: 0, wwcd: 0, kills: 0, damage: 0, placements: [] })
       }
       const g = map.get(key)!
       g.games++
       g.kills += r.total_kills
+      g.damage += r.total_damage
       if (r.placement === 1) g.wwcd++
       if (r.placement != null) g.placements.push(r.placement)
     }
@@ -159,6 +162,8 @@ export default function TeamHistoryClient({
   const totalMatches = filteredMatches.length
   const wwcd = filteredMatches.filter(r => r.placement === 1).length
   const totalKills = filteredMatches.reduce((s, r) => s + (r.total_kills ?? 0), 0)
+  const totalDamage = filteredMatches.reduce((s, r) => s + (r.total_damage ?? 0), 0)
+  const avgDamage = totalMatches > 0 ? totalDamage / totalMatches : 0
   const placedMatches = filteredMatches.filter(r => r.placement != null)
   const avgPlacement = placedMatches.length > 0
     ? placedMatches.reduce((s, r) => s + (r.placement ?? 0), 0) / placedMatches.length
@@ -204,9 +209,9 @@ export default function TeamHistoryClient({
           </h2>
           <div className="grid grid-cols-4 gap-3">
             <StatBox label="Matches" value={totalMatches} />
-            <StatBox label="WWCD" value={wwcd} />
             <StatBox label="Total Kills" value={totalKills} />
-            <StatBox label="Avg Placement" value={avgPlacement > 0 ? avgPlacement.toFixed(1) : '-'} />
+            <StatBox label="Avg Damage" value={avgDamage.toFixed(0)} />
+            <StatBox label="Avg Kills" value={totalMatches > 0 ? (totalKills / totalMatches).toFixed(1) : '-'} />
           </div>
         </div>
       )}
@@ -368,26 +373,29 @@ export default function TeamHistoryClient({
         <div>
           <div className="space-y-1.5">
             {pagedMatches.map((r) => (
-              <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5 flex items-center justify-between">
-                <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
-                  {r.subTeamName && (
-                    <span className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-medium shrink-0">{r.subTeamName}</span>
-                  )}
-                  {r.tourId && (
-                    <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                      {r.tourName}
-                    </Link>
-                  )}
-                  {r.stageName && <span className="text-gray-300">·</span>}
-                  {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
-                  {r.matchNum > 0 && <span className="text-gray-300">·</span>}
-                  {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
-                  {r.mapName && <span className="text-gray-300">·</span>}
-                  {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
+              <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5">
+                <div className="flex items-center justify-between mb-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+                    {r.subTeamName && (
+                      <span className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-medium shrink-0">{r.subTeamName}</span>
+                    )}
+                    {r.tourId && (
+                      <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
+                        {r.tourName}
+                      </Link>
+                    )}
+                    {r.stageName && <span className="text-gray-300">·</span>}
+                    {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
+                    {r.matchNum > 0 && <span className="text-gray-300">·</span>}
+                    {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
+                    {r.mapName && <span className="text-gray-300">·</span>}
+                    {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
+                  </div>
+                  <span className="text-sm font-bold text-gray-700 shrink-0 ml-4">#{r.placement}</span>
                 </div>
-                <div className="flex items-center gap-3 shrink-0 ml-4">
-                  <span className="text-sm font-bold text-gray-700">#{r.placement}</span>
-                  <span className="text-xs text-gray-500">{r.total_kills}K</span>
+                <div className="grid grid-cols-2 gap-2 text-xs text-center">
+                  <div><p className="text-gray-400">Kills</p><p className="font-semibold text-gray-800">{r.total_kills}</p></div>
+                  <div><p className="text-gray-400">Damage</p><p className="font-semibold text-gray-800">{r.total_damage.toFixed(0)}</p></div>
                 </div>
               </div>
             ))}
@@ -413,6 +421,8 @@ export default function TeamHistoryClient({
                   <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">WWCD</th>
                   <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Kills</th>
                   <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">KPG</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Damage</th>
+                  <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">ADR</th>
                   <th className="px-3 py-2 text-right text-[11px] font-semibold text-gray-400 uppercase tracking-wide whitespace-nowrap">Avg Plc</th>
                 </tr>
               </thead>
@@ -443,6 +453,8 @@ export default function TeamHistoryClient({
                       <td className="px-3 py-2.5 text-right text-gray-500">{g.wwcd}</td>
                       <td className="px-3 py-2.5 text-right font-semibold text-gray-700">{g.kills}</td>
                       <td className="px-3 py-2.5 text-right text-gray-600">{(g.kills / g.games).toFixed(2)}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-500">{Math.round(g.damage).toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right text-gray-600">{Math.round(g.damage / g.games).toLocaleString()}</td>
                       <td className="px-3 py-2.5 text-right text-gray-500">{avgPlc != null ? avgPlc.toFixed(1) : '—'}</td>
                     </tr>
                   )
