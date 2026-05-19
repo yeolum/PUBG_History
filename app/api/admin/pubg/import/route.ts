@@ -235,6 +235,11 @@ export async function POST(req: NextRequest) {
       survival_time: p.survivalTime,
       walk_distance: p.walkDistance,
       ride_distance: p.rideDistance,
+      swim_distance: p.swimDistance,
+      longest_kill: p.longestKill,
+      revives: p.revives,
+      heals_used: p.healsUsed,
+      boosts_used: p.boostsUsed,
       placement: roster.placement,
       _rosterId: roster.pubgRosterId,
     }))

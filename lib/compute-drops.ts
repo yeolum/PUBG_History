@@ -29,6 +29,7 @@ export interface ComputeDropsResult {
   skipped: number
   stageDropsUpdated: number
   tournamentDropsUpdated: number
+  telemetryStatsProcessed: number
   errors: string[]
 }
 
@@ -50,7 +51,7 @@ async function paginateQuery<T>(fetch: (from: number, to: number) => PromiseLike
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export async function computeDropLocations(tournamentId: string, db: SupabaseClient<any, any, any>, opts?: { skipTelemetryFetch?: boolean }): Promise<ComputeDropsResult> {
-  const result: ComputeDropsResult = { newlyProcessed: 0, skipped: 0, stageDropsUpdated: 0, tournamentDropsUpdated: 0, errors: [] }
+  const result: ComputeDropsResult = { newlyProcessed: 0, skipped: 0, stageDropsUpdated: 0, tournamentDropsUpdated: 0, telemetryStatsProcessed: 0, errors: [] }
 
   type MatchRow = { id: string; pubg_match_id: string | null; map: string | null; status: string }
   type StageRow = { id: string; matches: MatchRow[] }
@@ -74,11 +75,18 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
   if (!opts?.skipTelemetryFetch) {
     const allMatchIds = allMatches.map((m) => m.id)
 
-    const existing = await paginateQuery<{ match_id: string }>(
-      (from, to) => db.from('match_team_drop_locations').select('match_id').in('match_id', allMatchIds).order('match_id').range(from, to),
-    )
+    const [existing, existingTelemetry] = await Promise.all([
+      paginateQuery<{ match_id: string }>(
+        (from, to) => db.from('match_team_drop_locations').select('match_id').in('match_id', allMatchIds).order('match_id').range(from, to),
+      ),
+      paginateQuery<{ match_id: string }>(
+        (from, to) => db.from('match_player_telemetry_stats').select('match_id').in('match_id', allMatchIds).order('match_id').range(from, to),
+      ),
+    ])
     const processedMatchIds = new Set(existing.map((r) => r.match_id))
-    const toFetch = allMatches.filter((m) => !processedMatchIds.has(m.id))
+    const processedTelemetryIds = new Set(existingTelemetry.map((r) => r.match_id))
+    // Fetch telemetry if either drops OR telemetry stats are missing
+    const toFetch = allMatches.filter((m) => !processedMatchIds.has(m.id) || !processedTelemetryIds.has(m.id))
     result.skipped = processedMatchIds.size
 
     const CONCURRENCY = 5
@@ -87,13 +95,57 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
       await Promise.allSettled(
         batch.map(async (match) => {
           try {
-            const { landings, mapName: apiMapName, flightPath } = await fetchTelemetryLandings(match.pubg_match_id!, 'tournament')
+            const { landings, mapName: apiMapName, flightPath, playerTelemetryStats } = await fetchTelemetryLandings(match.pubg_match_id!, 'tournament')
             if (flightPath !== null) {
               await db.from('match_flight_paths').upsert(
                 { match_id: match.id, points: flightPath },
                 { onConflict: 'match_id', ignoreDuplicates: false },
               )
             }
+
+            // Persist telemetry stats (if not already done for this match)
+            if (!processedTelemetryIds.has(match.id) && playerTelemetryStats.size > 0) {
+              const { data: psRows } = await db
+                .from('match_player_stats')
+                .select('pubg_account_id, player_id, team_id')
+                .eq('match_id', match.id)
+
+              const psMap = new Map<string, { player_id: string | null; team_id: string | null }>()
+              for (const r of psRows ?? []) {
+                if (r.pubg_account_id) psMap.set(r.pubg_account_id as string, { player_id: r.player_id ?? null, team_id: r.team_id ?? null })
+              }
+
+              const telInserts = [...playerTelemetryStats.values()].map((s) => {
+                const linked = psMap.get(s.pubgAccountId)
+                return {
+                  match_id: match.id,
+                  pubg_account_id: s.pubgAccountId,
+                  player_id: linked?.player_id ?? null,
+                  team_id: linked?.team_id ?? null,
+                  deaths: s.deaths,
+                  damage_taken: s.damageTaken,
+                  blue_zone_damage: s.blueZoneDamage,
+                  kill_distance_sum: s.killDistanceSum,
+                  kill_distance_count: s.killDistanceCount,
+                  grenades_thrown: s.grenadesThrown,
+                  smokes_thrown: s.smokesThrown,
+                  flashbangs_thrown: s.flashbangsThrown,
+                  molotovs_thrown: s.molotovsThrown,
+                  grenade_damage: s.grenadeDamage,
+                  molotov_damage: s.molotovDamage,
+                  grenade_hit_events: s.grenadeHitEvents,
+                  revives_given: s.revivesGiven,
+                }
+              })
+              if (telInserts.length > 0) {
+                await db.from('match_player_telemetry_stats').upsert(telInserts, {
+                  onConflict: 'match_id,pubg_account_id',
+                  ignoreDuplicates: false,
+                })
+                result.telemetryStatsProcessed++
+              }
+            }
+
             if (landings.length === 0) { result.newlyProcessed++; return }
 
             // Use API's mapName as authoritative source; fall back to DB value

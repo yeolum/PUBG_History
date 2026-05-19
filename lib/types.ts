@@ -225,7 +225,32 @@ export interface PubgParticipant {
   survivalTime: number
   walkDistance: number
   rideDistance: number
+  swimDistance: number
+  longestKill: number
+  revives: number
+  healsUsed: number
+  boostsUsed: number
   winPlace: number
+}
+
+export interface TelemetryPlayerStats {
+  pubgAccountId: string
+  // Combat
+  deaths: number
+  damageTaken: number
+  blueZoneDamage: number
+  killDistanceSum: number
+  killDistanceCount: number
+  // Utility
+  grenadesThrown: number
+  smokesThrown: number
+  flashbangsThrown: number
+  molotovsThrown: number
+  grenadeDamage: number
+  molotovDamage: number
+  grenadeHitEvents: number
+  // Teamplay
+  revivesGiven: number
 }
 
 export interface PubgMatchData {

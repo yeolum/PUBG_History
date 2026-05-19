@@ -51,6 +51,27 @@ interface PlayerStatsEntry {
   headshot_kills: number
   damage: number
   survival_time: number
+  walk_distance: number
+  ride_distance: number
+  longest_kill: number
+  swim_distance: number
+  revives: number
+  heals_used: number
+  boosts_used: number
+  // Telemetry-derived
+  deaths: number
+  damage_taken: number
+  blue_zone_damage: number
+  kill_distance_sum: number
+  kill_distance_count: number
+  grenades_thrown: number
+  smokes_thrown: number
+  flashbangs_thrown: number
+  molotovs_thrown: number
+  grenade_damage: number
+  molotov_damage: number
+  grenade_hit_events: number
+  revives_given: number
 }
 
 function aggregatePlayerStats(
@@ -75,6 +96,12 @@ function aggregatePlayerStats(
       team_name: teamName,
       logo_url: ((d.teams as AnyRow | null)?.logo_url ?? null) as string | null,
       games: 0, kills: 0, assists: 0, knocks: 0, headshot_kills: 0, damage: 0, survival_time: 0,
+      walk_distance: 0, ride_distance: 0, longest_kill: 0, swim_distance: 0,
+      revives: 0, heals_used: 0, boosts_used: 0,
+      deaths: 0, damage_taken: 0, blue_zone_damage: 0,
+      kill_distance_sum: 0, kill_distance_count: 0,
+      grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
+      grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0, revives_given: 0,
     }
     ex.games++
     ex.kills += (d.kills as number) ?? 0
@@ -83,6 +110,26 @@ function aggregatePlayerStats(
     ex.headshot_kills += (d.headshot_kills as number) ?? 0
     ex.damage += Number(d.damage_dealt ?? 0)
     ex.survival_time += Number(d.survival_time ?? 0)
+    ex.walk_distance += Number(d.walk_distance ?? 0)
+    ex.ride_distance += Number(d.ride_distance ?? 0)
+    ex.longest_kill = Math.max(ex.longest_kill, Number(d.longest_kill ?? 0))
+    ex.swim_distance += Number(d.swim_distance ?? 0)
+    ex.revives += (d.revives as number) ?? 0
+    ex.heals_used += (d.heals_used as number) ?? 0
+    ex.boosts_used += (d.boosts_used as number) ?? 0
+    ex.deaths += (d.deaths as number) ?? 0
+    ex.damage_taken += Number(d.damage_taken ?? 0)
+    ex.blue_zone_damage += Number(d.blue_zone_damage ?? 0)
+    ex.kill_distance_sum += Number(d.kill_distance_sum ?? 0)
+    ex.kill_distance_count += (d.kill_distance_count as number) ?? 0
+    ex.grenades_thrown += (d.grenades_thrown as number) ?? 0
+    ex.smokes_thrown += (d.smokes_thrown as number) ?? 0
+    ex.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
+    ex.molotovs_thrown += (d.molotovs_thrown as number) ?? 0
+    ex.grenade_damage += Number(d.grenade_damage ?? 0)
+    ex.molotov_damage += Number(d.molotov_damage ?? 0)
+    ex.grenade_hit_events += (d.grenade_hit_events as number) ?? 0
+    ex.revives_given += (d.revives_given as number) ?? 0
     map.set(key, ex)
   }
   return map
@@ -174,9 +221,9 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   }
 
   // Fetch ALL player stats (match, teams, players joins) for all imported matches
-  const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, players(id, nickname), teams(id, name, logo_url)'
+  const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, players(id, nickname), teams(id, name, logo_url)'
 
-  const [allTrData, allPsData] = await Promise.all([
+  const [allTrData, allPsData, allTelData] = await Promise.all([
     // Fetch team results for ALL imported matches (needed for stage standings + final standings)
     allImportedMatchIds.length > 0
       ? fetchInChunked<AnyRow>(
@@ -190,6 +237,10 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       : Promise.resolve([]),
     fetchInChunked<AnyRow>(
       (chunk) => db.from('match_player_stats').select(PS_SELECT).in('match_id', chunk),
+      allImportedMatchIds,
+    ),
+    fetchInChunked<AnyRow>(
+      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, revives_given').in('match_id', chunk),
       allImportedMatchIds,
     ),
   ])
@@ -211,6 +262,31 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     const mid = d.match_id as string
     if (!psByMatch.has(mid)) psByMatch.set(mid, [])
     psByMatch.get(mid)!.push(d)
+  }
+
+  // Merge telemetry stats into match_player_stats rows keyed by (match_id, pubg_account_id)
+  const telByMatchAccount = new Map<string, AnyRow>()
+  for (const t of allTelData) {
+    telByMatchAccount.set(`${t.match_id as string}:${t.pubg_account_id as string}`, t)
+  }
+  // Attach telemetry fields to the PS rows so aggregatePlayerStats sees them
+  for (const d of allPsData) {
+    const tel = telByMatchAccount.get(`${d.match_id as string}:${d.pubg_account_id as string}`)
+    if (tel) {
+      d.deaths = tel.deaths
+      d.damage_taken = tel.damage_taken
+      d.blue_zone_damage = tel.blue_zone_damage
+      d.kill_distance_sum = tel.kill_distance_sum
+      d.kill_distance_count = tel.kill_distance_count
+      d.grenades_thrown = tel.grenades_thrown
+      d.smokes_thrown = tel.smokes_thrown
+      d.flashbangs_thrown = tel.flashbangs_thrown
+      d.molotovs_thrown = tel.molotovs_thrown
+      d.grenade_damage = tel.grenade_damage
+      d.molotov_damage = tel.molotov_damage
+      d.grenade_hit_events = tel.grenade_hit_events
+      d.revives_given = tel.revives_given
+    }
   }
 
   const now = new Date().toISOString()

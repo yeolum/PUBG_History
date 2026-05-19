@@ -41,8 +41,11 @@ export async function POST(req: NextRequest) {
     const { data: stagesRaw } = await db.from('stages').select('id, matches(id)').eq('tournament_id', tournamentId) as { data: { id: string; matches: { id: string }[] }[] | null }
     const matchIds = (stagesRaw ?? []).flatMap((s) => (s.matches ?? []).map((m) => m.id))
     if (matchIds.length > 0) {
-      await db.from('match_team_drop_locations').delete().in('match_id', matchIds)
-      await db.from('match_flight_paths').delete().in('match_id', matchIds)
+      await Promise.all([
+        db.from('match_team_drop_locations').delete().in('match_id', matchIds),
+        db.from('match_flight_paths').delete().in('match_id', matchIds),
+        db.from('match_player_telemetry_stats').delete().in('match_id', matchIds),
+      ])
     }
   }
 
@@ -54,6 +57,7 @@ export async function POST(req: NextRequest) {
     skipped: stats.skipped,
     stageDropsUpdated: stats.stageDropsUpdated,
     tournamentDropsUpdated: stats.tournamentDropsUpdated,
+    telemetryStatsProcessed: stats.telemetryStatsProcessed,
     errors: stats.errors,
   })
 }

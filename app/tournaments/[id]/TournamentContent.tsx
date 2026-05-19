@@ -131,8 +131,9 @@ const loadTournamentData = unstable_cache(
 
     // Side queries that don't depend on matchIds — start them now so they
     // run alongside the matches + trData + psData fetches.
-    const SPS_SELECT = 'stage_id, player_id, nickname, team_id, team_name, logo_url, games, kills, assists, knocks, headshot_kills, damage, survival_time'
-    const SRPS_SELECT = 'series_id, player_id, nickname, team_id, team_name, logo_url, games, kills, assists, knocks, headshot_kills, damage, survival_time'
+    const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, revives_given'
+    const SPS_SELECT = `stage_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
+    const SRPS_SELECT = `series_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('stage_additional_points').select('id, stage_id, team_id, team_name, points').in('stage_id', stageIds),
@@ -414,6 +415,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
           teamName,
           logoUrl,
           games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
+          walkDistance: 0, rideDistance: 0, longestKill: 0, swimDistance: 0,
+          revives: 0, healsUsed: 0, boostsUsed: 0,
         })
       }
       const e = playerStatsMap.get(key)!
@@ -424,6 +427,13 @@ export default async function TournamentContent({ id, tournament }: { id: string
       e.headshotKills += row.headshot_kills ?? 0
       e.damage += Number(row.damage_dealt ?? 0)
       e.survivalTime += row.survival_time ?? 0
+      e.walkDistance = (e.walkDistance ?? 0) + Number(row.walk_distance ?? 0)
+      e.rideDistance = (e.rideDistance ?? 0) + Number(row.ride_distance ?? 0)
+      e.swimDistance = (e.swimDistance ?? 0) + Number(row.swim_distance ?? 0)
+      e.longestKill = Math.max(e.longestKill ?? 0, Number(row.longest_kill ?? 0))
+      e.revives = (e.revives ?? 0) + (row.revives ?? 0)
+      e.healsUsed = (e.healsUsed ?? 0) + (row.heals_used ?? 0)
+      e.boostsUsed = (e.boostsUsed ?? 0) + (row.boosts_used ?? 0)
     }
 
     if (!seenPerMatch[row.match_id]) seenPerMatch[row.match_id] = new Set()
@@ -532,21 +542,46 @@ export default async function TournamentContent({ id, tournament }: { id: string
   // (e.g. table not yet populated, survival_time column missing, or delete/insert race window).
   const tpsRows = (tpsData ?? []) as AnyRow[]
   const tpsPlayerIds = new Set(tpsRows.map((r) => r.player_id as string | null).filter((id): id is string => !!id))
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function mapPlayerRow(r: AnyRow): PlayerStatRow {
+    return {
+      playerId: (r.player_id ?? null) as string | null,
+      nickname: r.nickname as string,
+      teamId: (r.team_id ?? null) as string | null,
+      teamName: r.team_name as string,
+      logoUrl: (r.logo_url ?? null) as string | null,
+      games: (r.games as number) ?? 0,
+      kills: (r.kills as number) ?? 0,
+      assists: (r.assists as number) ?? 0,
+      knocks: (r.knocks as number) ?? 0,
+      headshotKills: (r.headshot_kills as number) ?? 0,
+      damage: Number(r.damage ?? 0),
+      survivalTime: Number(r.survival_time ?? 0),
+      walkDistance: Number(r.walk_distance ?? 0),
+      rideDistance: Number(r.ride_distance ?? 0),
+      longestKill: Number(r.longest_kill ?? 0),
+      swimDistance: Number(r.swim_distance ?? 0),
+      revives: (r.revives as number) ?? 0,
+      healsUsed: (r.heals_used as number) ?? 0,
+      boostsUsed: (r.boosts_used as number) ?? 0,
+      deaths: (r.deaths as number) ?? 0,
+      damageTaken: Number(r.damage_taken ?? 0),
+      blueZoneDamage: Number(r.blue_zone_damage ?? 0),
+      killDistanceSum: Number(r.kill_distance_sum ?? 0),
+      killDistanceCount: (r.kill_distance_count as number) ?? 0,
+      grenadesThrown: (r.grenades_thrown as number) ?? 0,
+      smokesThrown: (r.smokes_thrown as number) ?? 0,
+      flashbangsThrown: (r.flashbangs_thrown as number) ?? 0,
+      molotovsThrown: (r.molotovs_thrown as number) ?? 0,
+      grenadeDamage: Number(r.grenade_damage ?? 0),
+      molotovDamage: Number(r.molotov_damage ?? 0),
+      grenadeHitEvents: (r.grenade_hit_events as number) ?? 0,
+      revivesGiven: (r.revives_given as number) ?? 0,
+    }
+  }
+
   const playerStats: PlayerStatRow[] = tpsRows.length > 0
-    ? tpsRows.map((r) => ({
-        playerId: (r.player_id ?? null) as string | null,
-        nickname: r.nickname as string,
-        teamId: (r.team_id ?? null) as string | null,
-        teamName: r.team_name as string,
-        logoUrl: (r.logo_url ?? null) as string | null,
-        games: (r.games as number) ?? 0,
-        kills: (r.kills as number) ?? 0,
-        assists: (r.assists as number) ?? 0,
-        knocks: (r.knocks as number) ?? 0,
-        headshotKills: (r.headshot_kills as number) ?? 0,
-        damage: Number(r.damage ?? 0),
-        survivalTime: Number(r.survival_time ?? 0),
-      }))
+    ? tpsRows.map(mapPlayerRow)
     : [...playerStatsMap.values()]
 
   // Seed roster display + 0-stat entries for registered players not in pre-computed table.
@@ -579,40 +614,14 @@ export default async function TournamentContent({ id, tournament }: { id: string
   for (const r of (stagePsData ?? []) as AnyRow[]) {
     const sid = r.stage_id as string
     if (!stagePlayerStats[sid]) stagePlayerStats[sid] = []
-    stagePlayerStats[sid].push({
-      playerId: (r.player_id ?? null) as string | null,
-      nickname: r.nickname as string,
-      teamId: (r.team_id ?? null) as string | null,
-      teamName: r.team_name as string,
-      logoUrl: (r.logo_url ?? null) as string | null,
-      games: (r.games as number) ?? 0,
-      kills: (r.kills as number) ?? 0,
-      assists: (r.assists as number) ?? 0,
-      knocks: (r.knocks as number) ?? 0,
-      headshotKills: (r.headshot_kills as number) ?? 0,
-      damage: Number(r.damage ?? 0),
-      survivalTime: Number(r.survival_time ?? 0),
-    })
+    stagePlayerStats[sid].push(mapPlayerRow({ ...r, player_id: r.player_id, team_id: r.team_id, team_name: r.team_name, logo_url: r.logo_url }))
   }
 
   const seriesPlayerStats: Record<string, PlayerStatRow[]> = {}
   for (const r of (seriesPsData ?? []) as AnyRow[]) {
     const sid = r.series_id as string
     if (!seriesPlayerStats[sid]) seriesPlayerStats[sid] = []
-    seriesPlayerStats[sid].push({
-      playerId: (r.player_id ?? null) as string | null,
-      nickname: r.nickname as string,
-      teamId: (r.team_id ?? null) as string | null,
-      teamName: r.team_name as string,
-      logoUrl: (r.logo_url ?? null) as string | null,
-      games: (r.games as number) ?? 0,
-      kills: (r.kills as number) ?? 0,
-      assists: (r.assists as number) ?? 0,
-      knocks: (r.knocks as number) ?? 0,
-      headshotKills: (r.headshot_kills as number) ?? 0,
-      damage: Number(r.damage ?? 0),
-      survivalTime: Number(r.survival_time ?? 0),
-    })
+    seriesPlayerStats[sid].push(mapPlayerRow({ ...r, player_id: r.player_id, team_id: r.team_id, team_name: r.team_name, logo_url: r.logo_url }))
   }
 
   const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)

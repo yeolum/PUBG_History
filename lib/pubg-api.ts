@@ -1,4 +1,4 @@
-import type { PubgMatchData, PubgRoster, PubgParticipant, PlanePath } from './types'
+import type { PubgMatchData, PubgRoster, PubgParticipant, PlanePath, TelemetryPlayerStats } from './types'
 
 const PUBG_API_BASE = 'https://api.pubg.com'
 
@@ -65,6 +65,11 @@ function parsePubgMatch(apiResponse: any): PubgMatchData {
       survivalTime: Math.round(s.timeSurvived ?? 0),
       walkDistance: s.walkDistance ?? 0,
       rideDistance: s.rideDistance ?? 0,
+      swimDistance: s.swimDistance ?? 0,
+      longestKill: s.longestKill ?? 0,
+      revives: s.revives ?? 0,
+      healsUsed: s.heals ?? 0,
+      boostsUsed: s.boosts ?? 0,
       winPlace: s.winPlace ?? 0,
     }
   }
@@ -216,12 +221,118 @@ export function extractPlanePath(events: any[], mapSize: number): PlanePath | nu
   return { entry: clip[0], exit: clip[1], jumps }
 }
 
-export { type PlanePath } from './types'
+export { type PlanePath, type TelemetryPlayerStats } from './types'
+
+// Item ID prefixes for throw events (LogItemUse fires when item is actually thrown/consumed)
+function classifyThrowable(itemId: string): 'grenade' | 'smoke' | 'flashbang' | 'molotov' | null {
+  if (itemId.includes('Molotov')) return 'molotov'
+  if (itemId.includes('SmokeBomb') || (itemId.includes('Smoke') && itemId.includes('Item_Weapon'))) return 'smoke'
+  if (itemId.includes('FlashBang') || itemId.includes('Flashbang')) return 'flashbang'
+  if (itemId.includes('Grenade') && itemId.includes('Item_Weapon')) return 'grenade'
+  return null
+}
+
+function isGrenadeDamage(ev: { damageTypeCategory?: string; damageCauserName?: string }): boolean {
+  return ev.damageTypeCategory === 'Damage_Explosion_Grenade' || (ev.damageCauserName ?? '').includes('Grenade')
+}
+
+function isMolotovDamage(ev: { damageCauserName?: string; damageTypeCategory?: string }): boolean {
+  const cn = ev.damageCauserName ?? ''
+  return cn.includes('Molotov') || cn.includes('MolotovCocktail') || cn.includes('FireDamage') || cn.includes('Fire_')
+}
+
+// Extract per-player telemetry stats from a single match's telemetry events.
+// trackedAccountIds: if provided, only track those players (improves performance).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: Set<string>): Map<string, TelemetryPlayerStats> {
+  const stats = new Map<string, TelemetryPlayerStats>()
+
+  function get(accountId: string): TelemetryPlayerStats {
+    let s = stats.get(accountId)
+    if (!s) {
+      s = {
+        pubgAccountId: accountId,
+        deaths: 0, damageTaken: 0, blueZoneDamage: 0, killDistanceSum: 0, killDistanceCount: 0,
+        grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
+        grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
+        revivesGiven: 0,
+      }
+      stats.set(accountId, s)
+    }
+    return s
+  }
+
+  function track(accountId: string | null | undefined): boolean {
+    if (!accountId) return false
+    return !trackedAccountIds || trackedAccountIds.has(accountId)
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const ev of events) {
+    switch (ev._T) {
+      case 'LogPlayerKillV2': {
+        const victimId: string | undefined = ev.victim?.accountId
+        if (track(victimId)) get(victimId!).deaths++
+
+        const killerId: string | undefined = ev.finisher?.accountId ?? ev.killer?.accountId
+        if (track(killerId) && ev.distance != null) {
+          const s = get(killerId!)
+          s.killDistanceSum += (ev.distance as number) / 100 // cm → m
+          s.killDistanceCount++
+        }
+        break
+      }
+      case 'LogPlayerTakeDamage': {
+        const attackerId: string | undefined = ev.attacker?.accountId
+        const victimId: string | undefined = ev.victim?.accountId
+        if (!victimId || attackerId === victimId) break // ignore self-damage
+
+        const dmg = (ev.damage as number) ?? 0
+
+        if (track(victimId)) {
+          const s = get(victimId)
+          s.damageTaken += dmg
+          if (ev.damageTypeCategory === 'Damage_BlueZone') s.blueZoneDamage += dmg
+        }
+
+        if (track(attackerId)) {
+          const s = get(attackerId!)
+          if (isGrenadeDamage(ev)) {
+            s.grenadeDamage += dmg
+            s.grenadeHitEvents++
+          } else if (isMolotovDamage(ev)) {
+            s.molotovDamage += dmg
+          }
+        }
+        break
+      }
+      case 'LogItemUse': {
+        const accountId: string | undefined = ev.character?.accountId
+        if (!track(accountId)) break
+        const kind = classifyThrowable((ev.item?.itemId as string | undefined) ?? '')
+        if (!kind) break
+        const s = get(accountId!)
+        if (kind === 'grenade') s.grenadesThrown++
+        else if (kind === 'smoke') s.smokesThrown++
+        else if (kind === 'flashbang') s.flashbangsThrown++
+        else if (kind === 'molotov') s.molotovsThrown++
+        break
+      }
+      case 'LogPlayerRevive': {
+        const reviverId: string | undefined = ev.reviver?.accountId
+        if (track(reviverId)) get(reviverId!).revivesGiven++
+        break
+      }
+    }
+  }
+
+  return stats
+}
 
 export async function fetchTelemetryLandings(
   pubgMatchId: string,
   platform = 'tournament',
-): Promise<{ mapName: string; landings: PubgLanding[]; flightPath: PlanePath | null }> {
+): Promise<{ mapName: string; landings: PubgLanding[]; flightPath: PlanePath | null; playerTelemetryStats: Map<string, TelemetryPlayerStats> }> {
   const apiKey = process.env.PUBG_API_KEY
   if (!apiKey) throw new Error('PUBG_API_KEY is not set')
 
@@ -262,6 +373,7 @@ export async function fetchTelemetryLandings(
 
   const mapSize = MAP_BOUNDS[mapName]?.width ?? 816000
   const flightPath = extractPlanePath(events, mapSize)
+  const playerTelemetryStats = extractPlayerTelemetryStats(events)
 
-  return { mapName, landings, flightPath }
+  return { mapName, landings, flightPath, playerTelemetryStats }
 }
