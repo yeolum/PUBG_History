@@ -435,8 +435,7 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         break
       }
 
-      case 'LogPlayerAttack': {
-        if (ev.attackType !== 'Throw') break
+      case 'LogPlayerUseThrowable': {
         const accountId: string | undefined = ev.attacker?.accountId
         if (!track(accountId)) break
         const kind = classifyThrowable((ev.weapon?.itemId as string | undefined) ?? '')
