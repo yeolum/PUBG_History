@@ -32,9 +32,9 @@ export default function FlightPathOverlay({ path }: { path: PlanePath }) {
   const ex = Number(v(path.exit.x - rawDx * TRIM))
   const ey = Number(v(path.exit.y - rawDy * TRIM))
 
-  // Arrow placed near the exit end (85% along the trimmed line)
-  const ax = sx + (ex - sx) * 0.85
-  const ay = sy + (ey - sy) * 0.85
+  // Arrow at the exit end of the trimmed line
+  const ax = ex
+  const ay = ey
 
   return (
     <svg
