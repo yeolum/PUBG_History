@@ -22,6 +22,7 @@ interface ReviewRow {
   candidate: Candidate | null
   status: 'matched' | 'ambiguous' | 'unmatched'
   alternatives: Candidate[]
+  coachRole: 'coach' | 'playing_coach' | null
 }
 
 interface Props {
@@ -80,6 +81,7 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
   const [phase, setPhase] = useState<'input' | 'review'>('input')
   const [text, setText] = useState('')
   const [rows, setRows] = useState<ReviewRow[]>([])
+  const [globalCoachRole, setGlobalCoachRole] = useState<'coach' | 'playing_coach' | null>(null)
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState('')
   const [pickerForIdx, setPickerForIdx] = useState<number | null>(null)
@@ -140,12 +142,12 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
             .map((t) => ({ id: t.id, label: t.name, sublabel: t.short_name, logo_url: t.logo_url }))
 
           if (candidates.length === 0) {
-            return { input, candidate: null, status: 'unmatched', alternatives: [] }
+            return { input, candidate: null, status: 'unmatched', alternatives: [], coachRole: null }
           }
           if (candidates.length === 1) {
-            return { input, candidate: candidates[0], status: 'matched', alternatives: [] }
+            return { input, candidate: candidates[0], status: 'matched', alternatives: [], coachRole: null }
           }
-          return { input, candidate: candidates[0], status: 'ambiguous', alternatives: candidates }
+          return { input, candidate: candidates[0], status: 'ambiguous', alternatives: candidates, coachRole: null }
         })
         setRows(reviewed)
       } else {
@@ -200,10 +202,10 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
             const ids = [...(byVariant.get(v) ?? [])]
             if (ids.length === 0) continue
             const cands = toCandidates(ids)
-            if (cands.length === 1) return { input, candidate: cands[0], status: 'matched', alternatives: [] }
-            return { input, candidate: cands[0], status: 'ambiguous', alternatives: cands }
+            if (cands.length === 1) return { input, candidate: cands[0], status: 'matched', alternatives: [], coachRole: globalCoachRole }
+            return { input, candidate: cands[0], status: 'ambiguous', alternatives: cands, coachRole: globalCoachRole }
           }
-          return { input, candidate: null, status: 'unmatched', alternatives: [] }
+          return { input, candidate: null, status: 'unmatched', alternatives: [], coachRole: globalCoachRole }
         })
         setRows(reviewed)
       }
@@ -239,6 +241,7 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
         tournament_id: tournamentId,
         player_id: r.candidate!.id,
         team_id: forTeamId ?? r.candidate!.teamId ?? null,
+        coach_role: r.coachRole ?? null,
       }))
     }
     // Player rows update on conflict so re-adding the same player to a different
@@ -281,7 +284,7 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
         teamId: null,
       }
       setRows((rs) => rs.map((r, j) => j === idx
-        ? { ...r, candidate: newCand, status: 'matched', alternatives: [] }
+        ? { ...r, candidate: newCand, status: 'matched', alternatives: [], coachRole: r.coachRole }
         : r
       ))
     } finally {
@@ -349,14 +352,34 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
 
           <div className="px-6 py-4 overflow-y-auto flex-1">
             {phase === 'input' ? (
-              <textarea
-                autoFocus
-                value={text}
-                onChange={(e) => setText(e.target.value)}
-                rows={12}
-                placeholder={kind === 'team' ? 'DNS Esports\nGen.G Esports\nDanawa e-sports\n...' : 'Heaven\nKill\nFlawless\n...'}
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-yellow-400"
-              />
+              <>
+                <textarea
+                  autoFocus
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  rows={12}
+                  placeholder={kind === 'team' ? 'DNS Esports\nGen.G Esports\nDanawa e-sports\n...' : 'Heaven\nKill\nFlawless\n...'}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-yellow-400"
+                />
+                {kind === 'player' && (
+                  <div className="mt-3 flex items-center gap-2">
+                    <span className="text-xs text-gray-500 shrink-0">Register all as:</span>
+                    {(['player', 'coach', 'playing_coach'] as const).map((role) => {
+                      const label = role === 'player' ? 'Player' : role === 'coach' ? 'Coach' : 'Playing Coach'
+                      const active = (role === 'player' ? null : role) === globalCoachRole
+                      return (
+                        <button
+                          key={role}
+                          onClick={() => setGlobalCoachRole(role === 'player' ? null : role)}
+                          className={`text-xs rounded px-2 py-0.5 border ${active ? 'bg-blue-100 border-blue-400 text-blue-700 font-semibold' : 'bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100'}`}
+                        >
+                          {label}
+                        </button>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
             ) : (
               <div>
                 <div className="flex items-center gap-3 mb-3 text-xs">
@@ -370,6 +393,7 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
                     <tr className="text-xs text-gray-400 border-b border-gray-100">
                       <th className="text-left px-2 py-1.5">Input</th>
                       <th className="text-left px-2 py-1.5">Match</th>
+                      {kind === 'player' && <th className="text-left px-2 py-1.5 w-28">Role</th>}
                       <th className="text-right px-2 py-1.5 w-32">Action</th>
                     </tr>
                   </thead>
@@ -406,6 +430,27 @@ export default function BulkRosterModal({ kind, tournamentId, forTeamId, existin
                               <span className="text-xs text-red-500">no match</span>
                             )}
                           </td>
+                          {kind === 'player' && (
+                            <td className="px-2 py-1.5 align-middle">
+                              <div className="flex gap-1">
+                                {(['player', 'coach', 'playing_coach'] as const).map((role) => {
+                                  const label = role === 'player' ? 'P' : role === 'coach' ? 'C' : 'PC'
+                                  const title = role === 'player' ? 'Player' : role === 'coach' ? 'Coach' : 'Playing Coach'
+                                  const active = (role === 'player' ? null : role) === r.coachRole
+                                  return (
+                                    <button
+                                      key={role}
+                                      title={title}
+                                      onClick={() => setRows((rs) => rs.map((row, j) => j === i ? { ...row, coachRole: role === 'player' ? null : role } : row))}
+                                      className={`text-[10px] rounded px-1.5 py-0.5 border ${active ? 'bg-blue-100 border-blue-400 text-blue-700 font-bold' : 'bg-gray-50 border-gray-200 text-gray-500 hover:bg-gray-100'}`}
+                                    >
+                                      {label}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            </td>
+                          )}
                           <td className="px-2 py-1.5 text-right align-middle">
                             <div className="flex items-center justify-end gap-1.5 flex-wrap">
                               {!r.candidate && kind === 'player' && (
