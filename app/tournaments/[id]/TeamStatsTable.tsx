@@ -64,20 +64,6 @@ function findAllClusters(points: { x: number; y: number }[], radius = 0.07): { x
   return clusters.sort((a, b) => b.size - a.size)
 }
 
-function estimateFlightPath(points: { x: number; y: number }[]): { x1: number; y1: number; x2: number; y2: number } | null {
-  if (points.length < 5) return null
-  const n = points.length
-  const mx = points.reduce((s, p) => s + p.x, 0) / n
-  const my = points.reduce((s, p) => s + p.y, 0) / n
-  let sxx = 0, sxy = 0, syy = 0
-  for (const p of points) { const dx = p.x - mx, dy = p.y - my; sxx += dx * dx; sxy += dx * dy; syy += dy * dy }
-  const angle = Math.atan2(2 * sxy, sxx - syy) / 2
-  const dx = Math.cos(angle), dy = Math.sin(angle)
-  const projs = points.map(p => (p.x - mx) * dx + (p.y - my) * dy)
-  const minT = Math.min(...projs), maxT = Math.max(...projs)
-  const pad = (maxT - minT) * 0.12
-  return { x1: mx + dx * (minT - pad), y1: my + dy * (minT - pad), x2: mx + dx * (maxT + pad), y2: my + dy * (maxT + pad) }
-}
 
 export default function TeamStatsTable({
   teamStats,
@@ -107,7 +93,7 @@ export default function TeamStatsTable({
   const [rawCentroidsCache, setRawCentroidsCache] = useState<Map<string, { teamId: string; mapName: string; x: number; y: number }[]>>(new Map())
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
   const [matchDropCache, setMatchDropCache] = useState<Map<string, DropLocationRow[]>>(new Map())
-  const [flightPathCache, setFlightPathCache] = useState<Map<string, { x1: number; y1: number; x2: number; y2: number } | null>>(new Map())
+  const [flightPathCache, setFlightPathCache] = useState<Map<string, { xNorm: number; yNorm: number }[] | null>>(new Map())
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -308,14 +294,15 @@ export default function TeamStatsTable({
     if (flightPathCache.has(matchId)) return
     const supabase = createClient()
     supabase
-      .from('match_player_landings')
-      .select('x_norm, y_norm')
+      .from('match_flight_paths')
+      .select('points')
       .eq('match_id', matchId)
+      .single()
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }) => {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pts = (data ?? []).map((d: any) => ({ x: d.x_norm as number, y: d.y_norm as number }))
-        setFlightPathCache((prev) => new Map(prev).set(matchId, estimateFlightPath(pts)))
+        const pts = (data?.points as { xNorm: number; yNorm: number }[] | null) ?? null
+        setFlightPathCache((prev) => new Map(prev).set(matchId, pts && pts.length >= 2 ? pts : null))
       })
   }, [dropScopeKey, flightPathCache])
 
@@ -626,17 +613,15 @@ export default function TeamStatsTable({
                       <span className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
                     </div>
                   )}
-                  {/* Flight path line — match scope only */}
+                  {/* Flight path polyline — match scope only */}
                   {(() => {
                     if (!dropScopeKey.startsWith('match:')) return null
                     const fp = flightPathCache.get(dropScopeKey.slice(6))
-                    if (!fp) return null
+                    if (!fp || fp.length < 2) return null
+                    const pts = fp.map((p) => `${(p.xNorm * 100).toFixed(2)},${(p.yNorm * 100).toFixed(2)}`).join(' ')
                     return (
                       <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        <line
-                          x1={fp.x1 * 100} y1={fp.y1 * 100} x2={fp.x2 * 100} y2={fp.y2 * 100}
-                          stroke="white" strokeWidth="0.6" strokeOpacity="0.75" strokeDasharray="2.5 1.5"
-                        />
+                        <polyline points={pts} fill="none" stroke="white" strokeWidth="0.6" strokeOpacity="0.8" strokeDasharray="2.5 1.5" strokeLinejoin="round" />
                       </svg>
                     )
                   })()}

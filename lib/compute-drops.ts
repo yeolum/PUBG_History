@@ -87,7 +87,13 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
       await Promise.allSettled(
         batch.map(async (match) => {
           try {
-            const { landings, mapName: apiMapName } = await fetchTelemetryLandings(match.pubg_match_id!, 'tournament')
+            const { landings, mapName: apiMapName, flightPath } = await fetchTelemetryLandings(match.pubg_match_id!, 'tournament')
+            if (flightPath.length >= 2) {
+              await db.from('match_flight_paths').upsert(
+                { match_id: match.id, points: flightPath },
+                { onConflict: 'match_id', ignoreDuplicates: false },
+              )
+            }
             if (landings.length === 0) { result.newlyProcessed++; return }
 
             // Use API's mapName as authoritative source; fall back to DB value

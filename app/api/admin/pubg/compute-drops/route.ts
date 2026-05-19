@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
     const matchIds = (stagesRaw ?? []).flatMap((s) => (s.matches ?? []).map((m) => m.id))
     if (matchIds.length > 0) {
       await db.from('match_team_drop_locations').delete().in('match_id', matchIds)
+      await db.from('match_flight_paths').delete().in('match_id', matchIds)
     }
   }
 

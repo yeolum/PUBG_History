@@ -137,10 +137,12 @@ export function getMapDisplayName(mapName: string): string {
   return MAP_NAMES[mapName] ?? mapName
 }
 
+export interface FlightPathPoint { xNorm: number; yNorm: number }
+
 export async function fetchTelemetryLandings(
   pubgMatchId: string,
   platform = 'tournament',
-): Promise<{ mapName: string; landings: PubgLanding[] }> {
+): Promise<{ mapName: string; landings: PubgLanding[]; flightPath: FlightPathPoint[] }> {
   const apiKey = process.env.PUBG_API_KEY
   if (!apiKey) throw new Error('PUBG_API_KEY is not set')
 
@@ -168,6 +170,8 @@ export async function fetchTelemetryLandings(
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const events: any[] = await telRes.json()
+
+  // Landings
   const landings: PubgLanding[] = []
   for (const ev of events) {
     if (ev._T !== 'LogParachuteLanding') continue
@@ -177,5 +181,34 @@ export async function fetchTelemetryLandings(
     landings.push({ pubgPlayerName: char.name, xNorm, yNorm })
   }
 
-  return { mapName, landings }
+  // Flight path: first LogVehicleRide (TransportAircraft) after LogMatchStart,
+  // then 1st/5th/10th/.../50th LogVehicleLeave (TransportAircraft) after that timestamp
+  const flightPath: FlightPathPoint[] = []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isAircraft = (v: any) => v?.vehicleType === 'TransportAircraft' || String(v?.vehicleId ?? '').toLowerCase().includes('transportaircraft')
+
+  const matchStartIdx = events.findIndex((e) => e._T === 'LogMatchStart')
+  const postStart = matchStartIdx >= 0 ? events.slice(matchStartIdx + 1) : events
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const firstRide = postStart.find((e: any) => e._T === 'LogVehicleRide' && isAircraft(e.vehicle) && e.character?.location)
+  if (firstRide) {
+    const { xNorm, yNorm } = normalizeCoords(mapName, firstRide.character.location.x, firstRide.character.location.y)
+    flightPath.push({ xNorm, yNorm })
+
+    const rideTime: string = firstRide._D
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const vehicleLeaves = postStart.filter((e: any) =>
+      e._T === 'LogVehicleLeave' && isAircraft(e.vehicle) && e.character?.location && e._D >= rideTime,
+    )
+    for (const idx of [0, 4, 9, 14, 19, 24, 29, 34, 39, 44, 49]) {
+      if (idx < vehicleLeaves.length) {
+        const ev = vehicleLeaves[idx]
+        const coords = normalizeCoords(mapName, ev.character.location.x, ev.character.location.y)
+        flightPath.push({ xNorm: coords.xNorm, yNorm: coords.yNorm })
+      }
+    }
+  }
+
+  return { mapName, landings, flightPath }
 }
