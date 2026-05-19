@@ -70,6 +70,7 @@ type SortKey =
   | 'avgSurvival' | 'healsUsed' | 'boostsUsed' | 'damageTaken' | 'blueZoneDamage' | 'dtr'
   // Movement
   | 'walkDistance' | 'rideDistance' | 'swimDistance' | 'totalDistance'
+  | 'walkPPG' | 'ridePPG' | 'swimPPG'
   // Teamplay
   | 'revivesGiven' | 'revives' | 'damageShare'
 
@@ -201,6 +202,9 @@ export default function PlayerStatsTable({
       : 0,
     dtr: (p.damageTaken ?? 0) > 0 ? p.damage / (p.damageTaken ?? 1) : 0,
     totalDistance: (p.walkDistance ?? 0) + (p.rideDistance ?? 0) + (p.swimDistance ?? 0),
+    walkPPG: p.games > 0 ? (p.walkDistance ?? 0) / p.games : 0,
+    ridePPG: p.games > 0 ? (p.rideDistance ?? 0) / p.games : 0,
+    swimPPG: p.games > 0 ? (p.swimDistance ?? 0) / p.games : 0,
     damageShare: p.teamId && (teamDamageTotal.get(p.teamId) ?? 0) > 0
       ? (p.damage / (teamDamageTotal.get(p.teamId) ?? 1)) * 100
       : 0,
@@ -411,8 +415,11 @@ export default function PlayerStatsTable({
                 {thL('teamName', 'Team')}
                 {thR('games', 'G')}
                 {thR('walkDistance', 'Walk')}
+                {thR('walkPPG', 'Walk/G')}
                 {thR('rideDistance', 'Ride')}
+                {thR('ridePPG', 'Ride/G')}
                 {thR('swimDistance', 'Swim')}
+                {thR('swimPPG', 'Swim/G')}
                 {thR('totalDistance', 'Total')}
               </tr>
             )}
@@ -483,8 +490,11 @@ export default function PlayerStatsTable({
                   <>
                     {playerTeamCell(p, i)}
                     <td className="px-3 py-2 text-right text-gray-500">{fmtDist(p.walkDistance)}</td>
+                    <td className="px-3 py-2 text-right text-gray-400">{fmtDist(p.walkPPG)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmtDist(p.rideDistance)}</td>
+                    <td className="px-3 py-2 text-right text-gray-400">{fmtDist(p.ridePPG)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmtDist(p.swimDistance)}</td>
+                    <td className="px-3 py-2 text-right text-gray-400">{fmtDist(p.swimPPG)}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700">{fmtDist(p.totalDistance)}</td>
                   </>
                 )}
