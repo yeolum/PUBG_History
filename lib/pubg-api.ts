@@ -162,42 +162,55 @@ function clipLineToUnitBox(px: number, py: number, dx: number, dy: number): [{ x
 // Extract aircraft flight path from telemetry events.
 // Filters LogVehicleLeave(TransportAircraft), sorts by elapsedTime, extends to map boundary.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function extractPlanePath(events: any[], mapSize: number): PlanePath | null {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isAircraft = (v: any) =>
-    v?.vehicleType === 'TransportAircraft' || String(v?.vehicleId ?? '').toLowerCase().includes('transportaircraft')
-
+export function extractPlanePath(events: any[], mapSize: number): PlanePath | null { // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Strict vehicleType check only; ignore vehicleId fallback which can match wrong vehicles
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = events.filter((e: any) =>
-    e._T === 'LogVehicleLeave' && isAircraft(e.vehicle) && e.character?.location?.x != null,
+    e._T === 'LogVehicleLeave' &&
+    e.vehicle?.vehicleType === 'TransportAircraft' &&
+    e.character?.location?.x != null &&
+    (e.elapsedTime == null || e.elapsedTime < 420), // aircraft phase is within first 7 minutes
   )
   if (raw.length < 2) return null
 
-  // Sort by elapsedTime (fall back to _D string comparison for ISO 8601)
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  raw.sort((a: any, b: any) => (a.elapsedTime != null ? a.elapsedTime - b.elapsedTime : a._D < b._D ? -1 : 1))
+  raw.sort((a: any, b: any) => (a.elapsedTime ?? 0) - (b.elapsedTime ?? 0)) // eslint-disable-line @typescript-eslint/no-explicit-any
 
-  const jumps = raw.map((e: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+  // Deduplicate per player — keep only the first jump event per player
+  const seen = new Set<string>()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const deduped = raw.filter((e: any) => {
+    const name: string = e.character?.name ?? ''
+    if (!name || seen.has(name)) return false
+    seen.add(name)
+    return true
+  })
+  if (deduped.length < 2) return null
+
+  const jumps = deduped.map((e: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
     x: Math.max(0, Math.min(1, e.character.location.x / mapSize)),
     y: Math.max(0, Math.min(1, e.character.location.y / mapSize)),
     elapsedTime: e.elapsedTime ?? 0,
     playerName: e.character.name as string | undefined,
   }))
 
-  // Direction from first jump to last jump (most distant pair as fallback)
-  let p1 = jumps[0], p2 = jumps[jumps.length - 1]
-  const baseDist = (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2
-  if (baseDist < 1e-8) {
-    let maxD = 0
-    for (let i = 0; i < jumps.length; i++)
-      for (let j = i + 1; j < jumps.length; j++) {
-        const d = (jumps[j].x - jumps[i].x) ** 2 + (jumps[j].y - jumps[i].y) ** 2
-        if (d > maxD) { maxD = d; p1 = jumps[i]; p2 = jumps[j] }
-      }
-    if (maxD < 1e-8) return null
+  // PCA: least-squares best-fit line through all jump positions (robust to outliers)
+  const n = jumps.length
+  const cx = jumps.reduce((s, p) => s + p.x, 0) / n
+  const cy = jumps.reduce((s, p) => s + p.y, 0) / n
+  let sxx = 0, sxy = 0, syy = 0
+  for (const p of jumps) {
+    const dx = p.x - cx, dy = p.y - cy
+    sxx += dx * dx; sxy += dx * dy; syy += dy * dy
+  }
+  // Principal eigenvector of 2×2 covariance matrix via closed-form atan2
+  const angle = Math.atan2(2 * sxy, sxx - syy) / 2
+  let ddx = Math.cos(angle), ddy = Math.sin(angle)
+  // Orient toward later jumps (first→last direction)
+  if ((jumps[n - 1].x - jumps[0].x) * ddx + (jumps[n - 1].y - jumps[0].y) * ddy < 0) {
+    ddx = -ddx; ddy = -ddy
   }
 
-  const clip = clipLineToUnitBox(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y)
+  const clip = clipLineToUnitBox(cx, cy, ddx, ddy)
   if (!clip) return null
 
   return { entry: clip[0], exit: clip[1], jumps }

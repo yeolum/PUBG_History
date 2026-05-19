@@ -510,7 +510,14 @@ export default function TeamStatsTable({
                 {allDropMaps.map((mapKey) => (
                   <button
                     key={mapKey}
-                    onClick={() => { setSelectedMap(mapKey); setVisibleTeams(null); setExpandedTeams(new Set()) }}
+                    onClick={() => {
+                      setSelectedMap(mapKey)
+                      setVisibleTeams(null)
+                      setExpandedTeams(new Set())
+                      if (dropScopeKey.startsWith('match:')) {
+                        setDropScopeKey(dropStageId ? `stage:${dropStageId}` : 'total')
+                      }
+                    }}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${selectedMap === mapKey ? 'bg-yellow-400 border-yellow-400 text-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
                   >
                     {getMapDisplayName(mapKey)}

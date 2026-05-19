@@ -38,43 +38,39 @@ export default function FlightPathOverlay({ path }: { path: PlanePath }) {
       viewBox={`0 0 ${S} ${S}`}
       preserveAspectRatio="none"
     >
-      <defs>
-        <filter id="fp-glow" x="-20%" y="-20%" width="140%" height="140%">
-          <feGaussianBlur stdDeviation="3" result="blur" />
-          <feMerge><feMergeNode in="blur" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
-
-      {/* Main dashed flight line */}
+      {/* Twire style: red base + white dashes on top → alternating red/white segments */}
       <line
         x1={ex} y1={ey} x2={lx} y2={ly}
-        stroke="white" strokeWidth="2.5" strokeOpacity="0.78"
-        strokeDasharray="10 7" strokeLinecap="round"
-        filter="url(#fp-glow)"
+        stroke="rgb(220,38,38)" strokeWidth="5" strokeOpacity="0.95" strokeLinecap="butt"
+      />
+      <line
+        x1={ex} y1={ey} x2={lx} y2={ly}
+        stroke="white" strokeWidth="5" strokeOpacity="0.95" strokeLinecap="butt"
+        strokeDasharray="20 20"
       />
 
       {/* Direction arrow */}
       <polygon
         points={arrowPoints(ax, ay, ndx, ndy)}
-        fill="white" fillOpacity="0.88"
+        fill="white" fillOpacity="0.95"
       />
 
       {/* Entry: solid dot + ring */}
-      <circle cx={ex} cy={ey} r="7" fill="none" stroke="white" strokeWidth="2" strokeOpacity="0.7" />
-      <circle cx={ex} cy={ey} r="4" fill="white" fillOpacity="0.9" />
+      <circle cx={ex} cy={ey} r="8" fill="none" stroke="white" strokeWidth="2.5" strokeOpacity="0.9" />
+      <circle cx={ex} cy={ey} r="4.5" fill="white" fillOpacity="0.95" />
 
       {/* Jump dots */}
       {path.jumps.map((j, i) => (
         <circle
           key={i}
           cx={Number(v(j.x))} cy={Number(v(j.y))}
-          r="2.8"
-          fill="white" fillOpacity="0.6"
+          r="3.5"
+          fill="white" fillOpacity="0.75"
         />
       ))}
 
       {/* Exit: outlined circle only */}
-      <circle cx={lx} cy={ly} r="5" fill="none" stroke="white" strokeWidth="2" strokeOpacity="0.65" />
+      <circle cx={lx} cy={ly} r="6" fill="none" stroke="white" strokeWidth="2.5" strokeOpacity="0.85" />
     </svg>
   )
 }
