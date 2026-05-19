@@ -25,12 +25,18 @@ export interface PlayerStatRow {
   revives?: number
   healsUsed?: number
   boostsUsed?: number
-  // Telemetry-derived
+  // Telemetry-derived (combat)
   deaths?: number
   damageTaken?: number
   blueZoneDamage?: number
   killDistanceSum?: number
   killDistanceCount?: number
+  knockDamageSum?: number
+  engagementDistSum?: number
+  engagementDistCount?: number
+  firstBloodKills?: number
+  firstBloodKnocks?: number
+  // Telemetry-derived (utility)
   grenadesThrown?: number
   smokesThrown?: number
   flashbangsThrown?: number
@@ -38,7 +44,21 @@ export interface PlayerStatRow {
   grenadeDamage?: number
   molotovDamage?: number
   grenadeHitEvents?: number
+  // Telemetry-derived (survival)
+  totalHealAmount?: number
+  blueZoneTime?: number
+  // Telemetry-derived (movement)
+  vehicleTime?: number
+  // Telemetry-derived (teamplay)
   revivesGiven?: number
+  assistDamage?: number
+  tradeKills?: number
+  tradeableDeaths?: number
+  // Telemetry-derived (positioning)
+  zoneEdgeSamples?: number
+  zoneTotalSamples?: number
+  zoneOutsideSamples?: number
+  zoneDistSum?: number
 }
 
 export interface PlayerMatchStat {
@@ -57,22 +77,27 @@ export interface PlayerMatchStat {
   placement: number | null
 }
 
-type Category = 'combat' | 'utility' | 'survival' | 'movement' | 'teamplay'
+type Category = 'combat' | 'utility' | 'survival' | 'movement' | 'teamplay' | 'positioning'
 
 type SortKey =
   // Combat
   | 'nickname' | 'teamName' | 'games' | 'kills' | 'kpg' | 'assists' | 'knocks'
   | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'longestKill' | 'avgKillDist' | 'deaths' | 'kd'
+  | 'dpk' | 'kkRatio' | 'avgEngagementDist' | 'firstBloodKills' | 'firstBloodKnocks'
   // Utility
   | 'grenadesThrown' | 'smokesThrown' | 'flashbangsThrown' | 'molotovsThrown'
   | 'grenadeDamage' | 'molotovDamage' | 'utilityDamage' | 'grenadeHitRate'
   // Survival
   | 'avgSurvival' | 'healsUsed' | 'boostsUsed' | 'damageTaken' | 'blueZoneDamage' | 'dtr'
+  | 'healEfficiency' | 'blueZoneTimePerGame'
   // Movement
   | 'walkDistance' | 'rideDistance' | 'swimDistance' | 'totalDistance'
-  | 'walkPPG' | 'ridePPG' | 'swimPPG'
+  | 'walkPPG' | 'ridePPG' | 'swimPPG' | 'vehicleTimePerGame'
   // Teamplay
   | 'revivesGiven' | 'revives' | 'damageShare'
+  | 'tradeKillRate' | 'assistDamagePerGame' | 'killShare'
+  // Positioning
+  | 'zoneEdgePct' | 'avgDistToZone' | 'zoneOutsidePct'
 
 type StageWithMatches = Stage & { matches: Pick<Match, 'id' | 'status' | 'order_num'>[] }
 interface SeriesItem { id: string; name: string; order_num: number; tab_order: number }
@@ -178,12 +203,21 @@ export default function PlayerStatsTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMatchId, selectedStageId, selectedSeriesId, playerStats, stagePlayerStats, seriesPlayerStats, playerStatsByMatch, stages])
 
-  // Team totals for damage share calculation
+  // Team totals for damage share / kill share calculation
   const teamDamageTotal = useMemo(() => {
     const m = new Map<string, number>()
     for (const p of displayStats) {
       if (!p.teamId) continue
       m.set(p.teamId, (m.get(p.teamId) ?? 0) + p.damage)
+    }
+    return m
+  }, [displayStats])
+
+  const teamKillTotal = useMemo(() => {
+    const m = new Map<string, number>()
+    for (const p of displayStats) {
+      if (!p.teamId) continue
+      m.set(p.teamId, (m.get(p.teamId) ?? 0) + p.kills)
     }
     return m
   }, [displayStats])
@@ -196,18 +230,34 @@ export default function PlayerStatsTable({
     avgSurvival: p.games > 0 ? p.survivalTime / p.games : 0,
     kd: (p.deaths ?? 0) > 0 ? p.kills / (p.deaths ?? 1) : p.kills,
     avgKillDist: (p.killDistanceCount ?? 0) > 0 ? (p.killDistanceSum ?? 0) / (p.killDistanceCount ?? 1) : 0,
+    dpk: (p.knocks ?? 0) > 0 ? (p.knockDamageSum ?? 0) / (p.knocks ?? 1) : 0,
+    kkRatio: (p.knocks ?? 0) > 0 ? p.kills / (p.knocks ?? 1) : 0,
+    avgEngagementDist: (p.engagementDistCount ?? 0) > 0 ? (p.engagementDistSum ?? 0) / (p.engagementDistCount ?? 1) : 0,
+    firstBloodKills: p.firstBloodKills ?? 0,
+    firstBloodKnocks: p.firstBloodKnocks ?? 0,
     utilityDamage: (p.grenadeDamage ?? 0) + (p.molotovDamage ?? 0),
     grenadeHitRate: (p.grenadesThrown ?? 0) + (p.molotovsThrown ?? 0) + (p.flashbangsThrown ?? 0) > 0
       ? ((p.grenadeHitEvents ?? 0) / ((p.grenadesThrown ?? 0) + (p.molotovsThrown ?? 0) + (p.flashbangsThrown ?? 0))) * 100
       : 0,
     dtr: (p.damageTaken ?? 0) > 0 ? p.damage / (p.damageTaken ?? 1) : 0,
+    healEfficiency: (p.healsUsed ?? 0) > 0 ? (p.totalHealAmount ?? 0) / (p.healsUsed ?? 1) : 0,
+    blueZoneTimePerGame: p.games > 0 ? (p.blueZoneTime ?? 0) / p.games : 0,
     totalDistance: (p.walkDistance ?? 0) + (p.rideDistance ?? 0) + (p.swimDistance ?? 0),
     walkPPG: p.games > 0 ? (p.walkDistance ?? 0) / p.games : 0,
     ridePPG: p.games > 0 ? (p.rideDistance ?? 0) / p.games : 0,
     swimPPG: p.games > 0 ? (p.swimDistance ?? 0) / p.games : 0,
+    vehicleTimePerGame: p.games > 0 ? (p.vehicleTime ?? 0) / p.games : 0,
     damageShare: p.teamId && (teamDamageTotal.get(p.teamId) ?? 0) > 0
       ? (p.damage / (teamDamageTotal.get(p.teamId) ?? 1)) * 100
       : 0,
+    killShare: p.teamId && (teamKillTotal.get(p.teamId) ?? 0) > 0
+      ? (p.kills / (teamKillTotal.get(p.teamId) ?? 1)) * 100
+      : 0,
+    tradeKillRate: p.kills > 0 ? ((p.tradeKills ?? 0) / p.kills) * 100 : 0,
+    assistDamagePerGame: p.games > 0 ? (p.assistDamage ?? 0) / p.games : 0,
+    zoneEdgePct: (p.zoneTotalSamples ?? 0) > 0 ? ((p.zoneEdgeSamples ?? 0) / (p.zoneTotalSamples ?? 1)) * 100 : 0,
+    avgDistToZone: (p.zoneTotalSamples ?? 0) > 0 ? (p.zoneDistSum ?? 0) / (p.zoneTotalSamples ?? 1) : 0,
+    zoneOutsidePct: (p.zoneTotalSamples ?? 0) > 0 ? ((p.zoneOutsideSamples ?? 0) / (p.zoneTotalSamples ?? 1)) * 100 : 0,
     revivesGiven: p.revivesGiven ?? 0,
     revives: p.revives ?? 0,
     grenadesThrown: p.grenadesThrown ?? 0,
@@ -225,7 +275,7 @@ export default function PlayerStatsTable({
     walkDistance: p.walkDistance ?? 0,
     rideDistance: p.rideDistance ?? 0,
     swimDistance: p.swimDistance ?? 0,
-  })), [displayStats, teamDamageTotal])
+  })), [displayStats, teamDamageTotal, teamKillTotal])
 
   const sorted = useMemo(() => {
     const q = search.toLowerCase()
@@ -345,6 +395,7 @@ export default function PlayerStatsTable({
         <button onClick={() => { setCategory('survival'); setSortKey('avgSurvival') }} className={catBtn('survival')}>Survival</button>
         <button onClick={() => { setCategory('movement'); setSortKey('totalDistance') }} className={catBtn('movement')}>Movement</button>
         <button onClick={() => { setCategory('teamplay'); setSortKey('revivesGiven') }} className={catBtn('teamplay')}>Teamplay</button>
+        <button onClick={() => { setCategory('positioning'); setSortKey('zoneEdgePct') }} className={catBtn('positioning')}>Positioning</button>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
@@ -368,12 +419,17 @@ export default function PlayerStatsTable({
                 {thR('kd', 'K/D')}
                 {thR('assists', 'Assists')}
                 {thR('knocks', 'Knocks')}
+                {thR('kkRatio', 'K/K')}
+                {thR('dpk', 'DPK')}
                 {thR('headshotKills', 'HS')}
                 {thR('hsPercent', 'HS%')}
                 {thR('damage', 'Damage')}
                 {thR('adr', 'ADR')}
                 {thR('longestKill', 'Longest Kill')}
                 {thR('avgKillDist', 'Avg Kill Dist')}
+                {thR('avgEngagementDist', 'Avg Eng Dist')}
+                {thR('firstBloodKills', 'FB Kills')}
+                {thR('firstBloodKnocks', 'FB Knocks')}
               </tr>
             )}
             {category === 'utility' && (
@@ -402,9 +458,11 @@ export default function PlayerStatsTable({
                 {thR('deaths', 'Deaths')}
                 {thR('damageTaken', 'Dmg Taken')}
                 {thR('blueZoneDamage', 'BZ Dmg')}
+                {thR('blueZoneTimePerGame', 'BZ Time/G')}
                 {thR('dtr', 'DD/DT')}
                 {thR('healsUsed', 'Heals')}
                 {thR('boostsUsed', 'Boosts')}
+                {thR('healEfficiency', 'Heal Eff')}
                 {thR('revives', 'Revived')}
               </tr>
             )}
@@ -421,6 +479,7 @@ export default function PlayerStatsTable({
                 {thR('swimDistance', 'Swim')}
                 {thR('swimPPG', 'Swim/G')}
                 {thR('totalDistance', 'Total')}
+                {thR('vehicleTimePerGame', 'Vehicle/G')}
               </tr>
             )}
             {category === 'teamplay' && (
@@ -431,9 +490,23 @@ export default function PlayerStatsTable({
                 {thR('games', 'G')}
                 {thR('assists', 'Assists')}
                 {thR('knocks', 'Knocks')}
+                {thR('tradeKillRate', 'Trade Kill%')}
                 {thR('revivesGiven', 'Revives Given')}
                 {thR('revives', 'Revived')}
+                {thR('assistDamagePerGame', 'Assist Dmg/G')}
                 {thR('damageShare', 'Dmg Share')}
+                {thR('killShare', 'Kill Share')}
+              </tr>
+            )}
+            {category === 'positioning' && (
+              <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
+                {thL('nickname', 'Player')}
+                {thL('teamName', 'Team')}
+                {thR('games', 'G')}
+                {thR('zoneEdgePct', 'Zone Edge%')}
+                {thR('avgDistToZone', 'Avg Dist to Zone')}
+                {thR('zoneOutsidePct', 'Outside Zone%')}
               </tr>
             )}
           </thead>
@@ -452,12 +525,17 @@ export default function PlayerStatsTable({
                     <td className="px-3 py-2 text-right text-gray-600">{p.deaths > 0 ? p.kd.toFixed(2) : p.kills}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.assists}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.knocks}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.knocks > 0 ? p.kkRatio.toFixed(2) : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.dpk > 0 ? Math.round(p.dpk).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.headshotKills}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.kills > 0 ? p.hsPercent.toFixed(1) + '%' : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{Math.round(p.damage).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700">{Math.round(p.adr).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.longestKill > 0 ? `${Math.round(p.longestKill)}m` : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.avgKillDist > 0 ? `${Math.round(p.avgKillDist)}m` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.avgEngagementDist > 0 ? `${Math.round(p.avgEngagementDist)}m` : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.firstBloodKills > 0 ? p.firstBloodKills : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.firstBloodKnocks > 0 ? p.firstBloodKnocks : '—'}</td>
                   </>
                 )}
                 {category === 'utility' && (
@@ -480,9 +558,11 @@ export default function PlayerStatsTable({
                     <td className="px-3 py-2 text-right text-gray-500">{p.deaths}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.damageTaken > 0 ? Math.round(p.damageTaken).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.blueZoneDamage > 0 ? Math.round(p.blueZoneDamage).toLocaleString() : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.blueZoneTimePerGame > 0 ? Math.round(p.blueZoneTimePerGame) + 's' : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.damageTaken > 0 ? p.dtr.toFixed(2) : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.healsUsed)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.boostsUsed)}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.healEfficiency > 0 ? Math.round(p.healEfficiency).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.revives)}</td>
                   </>
                 )}
@@ -496,6 +576,7 @@ export default function PlayerStatsTable({
                     <td className="px-3 py-2 text-right text-gray-500">{fmtDist(p.swimDistance)}</td>
                     <td className="px-3 py-2 text-right text-gray-400">{fmtDist(p.swimPPG)}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700">{fmtDist(p.totalDistance)}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.vehicleTimePerGame > 0 ? Math.round(p.vehicleTimePerGame) + 's' : '—'}</td>
                   </>
                 )}
                 {category === 'teamplay' && (
@@ -503,9 +584,20 @@ export default function PlayerStatsTable({
                     {playerTeamCell(p, i)}
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{p.assists}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.knocks}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.tradeKillRate > 0 ? p.tradeKillRate.toFixed(1) + '%' : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{p.revivesGiven > 0 ? p.revivesGiven : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.revives > 0 ? p.revives : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.assistDamagePerGame > 0 ? Math.round(p.assistDamagePerGame).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.damageShare > 0 ? p.damageShare.toFixed(1) + '%' : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.killShare > 0 ? p.killShare.toFixed(1) + '%' : '—'}</td>
+                  </>
+                )}
+                {category === 'positioning' && (
+                  <>
+                    {playerTeamCell(p, i)}
+                    <td className="px-3 py-2 text-right text-gray-700 font-medium">{p.zoneEdgePct > 0 ? p.zoneEdgePct.toFixed(1) + '%' : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.avgDistToZone > 0 ? fmtDist(p.avgDistToZone) : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.zoneOutsidePct > 0 ? p.zoneOutsidePct.toFixed(1) + '%' : '—'}</td>
                   </>
                 )}
               </tr>

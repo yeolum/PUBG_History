@@ -57,12 +57,18 @@ interface PlayerStatsEntry {
   revives: number
   heals_used: number
   boosts_used: number
-  // Telemetry-derived
+  // Telemetry-derived (combat)
   deaths: number
   damage_taken: number
   blue_zone_damage: number
   kill_distance_sum: number
   kill_distance_count: number
+  knock_damage_sum: number
+  engagement_dist_sum: number
+  engagement_dist_count: number
+  first_blood_kills: number
+  first_blood_knocks: number
+  // Telemetry-derived (utility)
   grenades_thrown: number
   smokes_thrown: number
   flashbangs_thrown: number
@@ -70,7 +76,21 @@ interface PlayerStatsEntry {
   grenade_damage: number
   molotov_damage: number
   grenade_hit_events: number
+  // Telemetry-derived (survival)
+  total_heal_amount: number
+  blue_zone_time: number
+  // Telemetry-derived (movement)
+  vehicle_time: number
+  // Telemetry-derived (teamplay)
   revives_given: number
+  assist_damage: number
+  trade_kills: number
+  tradeable_deaths: number
+  // Telemetry-derived (positioning)
+  zone_edge_samples: number
+  zone_total_samples: number
+  zone_outside_samples: number
+  zone_dist_sum: number
 }
 
 function aggregatePlayerStats(
@@ -99,8 +119,14 @@ function aggregatePlayerStats(
       revives: 0, heals_used: 0, boosts_used: 0,
       deaths: 0, damage_taken: 0, blue_zone_damage: 0,
       kill_distance_sum: 0, kill_distance_count: 0,
+      knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
+      first_blood_kills: 0, first_blood_knocks: 0,
       grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
-      grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0, revives_given: 0,
+      grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0,
+      total_heal_amount: 0, blue_zone_time: 0,
+      vehicle_time: 0,
+      revives_given: 0, assist_damage: 0, trade_kills: 0, tradeable_deaths: 0,
+      zone_edge_samples: 0, zone_total_samples: 0, zone_outside_samples: 0, zone_dist_sum: 0,
     }
     ex.games++
     ex.kills += (d.kills as number) ?? 0
@@ -121,6 +147,11 @@ function aggregatePlayerStats(
     ex.blue_zone_damage += Number(d.blue_zone_damage ?? 0)
     ex.kill_distance_sum += Number(d.kill_distance_sum ?? 0)
     ex.kill_distance_count += (d.kill_distance_count as number) ?? 0
+    ex.knock_damage_sum += Number(d.knock_damage_sum ?? 0)
+    ex.engagement_dist_sum += Number(d.engagement_dist_sum ?? 0)
+    ex.engagement_dist_count += (d.engagement_dist_count as number) ?? 0
+    ex.first_blood_kills += (d.first_blood_kill ? 1 : 0)
+    ex.first_blood_knocks += (d.first_blood_knock ? 1 : 0)
     ex.grenades_thrown += (d.grenades_thrown as number) ?? 0
     ex.smokes_thrown += (d.smokes_thrown as number) ?? 0
     ex.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
@@ -128,7 +159,17 @@ function aggregatePlayerStats(
     ex.grenade_damage += Number(d.grenade_damage ?? 0)
     ex.molotov_damage += Number(d.molotov_damage ?? 0)
     ex.grenade_hit_events += (d.grenade_hit_events as number) ?? 0
+    ex.total_heal_amount += Number(d.total_heal_amount ?? 0)
+    ex.blue_zone_time += (d.blue_zone_time as number) ?? 0
+    ex.vehicle_time += (d.vehicle_time as number) ?? 0
     ex.revives_given += (d.revives_given as number) ?? 0
+    ex.assist_damage += Number(d.assist_damage ?? 0)
+    ex.trade_kills += (d.trade_kills as number) ?? 0
+    ex.tradeable_deaths += (d.tradeable_deaths as number) ?? 0
+    ex.zone_edge_samples += (d.zone_edge_samples as number) ?? 0
+    ex.zone_total_samples += (d.zone_total_samples as number) ?? 0
+    ex.zone_outside_samples += (d.zone_outside_samples as number) ?? 0
+    ex.zone_dist_sum += Number(d.zone_dist_sum ?? 0)
     map.set(key, ex)
   }
   return map
@@ -239,7 +280,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       allImportedMatchIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, revives_given').in('match_id', chunk),
+      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
       allImportedMatchIds,
       'match_id',
     ),
@@ -278,6 +319,11 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       d.blue_zone_damage = tel.blue_zone_damage
       d.kill_distance_sum = tel.kill_distance_sum
       d.kill_distance_count = tel.kill_distance_count
+      d.knock_damage_sum = tel.knock_damage_sum
+      d.engagement_dist_sum = tel.engagement_dist_sum
+      d.engagement_dist_count = tel.engagement_dist_count
+      d.first_blood_kill = tel.first_blood_kill
+      d.first_blood_knock = tel.first_blood_knock
       d.grenades_thrown = tel.grenades_thrown
       d.smokes_thrown = tel.smokes_thrown
       d.flashbangs_thrown = tel.flashbangs_thrown
@@ -285,7 +331,17 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       d.grenade_damage = tel.grenade_damage
       d.molotov_damage = tel.molotov_damage
       d.grenade_hit_events = tel.grenade_hit_events
+      d.total_heal_amount = tel.total_heal_amount
+      d.blue_zone_time = tel.blue_zone_time
+      d.vehicle_time = tel.vehicle_time
       d.revives_given = tel.revives_given
+      d.assist_damage = tel.assist_damage
+      d.trade_kills = tel.trade_kills
+      d.tradeable_deaths = tel.tradeable_deaths
+      d.zone_edge_samples = tel.zone_edge_samples
+      d.zone_total_samples = tel.zone_total_samples
+      d.zone_outside_samples = tel.zone_outside_samples
+      d.zone_dist_sum = tel.zone_dist_sum
     }
   }
 

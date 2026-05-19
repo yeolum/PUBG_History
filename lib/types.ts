@@ -241,6 +241,11 @@ export interface TelemetryPlayerStats {
   blueZoneDamage: number
   killDistanceSum: number
   killDistanceCount: number
+  knockDamageSum: number
+  engagementDistSum: number
+  engagementDistCount: number
+  firstBloodKill: boolean
+  firstBloodKnock: boolean
   // Utility
   grenadesThrown: number
   smokesThrown: number
@@ -249,8 +254,21 @@ export interface TelemetryPlayerStats {
   grenadeDamage: number
   molotovDamage: number
   grenadeHitEvents: number
+  // Survival
+  totalHealAmount: number
+  blueZoneTime: number
+  // Movement
+  vehicleTime: number
   // Teamplay
   revivesGiven: number
+  assistDamage: number
+  tradeKills: number
+  tradeableDeaths: number
+  // Positioning
+  zoneEdgeSamples: number
+  zoneTotalSamples: number
+  zoneOutsideSamples: number
+  zoneDistSum: number
 }
 
 export interface PubgMatchData {

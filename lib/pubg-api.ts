@@ -253,9 +253,14 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
       s = {
         pubgAccountId: accountId,
         deaths: 0, damageTaken: 0, blueZoneDamage: 0, killDistanceSum: 0, killDistanceCount: 0,
+        knockDamageSum: 0, engagementDistSum: 0, engagementDistCount: 0,
+        firstBloodKill: false, firstBloodKnock: false,
         grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
         grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
-        revivesGiven: 0,
+        totalHealAmount: 0, blueZoneTime: 0,
+        vehicleTime: 0,
+        revivesGiven: 0, assistDamage: 0, tradeKills: 0, tradeableDeaths: 0,
+        zoneEdgeSamples: 0, zoneTotalSamples: 0, zoneOutsideSamples: 0, zoneDistSum: 0,
       }
       stats.set(accountId, s)
     }
@@ -267,63 +272,248 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
     return !trackedAccountIds || trackedAccountIds.has(accountId)
   }
 
+  // ── Phase 1: pre-scan for team mapping and zone state history ───────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const accountTeam = new Map<string, number>() // accountId → in-game integer teamId
+  const gameStates: { time: number; zx: number; zy: number; zr: number }[] = []
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  function extractTeam(char: any) {
+    if (char?.accountId && char.teamId != null) accountTeam.set(char.accountId as string, char.teamId as number)
+  }
+
+  for (const ev of events) {
+    extractTeam(ev.character); extractTeam(ev.attacker); extractTeam(ev.victim)
+    extractTeam(ev.killer);    extractTeam(ev.finisher); extractTeam(ev.dBNOMaker)
+    extractTeam(ev.reviver)
+    if (ev._T === 'LogGameStatePeriodic' && ev.gameState?.safetyZonePosition) {
+      const gs = ev.gameState
+      gameStates.push({ time: ev.elapsedTime ?? 0, zx: gs.safetyZonePosition.x ?? 0, zy: gs.safetyZonePosition.y ?? 0, zr: gs.safetyZoneRadius ?? 0 })
+    }
+  }
+  gameStates.sort((a, b) => a.time - b.time)
+
+  function zoneAt(time: number) {
+    if (gameStates.length === 0) return null
+    let lo = 0, hi = gameStates.length - 1
+    while (lo < hi) { const mid = (lo + hi + 1) >> 1; if (gameStates[mid].time <= time) lo = mid; else hi = mid - 1 }
+    return gameStates[lo]
+  }
+
+  // ── Phase 2: per-player state ───────────────────────────────────────────────
+  // Damage accumulation per (attacker → victim) for DPK and assist damage.
+  // Cleared on knock/kill/revive to represent one damage cycle.
+  const victimDmg = new Map<string, Map<string, number>>() // attacker → victim → accumulated dmg
+
+  function addVictimDmg(attacker: string, victim: string, dmg: number) {
+    if (!victimDmg.has(attacker)) victimDmg.set(attacker, new Map())
+    const m = victimDmg.get(attacker)!
+    m.set(victim, (m.get(victim) ?? 0) + dmg)
+  }
+  function clearVictimCycle(victimId: string) {
+    for (const m of victimDmg.values()) m.delete(victimId)
+  }
+
+  // Vehicle ride start times
+  const vehicleStart = new Map<string, number>()
+
+  // Team death records for trade-kill detection: teamId → [{killerAccountId, time}]
+  const teamDeaths = new Map<number, { killer: string; time: number }[]>()
+  function recordTeamDeath(victimId: string, killer: string, time: number) {
+    const tid = accountTeam.get(victimId)
+    if (tid == null) return
+    if (!teamDeaths.has(tid)) teamDeaths.set(tid, [])
+    teamDeaths.get(tid)!.push({ killer, time })
+  }
+
+  // First blood tracking
+  let firstKillTime = Infinity, firstKillAcc = ''
+  let firstKnockTime = Infinity, firstKnockAcc = ''
+
+  // ── Phase 3: event processing ───────────────────────────────────────────────
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   for (const ev of events) {
+    const t: number = ev.elapsedTime ?? 0
+
     switch (ev._T) {
       case 'LogPlayerKillV2': {
         const victimId: string | undefined = ev.victim?.accountId
-        if (track(victimId)) get(victimId!).deaths++
-
         const killerId: string | undefined = ev.finisher?.accountId ?? ev.killer?.accountId
-        if (track(killerId) && ev.distance != null) {
-          const s = get(killerId!)
-          s.killDistanceSum += (ev.distance as number) / 100 // cm → m
-          s.killDistanceCount++
+
+        if (victimId && track(victimId)) get(victimId).deaths++
+
+        if (killerId) {
+          if (track(killerId) && ev.distance != null) {
+            const s = get(killerId)
+            s.killDistanceSum += (ev.distance as number) / 100
+            s.killDistanceCount++
+          }
+          if (t < firstKillTime) { firstKillTime = t; firstKillAcc = killerId }
         }
+
+        // Assist damage: tracked attacker damaged this victim, kill by teammate
+        if (victimId && killerId) {
+          const killerTeam = accountTeam.get(killerId)
+          for (const [atk, byVictim] of victimDmg.entries()) {
+            if (atk === killerId || !track(atk)) continue
+            const dmg = byVictim.get(victimId)
+            if (!dmg) continue
+            const atkTeam = accountTeam.get(atk)
+            if (killerTeam != null && atkTeam === killerTeam) get(atk).assistDamage += dmg
+          }
+        }
+
+        // Trade kill: did the kill target recently kill a teammate of the killer?
+        if (killerId && victimId && track(killerId)) {
+          const killerTeam = accountTeam.get(killerId)
+          if (killerTeam != null) {
+            const recent = teamDeaths.get(killerTeam) ?? []
+            if (recent.some(d => d.killer === victimId && t - d.time <= 10)) {
+              get(killerId).tradeKills++
+            }
+          }
+        }
+
+        if (killerId && victimId) recordTeamDeath(victimId, killerId, t)
+        if (victimId) clearVictimCycle(victimId)
         break
       }
+
+      case 'LogPlayerMakeGroggy': {
+        const victimId: string | undefined = ev.victim?.accountId
+        const knockerId: string | undefined = ev.attacker?.accountId
+
+        if (knockerId) {
+          if (track(knockerId) && victimId) {
+            const accum = victimDmg.get(knockerId)?.get(victimId) ?? 0
+            get(knockerId).knockDamageSum += accum
+          }
+          if (t < firstKnockTime) { firstKnockTime = t; firstKnockAcc = knockerId }
+        }
+
+        // Trade knock
+        if (knockerId && victimId && track(knockerId)) {
+          const knockerTeam = accountTeam.get(knockerId)
+          if (knockerTeam != null) {
+            const recent = teamDeaths.get(knockerTeam) ?? []
+            if (recent.some(d => d.killer === victimId && t - d.time <= 10)) {
+              get(knockerId).tradeKills++
+            }
+          }
+        }
+
+        if (knockerId && victimId) recordTeamDeath(victimId, knockerId, t)
+        if (victimId) clearVictimCycle(victimId)
+        break
+      }
+
       case 'LogPlayerTakeDamage': {
         const attackerId: string | undefined = ev.attacker?.accountId
         const victimId: string | undefined = ev.victim?.accountId
-        if (!victimId || attackerId === victimId) break // ignore self-damage
+        if (!victimId || attackerId === victimId) break
 
         const dmg = (ev.damage as number) ?? 0
 
-        if (track(victimId)) {
-          const s = get(victimId)
-          s.damageTaken += dmg
-          if (ev.damageTypeCategory === 'Damage_BlueZone') s.blueZoneDamage += dmg
+        if (attackerId && victimId) addVictimDmg(attackerId, victimId, dmg)
+
+        if (attackerId && track(attackerId)) {
+          const s = get(attackerId)
+          if (isGrenadeDamage(ev)) { s.grenadeDamage += dmg; s.grenadeHitEvents++ }
+          else if (isMolotovDamage(ev)) { s.molotovDamage += dmg }
+          const dist = ev.distance as number | undefined
+          if (dist != null && dist > 0) { s.engagementDistSum += dist; s.engagementDistCount++ }
         }
 
-        if (track(attackerId)) {
-          const s = get(attackerId!)
-          if (isGrenadeDamage(ev)) {
-            s.grenadeDamage += dmg
-            s.grenadeHitEvents++
-          } else if (isMolotovDamage(ev)) {
-            s.molotovDamage += dmg
+        if (victimId && track(victimId)) {
+          const s = get(victimId)
+          s.damageTaken += dmg
+          if (ev.damageTypeCategory === 'Damage_BlueZone') {
+            s.blueZoneDamage += dmg
+            s.blueZoneTime += 1 // each BZ damage tick ≈ 1 s of blue-zone exposure
           }
         }
         break
       }
+
       case 'LogItemUse': {
         const accountId: string | undefined = ev.character?.accountId
         if (!track(accountId)) break
         const kind = classifyThrowable((ev.item?.itemId as string | undefined) ?? '')
-        if (!kind) break
-        const s = get(accountId!)
-        if (kind === 'grenade') s.grenadesThrown++
-        else if (kind === 'smoke') s.smokesThrown++
-        else if (kind === 'flashbang') s.flashbangsThrown++
-        else if (kind === 'molotov') s.molotovsThrown++
+        if (kind) {
+          const s = get(accountId!)
+          if (kind === 'grenade') s.grenadesThrown++
+          else if (kind === 'smoke') s.smokesThrown++
+          else if (kind === 'flashbang') s.flashbangsThrown++
+          else if (kind === 'molotov') s.molotovsThrown++
+        }
         break
       }
+
+      case 'LogHeal': {
+        const accountId: string | undefined = ev.character?.accountId
+        if (!track(accountId)) break
+        get(accountId!).totalHealAmount += (ev.healAmount as number) ?? 0
+        break
+      }
+
       case 'LogPlayerRevive': {
         const reviverId: string | undefined = ev.reviver?.accountId
-        if (track(reviverId)) get(reviverId!).revivesGiven++
+        const victimId: string | undefined = ev.victim?.accountId
+        if (reviverId && track(reviverId)) get(reviverId).revivesGiven++
+        if (victimId) clearVictimCycle(victimId) // victim back from down → reset damage cycle
+        break
+      }
+
+      case 'LogVehicleRide': {
+        const accountId: string | undefined = ev.character?.accountId
+        if (!track(accountId) || !accountId) break
+        vehicleStart.set(accountId, t)
+        break
+      }
+
+      case 'LogVehicleLeave': {
+        const accountId: string | undefined = ev.character?.accountId
+        if (!track(accountId) || !accountId) break
+        const start = vehicleStart.get(accountId)
+        if (start != null) { get(accountId).vehicleTime += Math.max(0, Math.round(t - start)); vehicleStart.delete(accountId) }
+        break
+      }
+
+      case 'LogPlayerPosition': {
+        const accountId: string | undefined = ev.character?.accountId
+        if (!track(accountId) || !accountId) break
+        const zone = zoneAt(t)
+        if (!zone || zone.zr <= 0) break
+        const px = (ev.character?.location?.x as number) ?? 0
+        const py = (ev.character?.location?.y as number) ?? 0
+        const dx = px - zone.zx, dy = py - zone.zy
+        const distCm = Math.sqrt(dx * dx + dy * dy)
+        const rel = distCm / zone.zr
+        const s = get(accountId)
+        s.zoneTotalSamples++
+        s.zoneDistSum += distCm
+        if (rel > 1.0) s.zoneOutsideSamples++
+        else if (rel > 0.7) s.zoneEdgeSamples++
         break
       }
     }
+  }
+
+  // Finalise vehicle time for players still in a vehicle at match end
+  for (const [accountId, start] of vehicleStart.entries()) {
+    if (track(accountId)) get(accountId).vehicleTime += Math.max(0, Math.round((events.at(-1)?.elapsedTime ?? start) - start))
+  }
+
+  // First blood flags
+  if (firstKillAcc && track(firstKillAcc)) get(firstKillAcc).firstBloodKill = true
+  if (firstKnockAcc && track(firstKnockAcc)) get(firstKnockAcc).firstBloodKnock = true
+
+  // Tradeable deaths: for each tracked player, count their teammates' deaths in the match
+  for (const [accountId, s] of stats.entries()) {
+    const myTeam = accountTeam.get(accountId)
+    if (myTeam == null) continue
+    const deaths = teamDeaths.get(myTeam) ?? []
+    s.tradeableDeaths = deaths.filter(d => d.killer !== accountId).length
   }
 
   return stats
