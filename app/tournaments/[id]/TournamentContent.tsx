@@ -142,7 +142,7 @@ const loadTournamentData = unstable_cache(
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
-      supabase.from('tournament_players').select('player_id, team_id, players(id, nickname, nationality_code)').eq('tournament_id', id),
+      supabase.from('tournament_players').select('player_id, team_id, coach_role, players(id, nickname, nationality_code)').eq('tournament_id', id),
       supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count, scoring_rule_id, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id').in('stage_id', stageIds)),
       stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('stage_player_stats').select(SPS_SELECT).in('stage_id', stageIds)),
@@ -486,7 +486,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
   }
 
   // Build roster from match data
-  const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null }> }>()
+  const teamRosterMap = new Map<string, { name: string; logo_url: string | null; players: Map<string, { id: string; nickname: string; nationality: string | null; coachRole: 'coach' | 'playing_coach' | null }> }>()
   for (const rows of Object.values(resultsByMatch)) {
     for (const r of rows as AnyRow[]) {
       const effectiveId = r.team_id ?? (r.pubg_team_name ? (aliasToTeamId.get(r.pubg_team_name.toLowerCase()) ?? null) : null)
@@ -505,6 +505,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         id: row.player_id,
         nickname: row.players.nickname,
         nationality: row.players.nationality_code ?? null,
+        coachRole: null,
       })
     }
   }
@@ -592,11 +593,15 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const nickname = (p.nickname as string) ?? '?'
     const nationality = (p.nationality_code as string | null) ?? null
     const tournamentTeamId = (r.team_id as string | null) ?? null
+    const coachRole = (r.coach_role as 'coach' | 'playing_coach' | null) ?? null
 
     if (tournamentTeamId) {
       const team = teamRosterMap.get(tournamentTeamId)
-      if (team && !team.players.has(playerId)) {
-        team.players.set(playerId, { id: playerId, nickname, nationality })
+      if (coachRole) {
+        // Coach: always upsert (overrides any match-data entry)
+        team?.players.set(playerId, { id: playerId, nickname, nationality, coachRole })
+      } else if (team && !team.players.has(playerId)) {
+        team.players.set(playerId, { id: playerId, nickname, nationality, coachRole: null })
       }
     }
     if (tpsRows.length > 0 && !tpsPlayerIds.has(playerId)) {
@@ -629,7 +634,12 @@ export default async function TournamentContent({ id, tournament }: { id: string
   const roster = [...teamRosterMap.entries()]
     .map(([teamId, team]) => ({
       id: teamId, name: team.name, logo_url: team.logo_url,
-      players: [...team.players.values()].sort((a, b) => a.nickname.localeCompare(b.nickname)),
+      players: [...team.players.values()].sort((a, b) => {
+        const aIsCoach = a.coachRole != null ? 1 : 0
+        const bIsCoach = b.coachRole != null ? 1 : 0
+        if (aIsCoach !== bIsCoach) return aIsCoach - bIsCoach
+        return a.nickname.localeCompare(b.nickname)
+      }),
     }))
     .sort((a, b) => a.name.localeCompare(b.name))
 

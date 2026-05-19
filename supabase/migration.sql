@@ -817,3 +817,9 @@ CREATE INDEX IF NOT EXISTS idx_teams_parent_team ON teams(parent_team_id);
 -- Migration: update tournament type values
 -- =====================================================
 UPDATE tournaments SET type = 'regional' WHERE type IN ('online', 'lan');
+
+-- =====================================================
+-- Migration: coach_role for tournament_players
+-- coach = non-playing coach, playing_coach = participates in matches
+-- =====================================================
+ALTER TABLE tournament_players ADD COLUMN IF NOT EXISTS coach_role TEXT CHECK (coach_role IN ('coach', 'playing_coach'));

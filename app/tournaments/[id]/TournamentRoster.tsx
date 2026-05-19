@@ -7,6 +7,7 @@ interface RosterPlayer {
   id: string
   nickname: string
   nationality: string | null
+  coachRole: 'coach' | 'playing_coach' | null
 }
 
 interface RosterTeam {
@@ -96,9 +97,15 @@ export default function TournamentRoster({ roster }: Props) {
                 <div className="border-t border-gray-100">
                   {team.players.length > 0 ? (
                     team.players.map((p) => {
+                      const isCoach = p.coachRole != null
                       return (
-                        <div key={p.id} className="flex items-center gap-2 px-3 py-1.5 border-b border-gray-50 last:border-0">
+                        <div key={p.id} className={`flex items-center gap-2 px-3 py-1.5 border-b border-gray-50 last:border-0 ${isCoach ? 'bg-gray-50' : ''}`}>
                           <FlagImg code={p.nationality} />
+                          {isCoach && (
+                            <span className="text-[9px] font-bold uppercase tracking-wide text-blue-600 bg-blue-50 border border-blue-200 rounded px-1 py-0.5 shrink-0">
+                              {p.coachRole === 'playing_coach' ? 'PC' : 'Coach'}
+                            </span>
+                          )}
                           <Link
                             href={`/players/${p.id}`}
                             className="text-xs text-gray-700 hover:text-yellow-600 font-medium truncate"

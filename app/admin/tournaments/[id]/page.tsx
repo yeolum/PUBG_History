@@ -158,7 +158,7 @@ export default function AdminTournamentDetailPage() {
   const [savingTabOrder, setSavingTabOrder] = useState(false)
 
   type RosterTeam = { team_id: string; name: string; display_name: string | null; short_name: string | null; logo_url: string | null; disqualified: boolean }
-  type RosterPlayer = { player_id: string; nickname: string; team_id: string | null; ambiguous: boolean; collisionCount: number }
+  type RosterPlayer = { player_id: string; nickname: string; team_id: string | null; coach_role: 'coach' | 'playing_coach' | null; ambiguous: boolean; collisionCount: number }
   const [rosterTeams, setRosterTeams] = useState<RosterTeam[]>([])
   const [rosterPlayers, setRosterPlayers] = useState<RosterPlayer[]>([])
   const [rosterPickerOpen, setRosterPickerOpen] = useState<'team' | { kind: 'player'; teamId: string } | null>(null)
@@ -198,7 +198,7 @@ export default function AdminTournamentDetailPage() {
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, teams(id, name)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
-      supabase.from('tournament_players').select('player_id, team_id, players(id, nickname)').eq('tournament_id', id),
+      supabase.from('tournament_players').select('player_id, team_id, coach_role, players(id, nickname)').eq('tournament_id', id),
       // Try the full select first; if scoring_rule_id column hasn't been
       // migrated yet, fall back so the page still loads. Without this,
       // reload after addCombinedScoreboard came back with combinedData =
@@ -442,6 +442,7 @@ export default function AdminTournamentDetailPage() {
           player_id: r.player_id as string,
           nickname,
           team_id: (r.team_id as string | null) ?? null,
+          coach_role: (r.coach_role as 'coach' | 'playing_coach' | null) ?? null,
           ambiguous: candidates.size > 1,
           collisionCount: candidates.size,
         }
@@ -868,6 +869,15 @@ export default function AdminTournamentDetailPage() {
     reload()
   }
 
+  async function setCoachRole(playerId: string, role: 'coach' | 'playing_coach' | null) {
+    setErr('')
+    const { error } = await supabase.from('tournament_players')
+      .update({ coach_role: role })
+      .eq('tournament_id', id).eq('player_id', playerId)
+    if (error) { setErr('Set coach role failed: ' + error.message); return }
+    reload()
+  }
+
   async function saveWwcdRewards() {
     setSavingWwcd(true)
     setErr('')
@@ -1288,11 +1298,23 @@ export default function AdminTournamentDetailPage() {
                             {teamPlayers.map((rp) => (
                               <div
                                 key={rp.player_id}
-                                className={`flex items-center gap-1 border rounded px-1.5 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : 'bg-gray-50 border-gray-200'}`}
+                                className={`flex items-center gap-1 border rounded px-1.5 py-0.5 ${rp.ambiguous ? 'bg-amber-50 border-amber-300' : rp.coach_role ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}
                                 title={rp.ambiguous ? `Nickname "${rp.nickname}" matches ${rp.collisionCount} players in the database — verify this is the right one` : undefined}
                               >
                                 {rp.ambiguous && <span className="text-[9px] text-amber-700 font-bold">⚠</span>}
+                                {rp.coach_role === 'coach' && <span className="text-[9px] font-bold text-blue-600">C</span>}
+                                {rp.coach_role === 'playing_coach' && <span className="text-[9px] font-bold text-blue-600">PC</span>}
                                 <span className="text-[11px] text-gray-700">{rp.nickname}</span>
+                                <button
+                                  onClick={() => {
+                                    const next = rp.coach_role === null ? 'coach' : rp.coach_role === 'coach' ? 'playing_coach' : null
+                                    setCoachRole(rp.player_id, next)
+                                  }}
+                                  title={rp.coach_role ? `Role: ${rp.coach_role} — click to cycle` : 'Click to set as Coach'}
+                                  className="text-gray-300 hover:text-blue-500 text-[10px] leading-none"
+                                >
+                                  ⬡
+                                </button>
                                 <button
                                   onClick={() => setEditAliasesPlayer({ id: rp.player_id, nickname: rp.nickname })}
                                   title="Edit aliases (PUBG in-game name etc.)"
