@@ -257,7 +257,7 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         firstBloodKill: false, firstBloodKnock: false,
         grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
         grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
-        totalHealAmount: 0, blueZoneTime: 0,
+        healsUsed: 0, boostsUsed: 0, totalHealAmount: 0, blueZoneTime: 0,
         vehicleTime: 0,
         revivesGiven: 0, assistDamage: 0, tradeKills: 0, tradeableDeaths: 0,
         zoneEdgeSamples: 0, zoneTotalSamples: 0, zoneOutsideSamples: 0, zoneDistSum: 0,
@@ -446,6 +446,15 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
           else if (kind === 'flashbang') s.flashbangsThrown++
           else if (kind === 'molotov') s.molotovsThrown++
         }
+        break
+      }
+
+      case 'LogItemUse': {
+        const accountId: string | undefined = ev.character?.accountId
+        if (!track(accountId)) break
+        const subCat = ev.item?.subCategory as string | undefined
+        if (subCat === 'Heal') get(accountId!).healsUsed++
+        else if (subCat === 'Boost') get(accountId!).boostsUsed++
         break
       }
 

@@ -255,6 +255,8 @@ export interface TelemetryPlayerStats {
   molotovDamage: number
   grenadeHitEvents: number
   // Survival
+  healsUsed: number
+  boostsUsed: number
   totalHealAmount: number
   blueZoneTime: number
   // Movement

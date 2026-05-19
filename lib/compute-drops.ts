@@ -122,11 +122,18 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
                   pubg_account_id: s.pubgAccountId,
                   player_id: linked?.player_id ?? null,
                   team_id: linked?.team_id ?? null,
+                  // Combat
                   deaths: s.deaths,
                   damage_taken: s.damageTaken,
                   blue_zone_damage: s.blueZoneDamage,
                   kill_distance_sum: s.killDistanceSum,
                   kill_distance_count: s.killDistanceCount,
+                  knock_damage_sum: s.knockDamageSum,
+                  engagement_dist_sum: s.engagementDistSum,
+                  engagement_dist_count: s.engagementDistCount,
+                  first_blood_kill: s.firstBloodKill,
+                  first_blood_knock: s.firstBloodKnock,
+                  // Utility
                   grenades_thrown: s.grenadesThrown,
                   smokes_thrown: s.smokesThrown,
                   flashbangs_thrown: s.flashbangsThrown,
@@ -134,7 +141,23 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
                   grenade_damage: s.grenadeDamage,
                   molotov_damage: s.molotovDamage,
                   grenade_hit_events: s.grenadeHitEvents,
+                  // Survival
+                  heals_used: s.healsUsed,
+                  boosts_used: s.boostsUsed,
+                  total_heal_amount: s.totalHealAmount,
+                  blue_zone_time: s.blueZoneTime,
+                  // Movement
+                  vehicle_time: s.vehicleTime,
+                  // Teamplay
                   revives_given: s.revivesGiven,
+                  assist_damage: s.assistDamage,
+                  trade_kills: s.tradeKills,
+                  tradeable_deaths: s.tradeableDeaths,
+                  // Positioning
+                  zone_edge_samples: s.zoneEdgeSamples,
+                  zone_total_samples: s.zoneTotalSamples,
+                  zone_outside_samples: s.zoneOutsideSamples,
+                  zone_dist_sum: s.zoneDistSum,
                 }
               })
               if (telInserts.length > 0) {

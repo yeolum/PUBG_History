@@ -280,7 +280,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       allImportedMatchIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
+      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
       allImportedMatchIds,
       'match_id',
     ),
@@ -331,6 +331,8 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       d.grenade_damage = tel.grenade_damage
       d.molotov_damage = tel.molotov_damage
       d.grenade_hit_events = tel.grenade_hit_events
+      d.heals_used = tel.heals_used
+      d.boosts_used = tel.boosts_used
       d.total_heal_amount = tel.total_heal_amount
       d.blue_zone_time = tel.blue_zone_time
       d.vehicle_time = tel.vehicle_time
