@@ -435,10 +435,11 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         break
       }
 
-      case 'LogItemUse': {
-        const accountId: string | undefined = ev.character?.accountId
+      case 'LogPlayerAttack': {
+        if (ev.attackType !== 'Throw') break
+        const accountId: string | undefined = ev.attacker?.accountId
         if (!track(accountId)) break
-        const kind = classifyThrowable((ev.item?.itemId as string | undefined) ?? '')
+        const kind = classifyThrowable((ev.weapon?.itemId as string | undefined) ?? '')
         if (kind) {
           const s = get(accountId!)
           if (kind === 'grenade') s.grenadesThrown++
