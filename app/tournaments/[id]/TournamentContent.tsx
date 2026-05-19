@@ -598,11 +598,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
     if (tournamentTeamId) {
       const team = teamRosterMap.get(tournamentTeamId)
       if (coachRole) {
-        // Coach: always upsert (overrides any match-data entry)
+        // Coach: always show regardless of match data
         team?.players.set(playerId, { id: playerId, nickname, nationality, coachRole })
-      } else if (team && !team.players.has(playerId)) {
-        team.players.set(playerId, { id: playerId, nickname, nationality, coachRole: null })
       }
+      // Regular players without match data are intentionally excluded from roster display
     }
     if (tpsRows.length > 0 && !tpsPlayerIds.has(playerId)) {
       const team = tournamentTeamId ? teamStatsMap.get(tournamentTeamId) : null
