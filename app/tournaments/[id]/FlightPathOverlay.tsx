@@ -19,18 +19,22 @@ function arrowPoints(cx: number, cy: number, ndx: number, ndy: number): string {
 }
 
 export default function FlightPathOverlay({ path }: { path: PlanePath }) {
-  const ex = Number(v(path.entry.x)), ey = Number(v(path.entry.y))
-  const lx = Number(v(path.exit.x)), ly = Number(v(path.exit.y))
-
   const rawDx = path.exit.x - path.entry.x
   const rawDy = path.exit.y - path.entry.y
   const len = Math.sqrt(rawDx * rawDx + rawDy * rawDy)
   if (len < 1e-9) return null
   const ndx = rawDx / len, ndy = rawDy / len
 
-  // Arrow placed at 1/3 from entry toward exit
-  const ax = ex + (lx - ex) / 3
-  const ay = ey + (ly - ey) / 3
+  // Trim 10% from each end so line doesn't reach the map edge
+  const TRIM = 0.10
+  const sx = Number(v(path.entry.x + rawDx * TRIM))
+  const sy = Number(v(path.entry.y + rawDy * TRIM))
+  const ex = Number(v(path.exit.x - rawDx * TRIM))
+  const ey = Number(v(path.exit.y - rawDy * TRIM))
+
+  // Arrow placed near the exit end (85% along the trimmed line)
+  const ax = sx + (ex - sx) * 0.85
+  const ay = sy + (ey - sy) * 0.85
 
   return (
     <svg
@@ -40,37 +44,20 @@ export default function FlightPathOverlay({ path }: { path: PlanePath }) {
     >
       {/* Twire style: red base + white dashes on top → alternating red/white segments */}
       <line
-        x1={ex} y1={ey} x2={lx} y2={ly}
+        x1={sx} y1={sy} x2={ex} y2={ey}
         stroke="rgb(220,38,38)" strokeWidth="5" strokeOpacity="0.95" strokeLinecap="butt"
       />
       <line
-        x1={ex} y1={ey} x2={lx} y2={ly}
+        x1={sx} y1={sy} x2={ex} y2={ey}
         stroke="white" strokeWidth="5" strokeOpacity="0.95" strokeLinecap="butt"
         strokeDasharray="20 20"
       />
 
-      {/* Direction arrow */}
+      {/* Direction arrow at the exit end */}
       <polygon
         points={arrowPoints(ax, ay, ndx, ndy)}
         fill="white" fillOpacity="0.95"
       />
-
-      {/* Entry: solid dot + ring */}
-      <circle cx={ex} cy={ey} r="8" fill="none" stroke="white" strokeWidth="2.5" strokeOpacity="0.9" />
-      <circle cx={ex} cy={ey} r="4.5" fill="white" fillOpacity="0.95" />
-
-      {/* Jump dots */}
-      {path.jumps.map((j, i) => (
-        <circle
-          key={i}
-          cx={Number(v(j.x))} cy={Number(v(j.y))}
-          r="3.5"
-          fill="white" fillOpacity="0.75"
-        />
-      ))}
-
-      {/* Exit: outlined circle only */}
-      <circle cx={lx} cy={ly} r="6" fill="none" stroke="white" strokeWidth="2.5" strokeOpacity="0.85" />
     </svg>
   )
 }
