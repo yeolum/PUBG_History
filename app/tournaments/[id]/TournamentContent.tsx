@@ -518,17 +518,16 @@ export default async function TournamentContent({ id, tournament }: { id: string
       .filter((x): x is string => !!x)
   )
 
-  // Union the pre-registered tournament roster — registered teams / players
-  // should always show, even if no match has been imported yet or auto-link
-  // failed during import.
   for (const r of (rosterTeamsData ?? []) as AnyRow[]) {
     const t = r.teams as AnyRow | null
     if (!t?.id) continue
     const teamId = t.id as string
     const tName = (t.name as string) ?? '?'
     const logoUrl = (t.logo_url as string | null) ?? aliasLogoLookup[`${teamId}:`] ?? null
-    if (!teamRosterMap.has(teamId)) {
-      teamRosterMap.set(teamId, { name: tName, logo_url: logoUrl, players: new Map() })
+    // Only update logo/name for teams already in the map from match data; skip teams with no match records
+    if (teamRosterMap.has(teamId)) {
+      const entry = teamRosterMap.get(teamId)!
+      if (logoUrl && !entry.logo_url) entry.logo_url = logoUrl
     }
     if (!teamStatsMap.has(teamId)) {
       teamStatsMap.set(teamId, {
