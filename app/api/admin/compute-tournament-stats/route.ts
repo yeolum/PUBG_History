@@ -40,19 +40,22 @@ export async function POST(req: NextRequest) {
   if (!tournamentId) return NextResponse.json({ error: 'tournamentId required' }, { status: 400 })
 
   const db = serviceClient()
+
+  // Fetch missing telemetry first so computeTournamentStats sees complete data.
+  // computeDropLocations skips matches that already have telemetry_stats rows,
+  // so this is fast when all data is already present.
+  try {
+    await computeDropLocations(tournamentId, db)
+  } catch (err) {
+    console.error('[compute-tournament-stats] computeDropLocations failed:', err)
+  }
+
   try {
     await computeTournamentStats(tournamentId, db)
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
     console.error('[compute-tournament-stats]', tournamentId, msg)
     return NextResponse.json({ error: msg }, { status: 500 })
-  }
-
-  try {
-    // 새로고침 시에는 텔레메트리 재다운로드 없이 기존 착지 데이터만 재집계
-    await computeDropLocations(tournamentId, db, { skipTelemetryFetch: true })
-  } catch (err) {
-    console.error('[compute-tournament-stats] computeDropLocations failed:', err)
   }
 
   revalidateTag('tournament-data', 'default')

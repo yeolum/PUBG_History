@@ -330,15 +330,18 @@ export async function POST(req: NextRequest) {
   // running computeTournamentStats N times when importing N matches at once.
   // The caller is responsible for running stats on the final import.
   if (!skipStats && tournamentId) {
-    try {
-      await computeTournamentStats(tournamentId, db)
-    } catch (err) {
-      console.error('[import] computeTournamentStats failed:', err)
-    }
+    // Drops must run first: it fetches telemetry and saves match_player_telemetry_stats.
+    // computeTournamentStats reads that table, so swapping the order ensures
+    // deaths/utility/kill-distance stats are available when aggregation runs.
     try {
       await computeDropLocations(tournamentId, db)
     } catch (err) {
       console.error('[import] computeDropLocations failed:', err)
+    }
+    try {
+      await computeTournamentStats(tournamentId, db)
+    } catch (err) {
+      console.error('[import] computeTournamentStats failed:', err)
     }
   }
 
