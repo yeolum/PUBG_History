@@ -308,10 +308,10 @@ export async function POST(req: NextRequest) {
   // ── Phase 6: All inserts in parallel ─────────────────────────────────────
   await Promise.all([
     keptTeamResults.length > 0
-      ? db.from('match_team_results').insert(keptTeamResults)
+      ? db.from('match_team_results').upsert(keptTeamResults, { onConflict: 'match_id,pubg_roster_id' })
       : Promise.resolve(),
     cleanStats.length > 0
-      ? db.from('match_player_stats').insert(cleanStats)
+      ? db.from('match_player_stats').upsert(cleanStats, { onConflict: 'match_id,pubg_account_id' })
       : Promise.resolve(),
     playerAliasUpserts.length > 0
       ? db.from('player_aliases').upsert(playerAliasUpserts, { onConflict: 'player_id,alias', ignoreDuplicates: true })

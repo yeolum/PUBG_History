@@ -18,12 +18,12 @@ const PAGE = 1000
 // Paginates any pre-built Supabase query, returning { data: rows } to match
 // the existing destructuring pattern. Handles PostgREST's 1000-row cap.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function fetchAllRows<T>(query: any): Promise<{ data: T[] }> {
+async function fetchAllRows<T>(query: any, orderCol = 'id'): Promise<{ data: T[] }> {
   const rows: T[] = []
   let pg = 0
   while (true) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: batch } = await (query as any).order('id').range(pg * PAGE, (pg + 1) * PAGE - 1)
+    const { data: batch } = await (query as any).order(orderCol).range(pg * PAGE, (pg + 1) * PAGE - 1)
     if (!batch || batch.length === 0) break
     rows.push(...(batch as T[]))
     if (batch.length < PAGE) break
@@ -141,8 +141,8 @@ const loadTournamentData = unstable_cache(
       supabase.from('tournament_special_awards').select('*, players(id, nickname), teams(id, name, logo_url)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('stage_id, placement, prize, pgs_points, pgc_points').in('stage_id', stageIds),
       seriesIds.length === 0 ? Promise.resolve({ data: [] }) : supabase.from('stage_prize_config').select('series_id, placement, prize, pgs_points, pgc_points').in('series_id', seriesIds),
-      supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id),
-      supabase.from('tournament_players').select('player_id, team_id, coach_role, players(id, nickname, nationality_code)').eq('tournament_id', id),
+      fetchAllRows<AnyRow>(supabase.from('tournament_teams').select('team_id, disqualified, display_name, teams(id, name, short_name, logo_url)').eq('tournament_id', id), 'team_id'),
+      fetchAllRows<AnyRow>(supabase.from('tournament_players').select('player_id, team_id, coach_role, players(id, nickname, nationality_code)').eq('tournament_id', id), 'player_id'),
       supabase.from('combined_scoreboards').select('id, name, order_num, tab_order, advance_count, eliminate_count, scoring_rule_id, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id').in('stage_id', stageIds)),
       stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('stage_player_stats').select(SPS_SELECT).in('stage_id', stageIds)),
@@ -584,29 +584,18 @@ export default async function TournamentContent({ id, tournament }: { id: string
     ? tpsRows.map(mapPlayerRow)
     : [...playerStatsMap.values()]
 
-  // Seed roster display + 0-stat entries for registered players not in pre-computed table.
+  // Update coachRole for players already present in teamRosterMap (from match data)
   for (const r of (rosterPlayersData ?? []) as AnyRow[]) {
     const p = r.players as AnyRow | null
     if (!p?.id) continue
     const playerId = p.id as string
-    const nickname = (p.nickname as string) ?? '?'
-    const nationality = (p.nationality_code as string | null) ?? null
     const tournamentTeamId = (r.team_id as string | null) ?? null
     const coachRole = (r.coach_role as 'coach' | 'playing_coach' | null) ?? null
 
     if (tournamentTeamId && coachRole) {
-      // Only update coachRole on players already in the map from match data
       const team = teamRosterMap.get(tournamentTeamId)
       const existing = team?.players.get(playerId)
       if (existing) existing.coachRole = coachRole
-    }
-    if (tpsRows.length > 0 && !tpsPlayerIds.has(playerId)) {
-      const team = tournamentTeamId ? teamStatsMap.get(tournamentTeamId) : null
-      playerStats.push({
-        playerId, nickname, teamId: tournamentTeamId, teamName: team?.teamName ?? '',
-        logoUrl: team?.logoUrl ?? null,
-        games: 0, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
-      })
     }
   }
   playerStats.sort((a, b) => b.kills - a.kills)
