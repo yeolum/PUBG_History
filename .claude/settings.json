@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e \"const src = require\\('fs'\\).readFileSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server/web/spec-extension/revalidate.js', 'utf8'\\); const start = src.indexOf\\('cacheLifeProfile'\\); console.log\\(src.slice\\(start, start+1000\\)\\)\")"
+    ]
+  }
+}

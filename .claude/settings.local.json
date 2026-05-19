@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git push *)",
+      "Bash(git diff *)",
+      "Bash(git commit -m ' *)",
+      "Bash(dir \"c:\\\\Users\\\\yeolum\\\\Desktop\\\\PUBG_History\\\\app\\\\tournaments\\\\[id]\" /b)",
+      "Bash(cd /d \"c:\\\\Users\\\\yeolum\\\\Desktop\\\\PUBG_History\")",
+      "Bash(node -e \"const p = require\\('./package.json'\\); console.log\\('next:', p.dependencies.next, 'react:', p.dependencies.react\\)\")",
+      "Bash(node -e \"const p = require\\('c:/Users/yeolum/Desktop/PUBG_History/package.json'\\); console.log\\('next:', p.dependencies.next, 'react:', p.dependencies.react\\)\")",
+      "Bash(node -e \"const src = require\\('fs'\\).readFileSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server/web/spec-extension/revalidate.js', 'utf8'\\); const start = src.indexOf\\('function revalidate\\('\\); const end = src.indexOf\\('\\\\nfunction ', start+10\\); console.log\\(src.slice\\(start, end\\)\\)\")",
+      "Bash(node -e \"const src = require\\('fs'\\).readFileSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server/lib/incremental-cache/index.js', 'utf8'\\); const idx = src.indexOf\\('revalidateTag'\\); console.log\\(idx > -1 ? src.slice\\(idx-100, idx+500\\) : 'not found'\\)\")",
+      "Bash(node -e \"try { const src = require\\('fs'\\).readFileSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server/unstable-cache.js', 'utf8'\\); console.log\\(src.slice\\(0, 2000\\)\\) } catch\\(e\\) { console.log\\('not found:', e.message\\); const files = require\\('fs'\\).readdirSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server'\\); console.log\\(files.filter\\(f=>f.includes\\('cache'\\)\\)\\); }\")",
+      "Bash(node -e \"const files = require\\('fs'\\).readdirSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server/app-render'\\); console.log\\(files.filter\\(f=>f.includes\\('cache'\\)\\)\\)\")",
+      "Bash(node -e \"const g = require\\('glob'\\).sync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/**/*unstable*cache*', {windowsPathsNoEscape:true}\\); console.log\\(g.slice\\(0,10\\)\\)\")",
+      "Bash(node -e \"const src = require\\('fs'\\).readFileSync\\('c:/Users/yeolum/Desktop/PUBG_History/node_modules/next/dist/server/cache-handlers/unstable-cache.js', 'utf8'\\); console.log\\(src.slice\\(0, 2000\\)\\)\")"
+    ]
+  }
+}

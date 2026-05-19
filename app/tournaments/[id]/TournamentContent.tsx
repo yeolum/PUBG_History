@@ -131,7 +131,7 @@ const loadTournamentData = unstable_cache(
 
     // Side queries that don't depend on matchIds — start them now so they
     // run alongside the matches + trData + psData fetches.
-    const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
+    const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
     const SPS_SELECT = `stage_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const SRPS_SELECT = `series_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const sideQueriesPromise = Promise.all([
@@ -567,8 +567,6 @@ export default async function TournamentContent({ id, tournament }: { id: string
       deaths: (r.deaths as number) ?? 0,
       damageTaken: Number(r.damage_taken ?? 0),
       blueZoneDamage: Number(r.blue_zone_damage ?? 0),
-      killDistanceSum: Number(r.kill_distance_sum ?? 0),
-      killDistanceCount: (r.kill_distance_count as number) ?? 0,
       knockDamageSum: Number(r.knock_damage_sum ?? 0),
       engagementDistSum: Number(r.engagement_dist_sum ?? 0),
       engagementDistCount: (r.engagement_dist_count as number) ?? 0,

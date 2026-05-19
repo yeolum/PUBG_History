@@ -252,7 +252,7 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
     if (!s) {
       s = {
         pubgAccountId: accountId,
-        deaths: 0, damageTaken: 0, blueZoneDamage: 0, killDistanceSum: 0, killDistanceCount: 0,
+        deaths: 0, damageTaken: 0, blueZoneDamage: 0,
         knockDamageSum: 0, engagementDistSum: 0, engagementDistCount: 0,
         firstBloodKill: false, firstBloodKnock: false,
         grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
@@ -343,15 +343,6 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         if (victimId && track(victimId)) get(victimId).deaths++
 
         if (killerId) {
-          if (track(killerId)) {
-            const distCm = ev.finishDamageInfo?.distance as number | undefined
-            if (distCm != null && distCm > 0) {
-              const s = get(killerId)
-              const distM = distCm / 100
-              s.killDistanceSum += distM
-              s.killDistanceCount++
-            }
-          }
           if (t < firstKillTime) { firstKillTime = t; firstKillAcc = killerId }
         }
 

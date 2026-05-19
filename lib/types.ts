@@ -239,8 +239,6 @@ export interface TelemetryPlayerStats {
   deaths: number
   damageTaken: number
   blueZoneDamage: number
-  killDistanceSum: number
-  killDistanceCount: number
   knockDamageSum: number
   engagementDistSum: number
   engagementDistCount: number

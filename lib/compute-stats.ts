@@ -61,8 +61,6 @@ interface PlayerStatsEntry {
   deaths: number
   damage_taken: number
   blue_zone_damage: number
-  kill_distance_sum: number
-  kill_distance_count: number
   knock_damage_sum: number
   engagement_dist_sum: number
   engagement_dist_count: number
@@ -118,7 +116,6 @@ function aggregatePlayerStats(
       walk_distance: 0, ride_distance: 0, longest_kill: 0, swim_distance: 0,
       revives: 0, heals_used: 0, boosts_used: 0,
       deaths: 0, damage_taken: 0, blue_zone_damage: 0,
-      kill_distance_sum: 0, kill_distance_count: 0,
       knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
       first_blood_kills: 0, first_blood_knocks: 0,
       grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
@@ -145,8 +142,6 @@ function aggregatePlayerStats(
     ex.deaths += (d.deaths as number) ?? 0
     ex.damage_taken += Number(d.damage_taken ?? 0)
     ex.blue_zone_damage += Number(d.blue_zone_damage ?? 0)
-    ex.kill_distance_sum += Number(d.kill_distance_sum ?? 0)
-    ex.kill_distance_count += (d.kill_distance_count as number) ?? 0
     ex.knock_damage_sum += Number(d.knock_damage_sum ?? 0)
     ex.engagement_dist_sum += Number(d.engagement_dist_sum ?? 0)
     ex.engagement_dist_count += (d.engagement_dist_count as number) ?? 0
@@ -280,7 +275,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       allImportedMatchIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
+      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
       allImportedMatchIds,
       'match_id',
     ),
@@ -317,8 +312,6 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       d.deaths = tel.deaths
       d.damage_taken = tel.damage_taken
       d.blue_zone_damage = tel.blue_zone_damage
-      d.kill_distance_sum = tel.kill_distance_sum
-      d.kill_distance_count = tel.kill_distance_count
       d.knock_damage_sum = tel.knock_damage_sum
       d.engagement_dist_sum = tel.engagement_dist_sum
       d.engagement_dist_count = tel.engagement_dist_count

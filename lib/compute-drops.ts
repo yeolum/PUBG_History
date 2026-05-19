@@ -126,8 +126,6 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
                   deaths: s.deaths,
                   damage_taken: s.damageTaken,
                   blue_zone_damage: s.blueZoneDamage,
-                  kill_distance_sum: s.killDistanceSum,
-                  kill_distance_count: s.killDistanceCount,
                   knock_damage_sum: s.knockDamageSum,
                   engagement_dist_sum: s.engagementDistSum,
                   engagement_dist_count: s.engagementDistCount,

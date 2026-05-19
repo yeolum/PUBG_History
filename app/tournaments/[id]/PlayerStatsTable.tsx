@@ -29,8 +29,6 @@ export interface PlayerStatRow {
   deaths?: number
   damageTaken?: number
   blueZoneDamage?: number
-  killDistanceSum?: number
-  killDistanceCount?: number
   knockDamageSum?: number
   engagementDistSum?: number
   engagementDistCount?: number
@@ -82,7 +80,7 @@ type Category = 'combat' | 'utility' | 'survival' | 'movement' | 'teamplay' | 'p
 type SortKey =
   // Combat
   | 'nickname' | 'teamName' | 'games' | 'kills' | 'kpg' | 'assists' | 'knocks'
-  | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'longestKill' | 'avgKillDist' | 'deaths' | 'kd'
+  | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'longestKill' | 'deaths' | 'kd'
   | 'dpk' | 'kkRatio' | 'avgEngagementDist' | 'firstBloodKills' | 'firstBloodKnocks'
   // Utility
   | 'grenadesThrown' | 'smokesThrown' | 'flashbangsThrown' | 'molotovsThrown'
@@ -229,7 +227,6 @@ export default function PlayerStatsTable({
     adr: p.games > 0 ? p.damage / p.games : 0,
     avgSurvival: p.games > 0 ? p.survivalTime / p.games : 0,
     kd: (p.deaths ?? 0) > 0 ? p.kills / (p.deaths ?? 1) : p.kills,
-    avgKillDist: (p.killDistanceCount ?? 0) > 0 ? (p.killDistanceSum ?? 0) / (p.killDistanceCount ?? 1) : 0,
     dpk: (p.knocks ?? 0) > 0 ? (p.knockDamageSum ?? 0) / (p.knocks ?? 1) : 0,
     kkRatio: (p.knocks ?? 0) > 0 ? p.kills / (p.knocks ?? 1) : 0,
     avgEngagementDist: (p.engagementDistCount ?? 0) > 0 ? (p.engagementDistSum ?? 0) / (p.engagementDistCount ?? 1) : 0,
@@ -426,7 +423,6 @@ export default function PlayerStatsTable({
                 {thR('damage', 'Damage')}
                 {thR('adr', 'ADR')}
                 {thR('longestKill', 'Longest Kill')}
-                {thR('avgKillDist', 'Avg Kill Dist')}
                 {thR('avgEngagementDist', 'Avg Eng Dist')}
                 {thR('firstBloodKills', 'FB Kills')}
                 {thR('firstBloodKnocks', 'FB Knocks')}
@@ -532,7 +528,6 @@ export default function PlayerStatsTable({
                     <td className="px-3 py-2 text-right text-gray-500">{Math.round(p.damage).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right font-medium text-gray-700">{Math.round(p.adr).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.longestKill > 0 ? `${Math.round(p.longestKill)}m` : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-500">{p.avgKillDist > 0 ? `${Math.round(p.avgKillDist)}m` : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.avgEngagementDist > 0 ? `${Math.round(p.avgEngagementDist)}m` : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.firstBloodKills > 0 ? p.firstBloodKills : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.firstBloodKnocks > 0 ? p.firstBloodKnocks : '—'}</td>
