@@ -343,10 +343,14 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         if (victimId && track(victimId)) get(victimId).deaths++
 
         if (killerId) {
-          if (track(killerId) && ev.distance != null) {
-            const s = get(killerId)
-            s.killDistanceSum += (ev.distance as number) / 100
-            s.killDistanceCount++
+          if (track(killerId)) {
+            const distCm = ev.finishDamageInfo?.distance as number | undefined
+            if (distCm != null && distCm > 0) {
+              const s = get(killerId)
+              const distM = distCm / 100
+              s.killDistanceSum += distM
+              s.killDistanceCount++
+            }
           }
           if (t < firstKillTime) { firstKillTime = t; firstKillAcc = killerId }
         }
