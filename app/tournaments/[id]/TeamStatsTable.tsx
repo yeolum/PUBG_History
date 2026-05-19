@@ -5,7 +5,8 @@ import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
 import { createClient } from '@/lib/supabase/client'
 import { calcPlacementPtsWithRule, ruleFromStage, DEFAULT_RULE } from '@/lib/scoring'
-import type { Stage, Match } from '@/lib/types'
+import type { Stage, Match, PlanePath } from '@/lib/types'
+import FlightPathOverlay from './FlightPathOverlay'
 
 export interface TeamStatRow {
   teamId: string | null
@@ -93,7 +94,7 @@ export default function TeamStatsTable({
   const [rawCentroidsCache, setRawCentroidsCache] = useState<Map<string, { teamId: string; mapName: string; x: number; y: number }[]>>(new Map())
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
   const [matchDropCache, setMatchDropCache] = useState<Map<string, DropLocationRow[]>>(new Map())
-  const [flightPathCache, setFlightPathCache] = useState<Map<string, { xNorm: number; yNorm: number }[] | null>>(new Map())
+  const [flightPathCache, setFlightPathCache] = useState<Map<string, PlanePath | null>>(new Map())
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -298,11 +299,9 @@ export default function TeamStatsTable({
       .select('points')
       .eq('match_id', matchId)
       .single()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }) => {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const pts = (data?.points as { xNorm: number; yNorm: number }[] | null) ?? null
-        setFlightPathCache((prev) => new Map(prev).set(matchId, pts && pts.length >= 2 ? pts : null))
+        const fp = (data?.points as PlanePath | null) ?? null
+        setFlightPathCache((prev) => new Map(prev).set(matchId, fp?.jumps && fp.jumps.length >= 2 ? fp : null))
       })
   }, [dropScopeKey, flightPathCache])
 
@@ -613,17 +612,10 @@ export default function TeamStatsTable({
                       <span className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
                     </div>
                   )}
-                  {/* Flight path polyline — match scope only */}
-                  {(() => {
-                    if (!dropScopeKey.startsWith('match:')) return null
+                  {/* Flight path overlay — match scope only */}
+                  {dropScopeKey.startsWith('match:') && (() => {
                     const fp = flightPathCache.get(dropScopeKey.slice(6))
-                    if (!fp || fp.length < 2) return null
-                    const pts = fp.map((p) => `${(p.xNorm * 100).toFixed(2)},${(p.yNorm * 100).toFixed(2)}`).join(' ')
-                    return (
-                      <svg className="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100" preserveAspectRatio="none">
-                        <polyline points={pts} fill="none" stroke="white" strokeWidth="0.6" strokeOpacity="0.8" strokeDasharray="2.5 1.5" strokeLinejoin="round" />
-                      </svg>
-                    )
+                    return fp ? <FlightPathOverlay path={fp} /> : null
                   })()}
                   {visibleDrops.map((drop) => {
                     const isSpread = (drop.clusterCount ?? 1) > 1

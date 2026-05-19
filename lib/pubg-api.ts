@@ -1,4 +1,4 @@
-import type { PubgMatchData, PubgRoster, PubgParticipant } from './types'
+import type { PubgMatchData, PubgRoster, PubgParticipant, PlanePath } from './types'
 
 const PUBG_API_BASE = 'https://api.pubg.com'
 
@@ -137,12 +137,78 @@ export function getMapDisplayName(mapName: string): string {
   return MAP_NAMES[mapName] ?? mapName
 }
 
-export interface FlightPathPoint { xNorm: number; yNorm: number }
+// Clip the infinite line through (px,py) with direction (dx,dy) to the unit square [0,1]x[0,1].
+// Returns [entry, exit] sorted by parameter t, or null if no intersection.
+function clipLineToUnitBox(px: number, py: number, dx: number, dy: number): [{ x: number; y: number }, { x: number; y: number }] | null {
+  const eps = 1e-9
+  const hits: { x: number; y: number; t: number }[] = []
+  if (Math.abs(dx) > eps) {
+    for (const ex of [0, 1]) {
+      const t = (ex - px) / dx; const y = py + t * dy
+      if (y >= -eps && y <= 1 + eps) hits.push({ x: ex, y: Math.max(0, Math.min(1, y)), t })
+    }
+  }
+  if (Math.abs(dy) > eps) {
+    for (const ey of [0, 1]) {
+      const t = (ey - py) / dy; const x = px + t * dx
+      if (x >= -eps && x <= 1 + eps) hits.push({ x: Math.max(0, Math.min(1, x)), y: ey, t })
+    }
+  }
+  if (hits.length < 2) return null
+  hits.sort((a, b) => a.t - b.t)
+  return [hits[0], hits[hits.length - 1]]
+}
+
+// Extract aircraft flight path from telemetry events.
+// Filters LogVehicleLeave(TransportAircraft), sorts by elapsedTime, extends to map boundary.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function extractPlanePath(events: any[], mapSize: number): PlanePath | null {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const isAircraft = (v: any) =>
+    v?.vehicleType === 'TransportAircraft' || String(v?.vehicleId ?? '').toLowerCase().includes('transportaircraft')
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const raw = events.filter((e: any) =>
+    e._T === 'LogVehicleLeave' && isAircraft(e.vehicle) && e.character?.location?.x != null,
+  )
+  if (raw.length < 2) return null
+
+  // Sort by elapsedTime (fall back to _D string comparison for ISO 8601)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  raw.sort((a: any, b: any) => (a.elapsedTime != null ? a.elapsedTime - b.elapsedTime : a._D < b._D ? -1 : 1))
+
+  const jumps = raw.map((e: any) => ({ // eslint-disable-line @typescript-eslint/no-explicit-any
+    x: Math.max(0, Math.min(1, e.character.location.x / mapSize)),
+    y: Math.max(0, Math.min(1, e.character.location.y / mapSize)),
+    elapsedTime: e.elapsedTime ?? 0,
+    playerName: e.character.name as string | undefined,
+  }))
+
+  // Direction from first jump to last jump (most distant pair as fallback)
+  let p1 = jumps[0], p2 = jumps[jumps.length - 1]
+  const baseDist = (p2.x - p1.x) ** 2 + (p2.y - p1.y) ** 2
+  if (baseDist < 1e-8) {
+    let maxD = 0
+    for (let i = 0; i < jumps.length; i++)
+      for (let j = i + 1; j < jumps.length; j++) {
+        const d = (jumps[j].x - jumps[i].x) ** 2 + (jumps[j].y - jumps[i].y) ** 2
+        if (d > maxD) { maxD = d; p1 = jumps[i]; p2 = jumps[j] }
+      }
+    if (maxD < 1e-8) return null
+  }
+
+  const clip = clipLineToUnitBox(p1.x, p1.y, p2.x - p1.x, p2.y - p1.y)
+  if (!clip) return null
+
+  return { entry: clip[0], exit: clip[1], jumps }
+}
+
+export { type PlanePath } from './types'
 
 export async function fetchTelemetryLandings(
   pubgMatchId: string,
   platform = 'tournament',
-): Promise<{ mapName: string; landings: PubgLanding[]; flightPath: FlightPathPoint[] }> {
+): Promise<{ mapName: string; landings: PubgLanding[]; flightPath: PlanePath | null }> {
   const apiKey = process.env.PUBG_API_KEY
   if (!apiKey) throw new Error('PUBG_API_KEY is not set')
 
@@ -181,34 +247,8 @@ export async function fetchTelemetryLandings(
     landings.push({ pubgPlayerName: char.name, xNorm, yNorm })
   }
 
-  // Flight path: first LogVehicleRide (TransportAircraft) after LogMatchStart,
-  // then 1st/5th/10th/.../50th LogVehicleLeave (TransportAircraft) after that timestamp
-  const flightPath: FlightPathPoint[] = []
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const isAircraft = (v: any) => v?.vehicleType === 'TransportAircraft' || String(v?.vehicleId ?? '').toLowerCase().includes('transportaircraft')
-
-  const matchStartIdx = events.findIndex((e) => e._T === 'LogMatchStart')
-  const postStart = matchStartIdx >= 0 ? events.slice(matchStartIdx + 1) : events
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const firstRide = postStart.find((e: any) => e._T === 'LogVehicleRide' && isAircraft(e.vehicle) && e.character?.location)
-  if (firstRide) {
-    const { xNorm, yNorm } = normalizeCoords(mapName, firstRide.character.location.x, firstRide.character.location.y)
-    flightPath.push({ xNorm, yNorm })
-
-    const rideTime: string = firstRide._D
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const vehicleLeaves = postStart.filter((e: any) =>
-      e._T === 'LogVehicleLeave' && isAircraft(e.vehicle) && e.character?.location && e._D >= rideTime,
-    )
-    for (const idx of [0, 4, 9, 14, 19, 24, 29, 34, 39, 44, 49]) {
-      if (idx < vehicleLeaves.length) {
-        const ev = vehicleLeaves[idx]
-        const coords = normalizeCoords(mapName, ev.character.location.x, ev.character.location.y)
-        flightPath.push({ xNorm: coords.xNorm, yNorm: coords.yNorm })
-      }
-    }
-  }
+  const mapSize = MAP_BOUNDS[mapName]?.width ?? 816000
+  const flightPath = extractPlanePath(events, mapSize)
 
   return { mapName, landings, flightPath }
 }

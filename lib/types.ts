@@ -237,6 +237,12 @@ export interface PubgMatchData {
   rosters: PubgRoster[]
 }
 
+export interface PlanePath {
+  entry: { x: number; y: number }
+  exit: { x: number; y: number }
+  jumps: { x: number; y: number; elapsedTime: number; playerName?: string }[]
+}
+
 export interface ImportMatchResult {
   success: boolean
   matchData?: PubgMatchData
