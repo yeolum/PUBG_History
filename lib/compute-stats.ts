@@ -15,11 +15,11 @@ type AnyRow = Record<string, any>
 // across iterations — some versions of the Supabase JS client are mutable and
 // accumulate extra .order()/.range() clauses when the same instance is chained
 // multiple times.
-async function fetchPaged<T>(build: () => any): Promise<T[]> {
+async function fetchPaged<T>(build: () => any, orderCol = 'id'): Promise<T[]> {
   const rows: T[] = []
   let page = 0
   while (true) {
-    const { data: batch, error } = await build().order('id').range(page * PAGE, (page + 1) * PAGE - 1)
+    const { data: batch, error } = await build().order(orderCol).range(page * PAGE, (page + 1) * PAGE - 1)
     if (error) throw new Error(`DB fetch failed: ${(error as { message?: string }).message ?? String(error)}`)
     if (!batch || batch.length === 0) break
     rows.push(...(batch as T[]))
@@ -29,12 +29,11 @@ async function fetchPaged<T>(build: () => any): Promise<T[]> {
   return rows
 }
 
-async function fetchInChunked<T>(build: (chunk: string[]) => any, ids: string[]): Promise<T[]> {
+async function fetchInChunked<T>(build: (chunk: string[]) => any, ids: string[], orderCol = 'id'): Promise<T[]> {
   if (ids.length === 0) return []
   const chunks: string[][] = []
   for (let off = 0; off < ids.length; off += ID_CHUNK) chunks.push(ids.slice(off, off + ID_CHUNK))
-  // Wrap build(c) in a thunk so fetchPaged gets a fresh builder each page
-  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(() => build(c))))
+  const out = await Promise.all(chunks.map((c) => fetchPaged<T>(() => build(c), orderCol)))
   return out.flat()
 }
 
@@ -242,6 +241,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     fetchInChunked<AnyRow>(
       (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, kill_distance_sum, kill_distance_count, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, revives_given').in('match_id', chunk),
       allImportedMatchIds,
+      'match_id',
     ),
   ])
   // Tournament-team-stats only use total matches (exclude stages with include_in_total === false)
