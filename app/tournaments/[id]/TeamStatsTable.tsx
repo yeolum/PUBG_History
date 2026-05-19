@@ -28,6 +28,10 @@ export interface DropLocationRow {
   mapName: string
   x: number
   y: number
+  clusterCount?: number
+  clusterIndex?: number
+  clusterSize?: number
+  totalMatches?: number
 }
 
 type SortKey = 'teamName' | 'games' | 'wwcd' | 'totalPoints' | 'avgPlacement' | 'totalKills' | 'kpg' | 'totalDamage' | 'adr'
@@ -42,20 +46,22 @@ function mapImageUrl(mapKey: string) {
   return `${SUPABASE_URL}/storage/v1/object/public/map-images/${encodeURIComponent(mapKey)}.jpg`
 }
 
-interface StageDrop { teamId: string; mapName: string; x: number; y: number }
-
-function densityPeak(points: { x: number; y: number }[], radius = 0.05): { x: number; y: number } {
-  if (points.length === 0) return { x: 0, y: 0 }
-  if (points.length === 1) return points[0]
-  let bestCount = 0; let bestCenter = points[0]
-  for (const p of points) {
-    const neighbors = points.filter((q) => { const dx = q.x - p.x; const dy = q.y - p.y; return dx * dx + dy * dy <= radius * radius })
-    if (neighbors.length > bestCount) {
-      bestCount = neighbors.length
-      bestCenter = { x: neighbors.reduce((s, n) => s + n.x, 0) / neighbors.length, y: neighbors.reduce((s, n) => s + n.y, 0) / neighbors.length }
+function findAllClusters(points: { x: number; y: number }[], radius = 0.05): { x: number; y: number; size: number }[] {
+  if (points.length === 0) return []
+  const remaining = [...points]
+  const clusters: { x: number; y: number; size: number }[] = []
+  while (remaining.length > 0) {
+    let bestNbrs: typeof remaining = [remaining[0]]
+    for (const p of remaining) {
+      const nbrs = remaining.filter((q) => { const dx = q.x - p.x; const dy = q.y - p.y; return dx * dx + dy * dy <= radius * radius })
+      if (nbrs.length > bestNbrs.length) bestNbrs = nbrs
     }
+    const cx = bestNbrs.reduce((s, p) => s + p.x, 0) / bestNbrs.length
+    const cy = bestNbrs.reduce((s, p) => s + p.y, 0) / bestNbrs.length
+    clusters.push({ x: cx, y: cy, size: bestNbrs.length })
+    for (const n of bestNbrs) { const idx = remaining.indexOf(n); if (idx !== -1) remaining.splice(idx, 1) }
   }
-  return bestCenter
+  return clusters.sort((a, b) => b.size - a.size)
 }
 
 export default function TeamStatsTable({
@@ -83,8 +89,8 @@ export default function TeamStatsTable({
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
   const [dropScopeKey, setDropScopeKey] = useState<string>('total')
   const [dropStageId, setDropStageId] = useState<string | null>(null)
-  const [stagedDrops, setStagedDrops] = useState<Map<string, StageDrop[]>>(new Map())
-  const [stageDropsLoaded, setStageDropsLoaded] = useState(false)
+  const [rawCentroidsCache, setRawCentroidsCache] = useState<Map<string, { teamId: string; mapName: string; x: number; y: number }[]>>(new Map())
+  const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
   const [matchDropCache, setMatchDropCache] = useState<Map<string, DropLocationRow[]>>(new Map())
 
   function toggleSort(key: SortKey) {
@@ -224,28 +230,36 @@ export default function TeamStatsTable({
   }, [dropLocations, teamStats])
 
   useEffect(() => {
-    if (subTab !== 'drops' || stageDropsLoaded || stages.length === 0) return
-    const stageIds = stages.map((s) => s.id)
+    if (subTab !== 'drops') return
+    if (dropScopeKey === 'total' || dropScopeKey.startsWith('match:')) return
+    if (rawCentroidsCache.has(dropScopeKey)) return
+    let matchIds: string[] = []
+    if (dropScopeKey.startsWith('stage:')) {
+      const stageId = dropScopeKey.slice(6)
+      const stage = stages.find((s) => s.id === stageId)
+      matchIds = stage?.matches.filter((m) => m.status === 'imported').map((m) => m.id) ?? []
+    } else if (dropScopeKey.startsWith('series:')) {
+      const seriesId = dropScopeKey.slice(7)
+      matchIds = stages
+        .filter((s) => s.series_id === seriesId)
+        .flatMap((s) => s.matches.filter((m) => m.status === 'imported').map((m) => m.id))
+    }
+    if (matchIds.length === 0) { setRawCentroidsCache((prev) => new Map(prev).set(dropScopeKey, [])); return }
     const supabase = createClient()
     supabase
-      .from('stage_drop_locations')
-      .select('stage_id, team_id, map_name, x, y')
-      .in('stage_id', stageIds)
+      .from('match_team_drop_locations')
+      .select('team_id, map_name, x, y')
+      .in('match_id', matchIds)
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       .then(({ data }) => {
-        const byStage = new Map<string, StageDrop[]>()
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        for (const r of (data ?? []) as any[]) {
-          if (!byStage.has(r.stage_id)) byStage.set(r.stage_id, [])
-          byStage.get(r.stage_id)!.push({ teamId: r.team_id, mapName: r.map_name, x: r.x, y: r.y })
-        }
-        setStagedDrops(byStage)
-        setStageDropsLoaded(true)
+        const rows = (data ?? []).map((d: any) => ({ teamId: d.team_id as string, mapName: d.map_name as string, x: d.x as number, y: d.y as number }))
+        setRawCentroidsCache((prev) => new Map(prev).set(dropScopeKey, rows))
       })
-  }, [subTab, stageDropsLoaded, stages])
+  }, [subTab, dropScopeKey, rawCentroidsCache, stages])
 
   useEffect(() => {
-    if (!dropScopeKey.startsWith('match:') || !stageDropsLoaded) return
+    if (!dropScopeKey.startsWith('match:')) return
     const matchId = dropScopeKey.slice(6)
     if (matchDropCache.has(matchId)) return
     const supabase = createClient()
@@ -270,70 +284,94 @@ export default function TeamStatsTable({
         })
         setMatchDropCache((prev) => new Map(prev).set(matchId, rows))
       })
-  }, [dropScopeKey, stageDropsLoaded, matchDropCache, teamInfoById])
+  }, [dropScopeKey, matchDropCache, teamInfoById])
 
   const dropsForScope = useMemo((): DropLocationRow[] => {
-    if (dropScopeKey === 'total' || !stageDropsLoaded) return dropLocations
+    if (dropScopeKey === 'total') return dropLocations
     if (dropScopeKey.startsWith('match:')) {
       const matchId = dropScopeKey.slice(6)
       return matchDropCache.get(matchId) ?? []
     }
 
-    let rawDrops: StageDrop[] = []
-    if (dropScopeKey.startsWith('stage:')) {
-      rawDrops = stagedDrops.get(dropScopeKey.slice(6)) ?? []
-    } else if (dropScopeKey.startsWith('series:')) {
-      const seriesId = dropScopeKey.slice(7)
-      const collected: StageDrop[] = []
-      for (const s of stages) { if (s.series_id === seriesId) collected.push(...(stagedDrops.get(s.id) ?? [])) }
-      // Aggregate per (team, map): median across stages
-      const grouped = new Map<string, { x: number[]; y: number[] }>()
-      for (const d of collected) {
-        const key = `${d.teamId}\0${d.mapName}`
-        if (!grouped.has(key)) grouped.set(key, { x: [], y: [] })
-        grouped.get(key)!.x.push(d.x)
-        grouped.get(key)!.y.push(d.y)
-      }
-      for (const [key, coords] of grouped.entries()) {
-        const sep = key.indexOf('\0')
-        const peak = densityPeak(coords.x.map((x, i) => ({ x, y: coords.y[i] })))
-        rawDrops.push({ teamId: key.slice(0, sep), mapName: key.slice(sep + 1), x: peak.x, y: peak.y })
-      }
-    } else {
-      return dropLocations
+    const rawCentroids = rawCentroidsCache.get(dropScopeKey)
+    if (!rawCentroids) return []
+
+    const grouped = new Map<string, { x: number[]; y: number[] }>()
+    for (const c of rawCentroids) {
+      const key = `${c.teamId}\0${c.mapName}`
+      if (!grouped.has(key)) grouped.set(key, { x: [], y: [] })
+      grouped.get(key)!.x.push(c.x)
+      grouped.get(key)!.y.push(c.y)
     }
 
-    return rawDrops.map((d) => {
-      const info = teamInfoById.get(d.teamId)
-      return {
-        id: `scope_${d.teamId}_${d.mapName}`,
-        teamId: d.teamId,
-        teamName: info?.teamName ?? d.teamId,
-        logoUrl: info?.logoUrl ?? null,
-        mapName: d.mapName,
-        x: d.x,
-        y: d.y,
-      }
-    })
-  }, [dropScopeKey, stageDropsLoaded, dropLocations, stagedDrops, stages, teamInfoById, matchDropCache])
+    const result: DropLocationRow[] = []
+    for (const [key, coords] of grouped.entries()) {
+      const sep = key.indexOf('\0')
+      const teamId = key.slice(0, sep)
+      const mapName = key.slice(sep + 1)
+      const info = teamInfoById.get(teamId)
+      const points = coords.x.map((x, i) => ({ x, y: coords.y[i] }))
+      const clusters = findAllClusters(points)
+      clusters.forEach((cluster, idx) => {
+        result.push({
+          id: `${dropScopeKey}_${teamId}_${mapName}_${idx}`,
+          teamId,
+          teamName: info?.teamName ?? teamId,
+          logoUrl: info?.logoUrl ?? null,
+          mapName,
+          x: cluster.x,
+          y: cluster.y,
+          clusterCount: clusters.length,
+          clusterIndex: idx,
+          clusterSize: cluster.size,
+          totalMatches: points.length,
+        })
+      })
+    }
+    return result
+  }, [dropScopeKey, dropLocations, rawCentroidsCache, matchDropCache, teamInfoById])
 
   const mapsWithDrops = [...new Set(dropLocations.map((d) => d.mapName))].filter((m) => mapKeys.includes(m))
   const allDropMaps = [...new Set([...mapKeys, ...mapsWithDrops])]
   const currentMapDrops = dropsForScope.filter((d) => d.mapName === selectedMap)
-  const visibleDrops = visibleTeams === null ? currentMapDrops : currentMapDrops.filter((d) => visibleTeams.has(d.teamId))
+
+  // Deduplicated team list: spread teams (clusterCount > 1) sorted to top
+  const uniqueTeamsForMap = (() => {
+    const seen = new Set<string>()
+    const result: DropLocationRow[] = []
+    for (const d of currentMapDrops) { if (!seen.has(d.teamId)) { seen.add(d.teamId); result.push(d) } }
+    return result.sort((a, b) => {
+      const aS = (a.clusterCount ?? 1) > 1; const bS = (b.clusterCount ?? 1) > 1
+      if (aS !== bS) return aS ? -1 : 1
+      return 0
+    })
+  })()
+
+  const visibleDrops = currentMapDrops.filter((drop) => {
+    if ((drop.clusterCount ?? 1) > 1) return expandedTeams.has(drop.teamId)
+    return visibleTeams === null || visibleTeams.has(drop.teamId)
+  })
 
   function toggleTeamVisibility(teamId: string) {
-    setVisibleTeams((prev) => {
-      if (prev === null) {
-        const all = new Set(currentMapDrops.map((d) => d.teamId))
-        all.delete(teamId)
-        return all
-      }
-      const next = new Set(prev)
-      if (next.has(teamId)) next.delete(teamId)
-      else next.add(teamId)
-      return next.size === currentMapDrops.length ? null : next
-    })
+    const isSpread = currentMapDrops.some((d) => d.teamId === teamId && (d.clusterCount ?? 1) > 1)
+    if (isSpread) {
+      setExpandedTeams((prev) => {
+        const next = new Set(prev)
+        if (next.has(teamId)) next.delete(teamId); else next.add(teamId)
+        return next
+      })
+    } else {
+      setVisibleTeams((prev) => {
+        if (prev === null) {
+          const all = new Set(currentMapDrops.filter((d) => (d.clusterCount ?? 1) === 1).map((d) => d.teamId))
+          all.delete(teamId)
+          return all
+        }
+        const next = new Set(prev)
+        if (next.has(teamId)) next.delete(teamId); else next.add(teamId)
+        return next
+      })
+    }
   }
 
   const tabBtn = (active: boolean) =>
@@ -453,7 +491,7 @@ export default function TeamStatsTable({
                 {allDropMaps.map((mapKey) => (
                   <button
                     key={mapKey}
-                    onClick={() => { setSelectedMap(mapKey); setVisibleTeams(null) }}
+                    onClick={() => { setSelectedMap(mapKey); setVisibleTeams(null); setExpandedTeams(new Set()) }}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${selectedMap === mapKey ? 'bg-yellow-400 border-yellow-400 text-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
                   >
                     {getMapDisplayName(mapKey)}
@@ -466,7 +504,7 @@ export default function TeamStatsTable({
                 <div className="space-y-2 mb-4">
                   <div className="flex flex-wrap gap-1.5">
                     <button
-                      onClick={() => { setDropScopeKey('total'); setDropStageId(null); setVisibleTeams(null) }}
+                      onClick={() => { setDropScopeKey('total'); setDropStageId(null); setVisibleTeams(null); setExpandedTeams(new Set()) }}
                       className={scopeBtn(dropScopeKey === 'total')}
                     >
                       Total
@@ -476,7 +514,7 @@ export default function TeamStatsTable({
                         const key = `series:${item.series.id}`
                         const isActive = dropScopeKey === key
                         return (
-                          <button key={key} onClick={() => { setDropScopeKey(key); setDropStageId(null); setVisibleTeams(null) }} className={scopeBtn(isActive)}>
+                          <button key={key} onClick={() => { setDropScopeKey(key); setDropStageId(null); setVisibleTeams(null); setExpandedTeams(new Set()) }} className={scopeBtn(isActive)}>
                             {item.series.name}
                           </button>
                         )
@@ -484,7 +522,7 @@ export default function TeamStatsTable({
                       const stageKey = `stage:${item.stage.id}`
                       const isActive = stageKey === dropScopeKey || (dropScopeKey.startsWith('match:') && dropStageId === item.stage.id)
                       return (
-                        <button key={stageKey} onClick={() => { setDropScopeKey(stageKey); setDropStageId(item.stage.id); setVisibleTeams(null) }} className={scopeBtn(isActive)}>
+                        <button key={stageKey} onClick={() => { setDropScopeKey(stageKey); setDropStageId(item.stage.id); setVisibleTeams(null); setExpandedTeams(new Set()) }} className={scopeBtn(isActive)}>
                           {item.stage.name}
                         </button>
                       )
@@ -500,7 +538,7 @@ export default function TeamStatsTable({
                         {subStages.map(s => {
                           const isActive = `stage:${s.id}` === dropScopeKey || (dropScopeKey.startsWith('match:') && dropStageId === s.id)
                           return (
-                            <button key={s.id} onClick={() => { setDropScopeKey(`stage:${s.id}`); setDropStageId(s.id); setVisibleTeams(null) }} className={scopeBtn(isActive)}>
+                            <button key={s.id} onClick={() => { setDropScopeKey(`stage:${s.id}`); setDropStageId(s.id); setVisibleTeams(null); setExpandedTeams(new Set()) }} className={scopeBtn(isActive)}>
                               {s.name}
                             </button>
                           )
@@ -518,7 +556,7 @@ export default function TeamStatsTable({
                         {matchList.map((m, i) => (
                           <button
                             key={m.id}
-                            onClick={() => { setDropScopeKey(`match:${m.id}`); setVisibleTeams(null) }}
+                            onClick={() => { setDropScopeKey(`match:${m.id}`); setVisibleTeams(null); setExpandedTeams(new Set()) }}
                             className={matchBtn(dropScopeKey === `match:${m.id}`)}
                           >
                             M{i + 1}
@@ -546,57 +584,80 @@ export default function TeamStatsTable({
                       <p className="text-gray-400 text-xs bg-white/80 px-3 py-2 rounded-lg">이 맵의 낙하 지점 데이터가 없습니다</p>
                     </div>
                   )}
-                  {((!stageDropsLoaded && dropScopeKey !== 'total') || (dropScopeKey.startsWith('match:') && !matchDropCache.has(dropScopeKey.slice(6)))) && (
+                  {((dropScopeKey !== 'total' && !dropScopeKey.startsWith('match:') && !rawCentroidsCache.has(dropScopeKey)) || (dropScopeKey.startsWith('match:') && !matchDropCache.has(dropScopeKey.slice(6)))) && (
                     <div className="absolute inset-0 flex items-center justify-center bg-white/40">
                       <span className="w-5 h-5 border-2 border-yellow-400 border-t-transparent rounded-full animate-spin" />
                     </div>
                   )}
-                  {visibleDrops.map((drop) => (
-                    <div
-                      key={drop.teamId}
-                      className="absolute -translate-x-1/2 -translate-y-1/2 group"
-                      style={{ left: `${drop.x * 100}%`, top: `${drop.y * 100}%` }}
-                    >
-                      {drop.logoUrl ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={drop.logoUrl} alt={drop.teamName} className="w-8 h-8 rounded border-2 border-white shadow-md object-contain" />
-                      ) : (
-                        <div className="w-8 h-8 rounded bg-gray-600 border-2 border-white shadow-md flex items-center justify-center text-white text-[10px] font-bold">
-                          {drop.teamName.slice(0, 2).toUpperCase()}
+                  {visibleDrops.map((drop) => {
+                    const isSpread = (drop.clusterCount ?? 1) > 1
+                    const isPrimary = (drop.clusterIndex ?? 0) === 0
+                    return (
+                      <div
+                        key={drop.id}
+                        className="absolute -translate-x-1/2 -translate-y-1/2 group"
+                        style={{ left: `${drop.x * 100}%`, top: `${drop.y * 100}%` }}
+                      >
+                        {drop.logoUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img
+                            src={drop.logoUrl}
+                            alt={drop.teamName}
+                            className={`rounded border-2 shadow-md object-contain ${isSpread ? isPrimary ? 'w-8 h-8 border-orange-400' : 'w-6 h-6 border-orange-300 opacity-70' : 'w-8 h-8 border-white'}`}
+                          />
+                        ) : (
+                          <div className={`rounded border-2 shadow-md flex items-center justify-center text-white font-bold ${isSpread ? isPrimary ? 'w-8 h-8 border-orange-400 bg-orange-600 text-[10px]' : 'w-6 h-6 border-orange-300 bg-orange-400 opacity-70 text-[9px]' : 'w-8 h-8 border-white bg-gray-600 text-[10px]'}`}>
+                            {drop.teamName.slice(0, 2).toUpperCase()}
+                          </div>
+                        )}
+                        {isSpread && !isPrimary && (
+                          <span className="absolute -top-1 -right-1 w-3.5 h-3.5 rounded-full bg-orange-500 text-white text-[8px] flex items-center justify-center font-bold leading-none pointer-events-none">
+                            {(drop.clusterIndex ?? 0) + 1}
+                          </span>
+                        )}
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 whitespace-nowrap bg-gray-900/90 text-white text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                          {drop.teamName}{isSpread ? ` (${drop.clusterSize}/${drop.totalMatches}경기)` : ''}
                         </div>
-                      )}
-                      <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 whitespace-nowrap bg-gray-900/90 text-white text-[10px] px-1.5 py-0.5 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-                        {drop.teamName}
                       </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
 
                 {/* Team list — height matches map via CSS grid */}
                 <div className="flex flex-col min-h-0">
                   <div className="flex items-center justify-between mb-2 shrink-0">
                     <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Teams</p>
-                    <button onClick={() => setVisibleTeams(null)} className="text-[11px] text-gray-400 hover:text-gray-600">All</button>
+                    <button onClick={() => { setVisibleTeams(null); setExpandedTeams(new Set()) }} className="text-[11px] text-gray-400 hover:text-gray-600">All</button>
                   </div>
                   <div className="flex-1 overflow-y-auto space-y-1 min-h-0">
-                    {currentMapDrops.length === 0 ? (
+                    {uniqueTeamsForMap.length === 0 ? (
                       <p className="text-xs text-gray-400">낙하 지점 없음</p>
                     ) : (
-                      currentMapDrops.map((drop) => {
-                        const isVisible = visibleTeams === null || visibleTeams.has(drop.teamId)
+                      uniqueTeamsForMap.map((drop) => {
+                        const isSpread = (drop.clusterCount ?? 1) > 1
+                        const isActive = isSpread ? expandedTeams.has(drop.teamId) : (visibleTeams === null || visibleTeams.has(drop.teamId))
                         return (
                           <button
                             key={drop.teamId}
                             onClick={() => toggleTeamVisibility(drop.teamId)}
-                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-left transition-colors ${isVisible ? 'bg-gray-100 text-gray-800' : 'bg-white text-gray-400 border border-gray-200'}`}
+                            className={`w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs text-left transition-colors ${
+                              isSpread
+                                ? isActive
+                                  ? 'bg-orange-100 text-orange-800 border border-orange-300'
+                                  : 'bg-orange-50 text-orange-500 border border-orange-200'
+                                : isActive
+                                  ? 'bg-gray-100 text-gray-800'
+                                  : 'bg-white text-gray-400 border border-gray-200'
+                            }`}
                           >
                             {drop.logoUrl ? (
                               // eslint-disable-next-line @next/next/no-img-element
                               <img src={drop.logoUrl} alt="" className="w-5 h-5 rounded object-contain shrink-0" />
                             ) : (
-                              <span className="w-5 h-5 rounded bg-gray-300 shrink-0" />
+                              <span className={`w-5 h-5 rounded shrink-0 ${isSpread ? 'bg-orange-300' : 'bg-gray-300'}`} />
                             )}
                             <span className="truncate font-medium">{drop.teamName}</span>
+                            {isSpread && <span className="ml-auto text-[10px] shrink-0 opacity-70">{drop.clusterCount}곳</span>}
                           </button>
                         )
                       })
