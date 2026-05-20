@@ -524,10 +524,13 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const teamId = t.id as string
     const tName = (t.name as string) ?? '?'
     const logoUrl = (t.logo_url as string | null) ?? aliasLogoLookup[`${teamId}:`] ?? null
-    // Only update logo/name for teams already in the map from match data; skip teams with no match records
     if (teamRosterMap.has(teamId)) {
       const entry = teamRosterMap.get(teamId)!
       if (logoUrl && !entry.logo_url) entry.logo_url = logoUrl
+    } else {
+      // Team registered in admin but has no match data yet — still show in roster
+      const displayName = (r.display_name as string | null) ?? tName
+      teamRosterMap.set(teamId, { name: displayName, logo_url: logoUrl, players: new Map() })
     }
     if (!teamStatsMap.has(teamId)) {
       teamStatsMap.set(teamId, {
@@ -535,6 +538,22 @@ export default async function TournamentContent({ id, tournament }: { id: string
         games: 0, wwcd: 0, totalKills: 0, totalDamage: 0, totalPoints: 0, placementsSum: 0, gamesWithPlacement: 0,
       })
     }
+  }
+
+  // Add all admin-registered players (including those with no match data).
+  // Runs after rosterTeamsData so teams-with-no-matches are already in the map.
+  // Also overwrites coachRole for players already added from match stats.
+  for (const d of rosterPlayersData ?? []) {
+    const row = d as AnyRow
+    if (!row.player_id || !row.team_id || !row.players) continue
+    const team = teamRosterMap.get(row.team_id as string)
+    if (!team) continue
+    team.players.set(row.player_id as string, {
+      id: row.player_id as string,
+      nickname: (row.players as AnyRow).nickname as string,
+      nationality: ((row.players as AnyRow).nationality_code as string | null) ?? null,
+      coachRole: (row.coach_role as 'coach' | 'playing_coach' | null) ?? null,
+    })
   }
 
   // Build playerStats from pre-computed tournament_player_stats table.
