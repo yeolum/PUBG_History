@@ -11,7 +11,7 @@ import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
 
-const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, placement, players(id, nickname, nationality_code), teams(id, name, logo_url)'
+const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, placement, players(id, nickname, nationality_code), teams(id, name, logo_url)'
 const TR_SELECT = '*, teams(id, name, short_name, logo_url)'
 const PAGE = 1000
 
@@ -454,6 +454,13 @@ export default async function TournamentContent({ id, tournament }: { id: string
       headshotKills: row.headshot_kills ?? 0,
       damage: Number(row.damage_dealt ?? 0),
       survivalTime: row.survival_time ?? 0,
+      walkDistance: Number(row.walk_distance ?? 0),
+      rideDistance: Number(row.ride_distance ?? 0),
+      swimDistance: Number(row.swim_distance ?? 0),
+      longestKill: Number(row.longest_kill ?? 0),
+      revives: row.revives ?? 0,
+      healsUsed: row.heals_used ?? 0,
+      boostsUsed: row.boosts_used ?? 0,
       placement: row.placement ?? null,
     })
   }

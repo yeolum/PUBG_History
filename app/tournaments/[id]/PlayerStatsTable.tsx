@@ -76,6 +76,13 @@ export interface PlayerMatchStat {
   damage: number
   survivalTime: number
   placement: number | null
+  walkDistance?: number
+  rideDistance?: number
+  swimDistance?: number
+  longestKill?: number
+  revives?: number
+  healsUsed?: number
+  boostsUsed?: number
 }
 
 type Category = 'combat' | 'utility' | 'survival' | 'movement' | 'teamplay' | 'positioning'

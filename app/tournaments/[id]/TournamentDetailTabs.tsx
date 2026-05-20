@@ -104,6 +104,10 @@ export default function TournamentDetailTabs(props: Props) {
           stages={props.stages}
           series={props.series}
           resultsByMatch={props.resultsByMatch}
+          playerStats={props.playerStats}
+          stagePlayerStats={props.stagePlayerStats}
+          seriesPlayerStats={props.seriesPlayerStats}
+          playerStatsByMatch={props.playerStatsByMatch}
         />
       )}
     </div>
