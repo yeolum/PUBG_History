@@ -418,8 +418,15 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
           const s = get(attackerId)
           if (isGrenadeDamage(ev)) { s.grenadeDamage += dmg; s.grenadeHitEvents++ }
           else if (isMolotovDamage(ev)) { s.molotovDamage += dmg }
-          const dist = ev.distance as number | undefined
-          if (dist != null && dist > 0) { s.engagementDistSum += dist; s.engagementDistCount++ }
+          // LogPlayerTakeDamage has no .distance field — compute from positions (cm → m)
+          const ax = ev.attacker?.location?.x as number | undefined
+          const ay = ev.attacker?.location?.y as number | undefined
+          const vx = ev.victim?.location?.x as number | undefined
+          const vy = ev.victim?.location?.y as number | undefined
+          if (ax != null && ay != null && vx != null && vy != null) {
+            const distM = Math.sqrt((ax - vx) ** 2 + (ay - vy) ** 2) / 100
+            if (distM > 0) { s.engagementDistSum += distM; s.engagementDistCount++ }
+          }
         }
 
         if (victimId && track(victimId)) {
