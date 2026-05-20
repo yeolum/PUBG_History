@@ -134,7 +134,7 @@ const LEFT_MATCHES = COL_RANK + COL_PLAYER + COL_TEAM
 
 // Sticky cell base classes
 const STICKY_HEAD = 'sticky z-20 bg-white'
-const STICKY_BODY = 'sticky z-10 bg-white group-hover:bg-gray-50/60'
+const STICKY_BODY = 'sticky z-10 bg-white group-hover:bg-gray-50'
 
 export default function PlayerStatsTable({
   playerStats,
@@ -595,7 +595,7 @@ export default function PlayerStatsTable({
               <tr><td colSpan={16} className="px-3 py-10 text-center text-gray-400 text-sm">No data for this scope</td></tr>
             )}
             {sorted.map((p, i) => (
-              <tr key={p.playerId ?? p.nickname} className="group border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+              <tr key={p.playerId ?? p.nickname} className="group border-b border-gray-50 last:border-0 hover:bg-gray-50">
                 {category === 'combat' && (
                   <>
                     {fixedCells(p, i)}
