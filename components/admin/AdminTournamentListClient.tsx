@@ -37,7 +37,9 @@ export default function AdminTournamentListClient({ tournaments }: { tournaments
     setRefreshStates(s => ({ ...s, [id]: 'running' }))
     setRefreshErrors(e => { const n = { ...e }; delete n[id]; return n })
     try {
-      const res = await fetch('/api/admin/compute-tournament-stats', {
+      // Resync fetches fresh Match API data for all matches (populates missing fields
+      // like longest_kill, road_kills, etc.) then recomputes aggregated stats.
+      const res = await fetch('/api/admin/pubg/resync-match-data', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ tournamentId: id }),
