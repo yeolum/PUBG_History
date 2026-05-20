@@ -377,7 +377,7 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         if (dBNOMakerId && killerId && dBNOMakerId !== killerId) {
           const dBNOMakerTeam = accountTeam.get(dBNOMakerId)
           const killerTeamId = accountTeam.get(killerId)
-          if (dBNOMakerTeam != null && dBNOMakerTeam === killerTeamId) {
+          if (dBNOMakerTeam != null && killerTeamId != null && dBNOMakerTeam !== killerTeamId) {
             if (track(killerId)) get(killerId).stealKills++
             if (track(dBNOMakerId)) get(dBNOMakerId).stolenKills++
           }

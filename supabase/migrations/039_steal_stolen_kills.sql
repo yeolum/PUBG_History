@@ -1,7 +1,7 @@
 -- =====================================================
 -- 039: Add steal_kills / stolen_kills, drop first_blood_kill/knock
--- steal_kills  = 팀원이 노킨 적을 내가 마무리한 횟수
--- stolen_kills = 내가 노킨 적을 팀원이 마무리한 횟수
+-- steal_kills  = 내가 노킨(dBNOMaker) 적을 상대팀이 마무리한 횟수 관점에서 finisher 기준
+-- stolen_kills = 내가 노킨(dBNOMaker) 적을 상대팀(finisher)이 마무리하여 킬을 뺏긴 횟수
 -- =====================================================
 
 ALTER TABLE match_player_telemetry_stats
