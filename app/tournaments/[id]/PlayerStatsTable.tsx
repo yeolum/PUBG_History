@@ -121,6 +121,21 @@ function fmtDist(m: number | undefined): string {
   return m >= 1000 ? `${(m / 1000).toFixed(1)}km` : `${Math.round(m)}m`
 }
 
+// Fixed column pixel widths (must match sticky left values below)
+const COL_RANK    = 40   // w-10
+const COL_PLAYER  = 152  // w-[152px]
+const COL_TEAM    = 120  // w-[120px]
+// COL_MATCHES = 80 (w-20) — right-bordered separator
+
+const LEFT_RANK    = 0
+const LEFT_PLAYER  = COL_RANK
+const LEFT_TEAM    = COL_RANK + COL_PLAYER
+const LEFT_MATCHES = COL_RANK + COL_PLAYER + COL_TEAM
+
+// Sticky cell base classes
+const STICKY_HEAD = 'sticky z-20 bg-white'
+const STICKY_BODY = 'sticky z-10 bg-white group-hover:bg-gray-50/60'
+
 export default function PlayerStatsTable({
   playerStats,
   stagePlayerStats = {},
@@ -204,7 +219,6 @@ export default function PlayerStatsTable({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedMatchId, selectedStageId, selectedSeriesId, playerStats, stagePlayerStats, seriesPlayerStats, playerStatsByMatch, stages])
 
-  // Team totals for damage share / kill share calculation
   const teamDamageTotal = useMemo(() => {
     const m = new Map<string, number>()
     for (const p of displayStats) {
@@ -292,22 +306,46 @@ export default function PlayerStatsTable({
     })
   }, [enriched, sortKey, sortDir, search])
 
-  const thR = (key: SortKey, label: string) => (
-    <th
-      onClick={() => toggleSort(key)}
-      className={`px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 transition-colors ${sortKey === key ? 'text-yellow-600' : 'text-gray-400'}`}
-    >
-      {label}{sortKey === key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
-    </th>
-  )
-  const thL = (key: SortKey, label: string) => (
-    <th
-      onClick={() => toggleSort(key)}
-      className={`px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none whitespace-nowrap hover:text-gray-700 transition-colors ${sortKey === key ? 'text-yellow-600' : 'text-gray-400'}`}
-    >
-      {label}{sortKey === key ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
-    </th>
-  )
+  // Two-line column header helper (main = top line, sub = smaller bottom line)
+  function thR(key: SortKey, main: string, sub?: string) {
+    const active = sortKey === key
+    const indicator = active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''
+    return (
+      <th
+        onClick={() => toggleSort(key)}
+        className={`px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors ${active ? 'text-yellow-600' : 'text-gray-400'}`}
+      >
+        {sub ? (
+          <span className="inline-flex flex-col items-end leading-none gap-0.5">
+            <span className="whitespace-nowrap">{main}{indicator}</span>
+            <span className="text-[9px] font-normal normal-case tracking-normal whitespace-nowrap opacity-60">{sub}</span>
+          </span>
+        ) : (
+          <span className="whitespace-nowrap">{main}{indicator}</span>
+        )}
+      </th>
+    )
+  }
+
+  function thL(key: SortKey, main: string, sub?: string) {
+    const active = sortKey === key
+    const indicator = active ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''
+    return (
+      <th
+        onClick={() => toggleSort(key)}
+        className={`px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors ${active ? 'text-yellow-600' : 'text-gray-400'}`}
+      >
+        {sub ? (
+          <span className="inline-flex flex-col items-start leading-none gap-0.5">
+            <span className="whitespace-nowrap">{main}{indicator}</span>
+            <span className="text-[9px] font-normal normal-case tracking-normal whitespace-nowrap opacity-60">{sub}</span>
+          </span>
+        ) : (
+          <span className="whitespace-nowrap">{main}{indicator}</span>
+        )}
+      </th>
+    )
+  }
 
   const scopeBtn = (active: boolean) =>
     `px-2.5 py-1 text-xs rounded-lg border transition-colors ${active ? 'bg-yellow-400 border-yellow-400 text-gray-900 font-semibold' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`
@@ -335,22 +373,70 @@ export default function PlayerStatsTable({
     return <div className="bg-white rounded-xl border border-gray-200 p-10 text-center text-gray-400 text-sm">No player data available</div>
   }
 
-  const playerTeamCell = (p: typeof sorted[0], i: number) => (
+  // Fixed header cells (sticky)
+  const fixedHeaders = (
     <>
-      <td className="px-3 py-2 text-center text-gray-400 shrink-0">{i + 1}</td>
-      <td className="px-3 py-2 font-medium text-gray-800 whitespace-nowrap">
-        {p.playerId ? <Link href={`/players/${p.playerId}`} className="hover:text-yellow-600">{p.nickname}</Link> : p.nickname}
+      <th
+        className={`${STICKY_HEAD} w-10 px-3 py-2 text-center text-[11px] font-semibold text-gray-400`}
+        style={{ left: LEFT_RANK }}
+      >#</th>
+      <th
+        onClick={() => toggleSort('nickname')}
+        className={`${STICKY_HEAD} w-[152px] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors ${sortKey === 'nickname' ? 'text-yellow-600' : 'text-gray-400'}`}
+        style={{ left: LEFT_PLAYER }}
+      >
+        Player{sortKey === 'nickname' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+      </th>
+      <th
+        onClick={() => toggleSort('teamName')}
+        className={`${STICKY_HEAD} w-[120px] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors ${sortKey === 'teamName' ? 'text-yellow-600' : 'text-gray-400'}`}
+        style={{ left: LEFT_TEAM }}
+      >
+        Team{sortKey === 'teamName' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+      </th>
+      <th
+        onClick={() => toggleSort('games')}
+        className={`${STICKY_HEAD} w-20 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors border-r border-gray-200 ${sortKey === 'games' ? 'text-yellow-600' : 'text-gray-400'}`}
+        style={{ left: LEFT_MATCHES }}
+      >
+        Matches{sortKey === 'games' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+      </th>
+    </>
+  )
+
+  // Fixed body cells (sticky)
+  const fixedCells = (p: typeof sorted[0], i: number) => (
+    <>
+      <td
+        className={`${STICKY_BODY} w-10 px-3 py-2 text-center text-gray-400`}
+        style={{ left: LEFT_RANK }}
+      >{i + 1}</td>
+      <td
+        className={`${STICKY_BODY} w-[152px] px-3 py-2 font-medium text-gray-800`}
+        style={{ left: LEFT_PLAYER }}
+      >
+        <span className="block truncate max-w-[136px]">
+          {p.playerId ? <Link href={`/players/${p.playerId}`} className="hover:text-yellow-600">{p.nickname}</Link> : p.nickname}
+        </span>
       </td>
-      <td className="px-3 py-2 text-gray-500 whitespace-nowrap">
-        <div className="flex items-center gap-1.5">
+      <td
+        className={`${STICKY_BODY} w-[120px] px-3 py-2 text-gray-500`}
+        style={{ left: LEFT_TEAM }}
+      >
+        <div className="flex items-center gap-1.5 max-w-[104px]">
           {p.logoUrl
             // eslint-disable-next-line @next/next/no-img-element
             ? <img src={p.logoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
             : <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />}
-          {p.teamId ? <Link href={`/teams/${p.teamId}`} className="hover:text-yellow-600">{p.teamName}</Link> : p.teamName}
+          <span className="truncate">
+            {p.teamId ? <Link href={`/teams/${p.teamId}`} className="hover:text-yellow-600">{p.teamName}</Link> : p.teamName}
+          </span>
         </div>
       </td>
-      <td className="px-3 py-2 text-right text-gray-500">{p.games}</td>
+      <td
+        className={`${STICKY_BODY} w-20 px-3 py-2 text-right text-gray-500 border-r border-gray-200`}
+        style={{ left: LEFT_MATCHES }}
+      >{p.games}</td>
     </>
   )
 
@@ -409,103 +495,85 @@ export default function PlayerStatsTable({
           <thead>
             {category === 'combat' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                {thL('nickname', 'Player')}
-                {thL('teamName', 'Team')}
-                {thR('games', 'G')}
+                {fixedHeaders}
                 {thR('kills', 'Kills')}
-                {thR('kpg', 'KPG')}
+                {thR('kpg', 'KPG', 'Kills per Game')}
                 {thR('deaths', 'Deaths')}
-                {thR('kd', 'K/D')}
+                {thR('kd', 'K/D', 'Kill / Death')}
                 {thR('assists', 'Assists')}
                 {thR('knocks', 'Knocks')}
-                {thR('kkRatio', 'K/K')}
-                {thR('dpk', 'DPK')}
-                {thR('headshotKills', 'HS')}
-                {thR('hsPercent', 'HS%')}
+                {thR('kkRatio', 'K/K', 'Kill / Knock')}
+                {thR('dpk', 'DPK', 'Dmg per Knock')}
+                {thR('headshotKills', 'HS Kills', 'Headshot')}
+                {thR('hsPercent', 'HS%', 'Headshot Rate')}
                 {thR('damage', 'Damage')}
-                {thR('adr', 'ADR')}
+                {thR('adr', 'ADR', 'Avg per Round')}
                 {thR('longestKill', 'Longest Kill')}
-                {thR('avgEngagementDist', 'Avg Eng Dist')}
-                {thR('firstBloodKills', 'FB Kills')}
-                {thR('firstBloodKnocks', 'FB Knocks')}
+                {thR('avgEngagementDist', 'Avg Eng Dist', 'Engagement Dist')}
+                {thR('firstBloodKills', 'FB Kills', 'First Blood')}
+                {thR('firstBloodKnocks', 'FB Knocks', 'First Blood')}
               </tr>
             )}
             {category === 'utility' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                {thL('nickname', 'Player')}
-                {thL('teamName', 'Team')}
-                {thR('games', 'G')}
-                {thR('grenadesThrown', 'Grenades')}
-                {thR('smokesThrown', 'Smokes')}
-                {thR('flashbangsThrown', 'Flashes')}
-                {thR('molotovsThrown', 'Molotovs')}
-                {thR('grenadeDamage', 'Nade Dmg')}
-                {thR('molotovDamage', 'Molotov Dmg')}
-                {thR('utilityDamage', 'Util Dmg')}
-                {thR('grenadeHitRate', 'Hit Rate')}
+                {fixedHeaders}
+                {thR('grenadesThrown', 'Grenades', 'Thrown')}
+                {thR('smokesThrown', 'Smokes', 'Thrown')}
+                {thR('flashbangsThrown', 'Flashes', 'Thrown')}
+                {thR('molotovsThrown', 'Molotovs', 'Thrown')}
+                {thR('grenadeDamage', 'Grenade', 'Damage')}
+                {thR('molotovDamage', 'Molotov', 'Damage')}
+                {thR('utilityDamage', 'Utility', 'Total Damage')}
+                {thR('grenadeHitRate', 'Hit Rate', 'Throw → Hit %')}
               </tr>
             )}
             {category === 'survival' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                {thL('nickname', 'Player')}
-                {thL('teamName', 'Team')}
-                {thR('games', 'G')}
-                {thR('avgSurvival', 'Avg Surv')}
+                {fixedHeaders}
+                {thR('avgSurvival', 'Avg Survival')}
                 {thR('deaths', 'Deaths')}
-                {thR('damageTaken', 'Dmg Taken')}
-                {thR('blueZoneDamage', 'BZ Dmg')}
-                {thR('blueZoneTimePerGame', 'BZ Time/G')}
-                {thR('dtr', 'DD/DT')}
-                {thR('healsUsed', 'Heals')}
-                {thR('boostsUsed', 'Boosts')}
-                {thR('healEfficiency', 'Heal Eff')}
+                {thR('damageTaken', 'Dmg Taken', 'Damage Taken')}
+                {thR('blueZoneDamage', 'BZ Damage', 'Blue Zone')}
+                {thR('blueZoneTimePerGame', 'BZ Time', 'per Game')}
+                {thR('dtr', 'DD/DT', 'Dealt / Taken')}
+                {thR('healsUsed', 'Heals', 'Used')}
+                {thR('boostsUsed', 'Boosts', 'Used')}
+                {thR('healEfficiency', 'Heal Eff', 'HP per Use')}
                 {thR('revives', 'Revived')}
               </tr>
             )}
             {category === 'movement' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                {thL('nickname', 'Player')}
-                {thL('teamName', 'Team')}
-                {thR('games', 'G')}
-                {thR('walkDistance', 'Walk')}
-                {thR('walkPPG', 'Walk/G')}
-                {thR('rideDistance', 'Ride')}
-                {thR('ridePPG', 'Ride/G')}
-                {thR('swimDistance', 'Swim')}
-                {thR('swimPPG', 'Swim/G')}
-                {thR('totalDistance', 'Total')}
-                {thR('vehicleTimePerGame', 'Vehicle/G')}
+                {fixedHeaders}
+                {thR('walkDistance', 'Walk', 'Total')}
+                {thR('walkPPG', 'Walk', 'per Game')}
+                {thR('rideDistance', 'Ride', 'Total')}
+                {thR('ridePPG', 'Ride', 'per Game')}
+                {thR('swimDistance', 'Swim', 'Total')}
+                {thR('swimPPG', 'Swim', 'per Game')}
+                {thR('totalDistance', 'Total Dist', 'All Movement')}
+                {thR('vehicleTimePerGame', 'Vehicle', 'Time per Game')}
               </tr>
             )}
             {category === 'teamplay' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                {thL('nickname', 'Player')}
-                {thL('teamName', 'Team')}
-                {thR('games', 'G')}
+                {fixedHeaders}
                 {thR('assists', 'Assists')}
                 {thR('knocks', 'Knocks')}
-                {thR('tradeKillRate', 'Trade Kill%')}
-                {thR('revivesGiven', 'Revives Given')}
+                {thR('tradeKillRate', 'Trade Kill', 'Rate %')}
+                {thR('revivesGiven', 'Revives', 'Given')}
                 {thR('revives', 'Revived')}
-                {thR('assistDamagePerGame', 'Assist Dmg/G')}
-                {thR('damageShare', 'Dmg Share')}
-                {thR('killShare', 'Kill Share')}
+                {thR('assistDamagePerGame', 'Assist Dmg', 'per Game')}
+                {thR('damageShare', 'Dmg Share', 'of Team %')}
+                {thR('killShare', 'Kill Share', 'of Team %')}
               </tr>
             )}
             {category === 'positioning' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">
-                <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                {thL('nickname', 'Player')}
-                {thL('teamName', 'Team')}
-                {thR('games', 'G')}
-                {thR('zoneEdgePct', 'Zone Edge%')}
-                {thR('avgDistToZone', 'Avg Dist to Zone')}
-                {thR('zoneOutsidePct', 'Outside Zone%')}
+                {fixedHeaders}
+                {thR('zoneEdgePct', 'Zone Edge', 'Time % at Edge')}
+                {thR('avgDistToZone', 'Avg Dist', 'to Zone Center')}
+                {thR('zoneOutsidePct', 'Outside Zone', 'Time % outside')}
               </tr>
             )}
           </thead>
@@ -514,10 +582,10 @@ export default function PlayerStatsTable({
               <tr><td colSpan={16} className="px-3 py-10 text-center text-gray-400 text-sm">No data for this scope</td></tr>
             )}
             {sorted.map((p, i) => (
-              <tr key={p.playerId ?? p.nickname} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
+              <tr key={p.playerId ?? p.nickname} className="group border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
                 {category === 'combat' && (
                   <>
-                    {playerTeamCell(p, i)}
+                    {fixedCells(p, i)}
                     <td className="px-3 py-2 text-right font-semibold text-gray-800">{p.kills}</td>
                     <td className="px-3 py-2 text-right text-gray-600">{p.kpg.toFixed(2)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.deaths}</td>
@@ -538,7 +606,7 @@ export default function PlayerStatsTable({
                 )}
                 {category === 'utility' && (
                   <>
-                    {playerTeamCell(p, i)}
+                    {fixedCells(p, i)}
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{fmt(p.grenadesThrown)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.smokesThrown)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.flashbangsThrown)}</td>
@@ -551,7 +619,7 @@ export default function PlayerStatsTable({
                 )}
                 {category === 'survival' && (
                   <>
-                    {playerTeamCell(p, i)}
+                    {fixedCells(p, i)}
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{formatSurvival(p.survivalTime, p.games)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.deaths}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.damageTaken > 0 ? Math.round(p.damageTaken).toLocaleString() : '—'}</td>
@@ -566,7 +634,7 @@ export default function PlayerStatsTable({
                 )}
                 {category === 'movement' && (
                   <>
-                    {playerTeamCell(p, i)}
+                    {fixedCells(p, i)}
                     <td className="px-3 py-2 text-right text-gray-500">{fmtDist(p.walkDistance)}</td>
                     <td className="px-3 py-2 text-right text-gray-400">{fmtDist(p.walkPPG)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmtDist(p.rideDistance)}</td>
@@ -579,7 +647,7 @@ export default function PlayerStatsTable({
                 )}
                 {category === 'teamplay' && (
                   <>
-                    {playerTeamCell(p, i)}
+                    {fixedCells(p, i)}
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{p.assists}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.knocks}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.tradeKillRate > 0 ? p.tradeKillRate.toFixed(1) + '%' : '—'}</td>
@@ -592,7 +660,7 @@ export default function PlayerStatsTable({
                 )}
                 {category === 'positioning' && (
                   <>
-                    {playerTeamCell(p, i)}
+                    {fixedCells(p, i)}
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{p.zoneEdgePct > 0 ? p.zoneEdgePct.toFixed(1) + '%' : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.avgDistToZone > 0 ? fmtDist(p.avgDistToZone) : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.zoneOutsidePct > 0 ? p.zoneOutsidePct.toFixed(1) + '%' : '—'}</td>
