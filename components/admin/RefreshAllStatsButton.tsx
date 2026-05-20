@@ -21,7 +21,7 @@ export default function RefreshAllStatsButton({ tournamentIds, tournamentNames }
     const failReasons: Record<string, string> = {}
     for (let i = 0; i < tournamentIds.length; i++) {
       try {
-        const res = await fetch('/api/admin/compute-tournament-stats', {
+        const res = await fetch('/api/admin/pubg/resync-match-data', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ tournamentId: tournamentIds[i] }),
