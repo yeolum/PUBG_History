@@ -231,8 +231,8 @@ function classifyThrowable(itemId: string): 'grenade' | 'smoke' | 'flashbang' | 
   if (itemId.includes('Molotov')) return 'molotov'
   if (itemId.includes('SmokeBomb') || (itemId.includes('Smoke') && itemId.includes('Item_Weapon'))) return 'smoke'
   if (itemId.includes('FlashBang') || itemId.includes('Flashbang')) return 'flashbang'
-  if (itemId.includes('BZGrenade') || itemId.includes('BZ_Grenade') || itemId.includes('BlueZoneGrenade')) return 'bzgrenade'
-  if (itemId.includes('Decoy') && itemId.includes('Item_Weapon')) return 'decoy'
+  if (itemId.includes('BluezoneGrenade')) return 'bzgrenade'
+  if (itemId.includes('CoverStructDropHandFlare')) return 'decoy'
   if (itemId.includes('Grenade') && itemId.includes('Item_Weapon')) return 'grenade'
   return null
 }
@@ -243,7 +243,7 @@ function isGrenadeDamage(ev: { damageTypeCategory?: string; damageCauserName?: s
 
 function isBZGrenadeDamage(ev: { damageCauserName?: string; damageTypeCategory?: string }): boolean {
   const cn = ev.damageCauserName ?? ''
-  return cn.includes('BZGrenade') || cn.includes('BZ_Grenade') || cn.includes('BlueZoneGrenade')
+  return cn.includes('BluezoneGrenade')
 }
 
 function isMolotovDamage(ev: { damageCauserName?: string; damageTypeCategory?: string }): boolean {
