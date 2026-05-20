@@ -174,6 +174,7 @@ export default function StageMatchesPage() {
   const [addPtsErr, setAddPtsErr] = useState<string | null>(null)
   const [teamDisplayNames, setTeamDisplayNames] = useState<Map<string, string>>(new Map())
   const [recomputingStats, setRecomputingStats] = useState(false)
+  const [resyncingData, setResyncingData] = useState(false)
 
   // Match result edit
   const [matchEditMode, setMatchEditMode] = useState(false)
@@ -191,6 +192,27 @@ export default function StageMatchesPage() {
       })
     } finally {
       setRecomputingStats(false)
+    }
+  }
+
+  async function resyncMatchData() {
+    if (!confirm('PUBG API에서 모든 매치 데이터를 다시 가져옵니다. 시간이 걸릴 수 있습니다. 계속할까요?')) return
+    setResyncingData(true)
+    try {
+      const res = await fetch('/api/admin/pubg/resync-match-data', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tournamentId }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        alert(`완료: ${data.synced}개 매치 동기화, ${data.failed}개 실패`)
+        await load()
+      } else {
+        alert(`오류: ${data.error}`)
+      }
+    } finally {
+      setResyncingData(false)
     }
   }
 
@@ -544,9 +566,13 @@ export default function StageMatchesPage() {
           {savingRules ? 'Saving...' : 'Save'}
         </button>
         <span className="text-xs text-gray-400 ml-auto">0 = no rule</span>
-        <button onClick={recomputeStats} disabled={recomputingStats}
+        <button onClick={recomputeStats} disabled={recomputingStats || resyncingData}
           className="text-xs border border-gray-200 text-gray-500 hover:border-blue-300 hover:text-blue-600 disabled:opacity-50 rounded-lg px-2.5 py-1 transition-colors ml-auto">
           {recomputingStats ? '통계 계산 중...' : '통계 새로고침'}
+        </button>
+        <button onClick={resyncMatchData} disabled={recomputingStats || resyncingData}
+          className="text-xs border border-orange-200 text-orange-500 hover:border-orange-400 hover:text-orange-600 disabled:opacity-50 rounded-lg px-2.5 py-1 transition-colors">
+          {resyncingData ? 'API 동기화 중...' : '전체 데이터 새로고침'}
         </button>
       </div>
 
