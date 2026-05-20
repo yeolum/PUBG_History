@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useRef, useLayoutEffect } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import type { Stage, Match } from '@/lib/types'
 
@@ -172,18 +172,6 @@ export default function PlayerStatsTable({
   const [selectedStageId, setSelectedStageId] = useState<string | null>(null)
   const [selectedMatchId, setSelectedMatchId] = useState<string | null>(null)
 
-  const tableRef = useRef<HTMLTableElement>(null)
-  const [colLefts, setColLefts] = useState({ player: LEFT_PLAYER, team: LEFT_TEAM, matches: LEFT_MATCHES })
-
-  useLayoutEffect(() => {
-    if (!tableRef.current) return
-    const ths = tableRef.current.querySelectorAll('thead tr:first-child th')
-    if (ths.length < 4) return
-    const rankW = (ths[0] as HTMLElement).offsetWidth
-    const playerW = (ths[1] as HTMLElement).offsetWidth
-    const teamW = (ths[2] as HTMLElement).offsetWidth
-    setColLefts({ player: rankW, team: rankW + playerW, matches: rankW + playerW + teamW })
-  }, [category])
 
   function toggleSort(key: SortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -411,21 +399,21 @@ export default function PlayerStatsTable({
       <th
         onClick={() => toggleSort('nickname')}
         className={`${STICKY_HEAD} w-[152px] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors ${sortKey === 'nickname' ? 'text-yellow-600' : 'text-gray-400'}`}
-        style={{ left: colLefts.player }}
+        style={{ left: LEFT_PLAYER }}
       >
         Player{sortKey === 'nickname' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
       </th>
       <th
         onClick={() => toggleSort('teamName')}
         className={`${STICKY_HEAD} w-[120px] px-3 py-2 text-left text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors ${sortKey === 'teamName' ? 'text-yellow-600' : 'text-gray-400'}`}
-        style={{ left: colLefts.team }}
+        style={{ left: LEFT_TEAM }}
       >
         Team{sortKey === 'teamName' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
       </th>
       <th
         onClick={() => toggleSort('games')}
         className={`${STICKY_HEAD} w-20 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors border-r border-gray-200 ${sortKey === 'games' ? 'text-yellow-600' : 'text-gray-400'}`}
-        style={{ left: colLefts.matches }}
+        style={{ left: LEFT_MATCHES }}
       >
         Matches{sortKey === 'games' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
       </th>
@@ -441,7 +429,7 @@ export default function PlayerStatsTable({
       >{i + 1}</td>
       <td
         className={`${STICKY_BODY} w-[152px] px-3 py-2 font-medium text-gray-800`}
-        style={{ left: colLefts.player }}
+        style={{ left: LEFT_PLAYER }}
       >
         <span className="block truncate max-w-[136px]">
           {p.playerId ? <Link href={`/players/${p.playerId}`} className="hover:text-yellow-600">{p.nickname}</Link> : p.nickname}
@@ -449,7 +437,7 @@ export default function PlayerStatsTable({
       </td>
       <td
         className={`${STICKY_BODY} w-[120px] px-3 py-2 text-gray-500`}
-        style={{ left: colLefts.team }}
+        style={{ left: LEFT_TEAM }}
       >
         <div className="flex items-center gap-1.5 max-w-[104px]">
           {p.logoUrl
@@ -463,7 +451,7 @@ export default function PlayerStatsTable({
       </td>
       <td
         className={`${STICKY_BODY} w-20 px-3 py-2 text-right text-gray-500 border-r border-gray-200`}
-        style={{ left: colLefts.matches }}
+        style={{ left: LEFT_MATCHES }}
       >{p.games}</td>
     </>
   )
@@ -519,7 +507,7 @@ export default function PlayerStatsTable({
       </div>
 
       <div className="overflow-x-auto">
-        <table ref={tableRef} className="w-full text-xs border-collapse">
+        <table className="w-full text-xs border-collapse">
           <thead>
             {category === 'combat' && (
               <tr className="border-b border-gray-100 bg-gray-50/50">

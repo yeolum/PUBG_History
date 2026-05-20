@@ -219,6 +219,15 @@ type AnyRow = Record<string, any>
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
 
+const T_COL_RANK  = 32   // w-8
+const T_COL_TEAM  = 180  // w-[180px]
+const T_COL_GAMES = 80   // w-20
+const T_LEFT_RANK  = 0
+const T_LEFT_TEAM  = T_COL_RANK
+const T_LEFT_GAMES = T_COL_RANK + T_COL_TEAM
+const T_STICKY_HEAD = 'sticky z-20 bg-white'
+const T_STICKY_BODY = 'sticky z-10 bg-white group-hover:bg-gray-50'
+
 function mapImageUrl(mapKey: string) {
   return `${SUPABASE_URL}/storage/v1/object/public/map-images/${encodeURIComponent(mapKey)}.jpg`
 }
@@ -602,6 +611,40 @@ export default function TeamStatsTable({
     return items.sort((a, b) => a.key - b.key)
   }, [series, stages])
 
+  const teamFixedHeaders = (
+    <>
+      <th className={`${T_STICKY_HEAD} w-8 px-3 py-2 text-center text-[11px] font-semibold text-gray-400`} style={{ left: T_LEFT_RANK }}>#</th>
+      <th className={`${T_STICKY_HEAD} w-[180px] px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide`} style={{ left: T_LEFT_TEAM }}>Team</th>
+      <th
+        onClick={() => toggleSort('games')}
+        className={`${T_STICKY_HEAD} w-20 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors border-r border-gray-200 ${sortKey === 'games' ? 'text-yellow-600' : 'text-gray-400'}`}
+        style={{ left: T_LEFT_GAMES }}
+      >
+        Matches{sortKey === 'games' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
+      </th>
+    </>
+  )
+
+  function teamFixedCells(t: typeof enrichedRows[0], i: number) {
+    return (
+      <>
+        <td className={`${T_STICKY_BODY} w-8 px-3 py-2 text-center text-gray-400 text-xs`} style={{ left: T_LEFT_RANK }}>{i + 1}</td>
+        <td className={`${T_STICKY_BODY} w-[180px] px-3 py-2`} style={{ left: T_LEFT_TEAM }}>
+          <div className="flex items-center gap-1.5">
+            {t.logoUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={t.logoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
+            ) : <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />}
+            <span className="font-medium text-gray-800 text-xs truncate">
+              {t.teamId ? <Link href={`/teams/${t.teamId}`} className="hover:text-yellow-600">{t.teamName}</Link> : t.teamName}
+            </span>
+          </div>
+        </td>
+        <td className={`${T_STICKY_BODY} w-20 px-3 py-2 text-right text-gray-500 text-xs border-r border-gray-200`} style={{ left: T_LEFT_GAMES }}>{t.games}</td>
+      </>
+    )
+  }
+
   const currentStage = selectedStageId ? stages.find(s => s.id === selectedStageId) : null
   const currentStageMatches = currentStage
     ? [...currentStage.matches].filter(m => m.status === 'imported').sort((a, b) => a.order_num - b.order_num)
@@ -698,9 +741,7 @@ export default function TeamStatsTable({
                 <thead>
                   {category === 'combat' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Team</th>
-                      {thR('games', 'G')}
+                      {teamFixedHeaders}
                       {thR('wwcd', 'WWCD')}
                       {thR('totalPoints', 'Pts', 'Total')}
                       {thR('avgPlacement', 'Avg Plc', 'Placement')}
@@ -724,9 +765,7 @@ export default function TeamStatsTable({
                   )}
                   {category === 'utility' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Team</th>
-                      {thR('games', 'G')}
+                      {teamFixedHeaders}
                       {thR('grenadesThrown', 'Grenades', 'Thrown')}
                       {thR('smokesThrown', 'Smokes', 'Thrown')}
                       {thR('flashbangsThrown', 'Flashes', 'Thrown')}
@@ -742,9 +781,7 @@ export default function TeamStatsTable({
                   )}
                   {category === 'survival' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Team</th>
-                      {thR('games', 'G')}
+                      {teamFixedHeaders}
                       {thR('avgSurvival', 'Avg Survival', 'Sum / Game')}
                       {thR('deaths', 'Deaths')}
                       {thR('damageTaken', 'Dmg Taken', 'Damage Taken')}
@@ -759,9 +796,7 @@ export default function TeamStatsTable({
                   )}
                   {category === 'movement' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Team</th>
-                      {thR('games', 'G')}
+                      {teamFixedHeaders}
                       {thR('walkDistance', 'Walk', 'Total')}
                       {thR('rideDistance', 'Ride', 'Total')}
                       {thR('swimDistance', 'Swim', 'Total')}
@@ -771,9 +806,7 @@ export default function TeamStatsTable({
                   )}
                   {category === 'teamplay' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Team</th>
-                      {thR('games', 'G')}
+                      {teamFixedHeaders}
                       {thR('assists', 'Assists')}
                       {thR('knocks', 'Knocks')}
                       {thR('tradeKillRate', 'Trade Kill', 'Rate %')}
@@ -784,9 +817,7 @@ export default function TeamStatsTable({
                   )}
                   {category === 'positioning' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
-                      <th className="px-3 py-2 text-center text-[11px] font-semibold text-gray-400 w-8">#</th>
-                      <th className="px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide">Team</th>
-                      {thR('games', 'G')}
+                      {teamFixedHeaders}
                       {thR('zoneEdgePct', 'Zone Edge', 'Time % at Edge')}
                       {thR('avgDistToZone', 'Avg Dist', 'to Zone Center')}
                       {thR('zoneOutsidePct', 'Outside Zone', 'Time % outside')}
@@ -798,22 +829,10 @@ export default function TeamStatsTable({
                     <tr><td colSpan={20} className="px-3 py-10 text-center text-gray-400 text-sm">No data for this scope</td></tr>
                   )}
                   {enrichedRows.map((t, i) => (
-                    <tr key={t.teamId ?? t.teamName} className="border-b border-gray-50 last:border-0 hover:bg-gray-50">
-                      <td className="px-3 py-2 text-center text-gray-400 text-xs">{i + 1}</td>
-                      <td className="px-3 py-2 whitespace-nowrap">
-                        <div className="flex items-center gap-1.5">
-                          {t.logoUrl ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={t.logoUrl} alt="" className="w-4 h-4 rounded object-contain border border-gray-100 shrink-0" />
-                          ) : <span className="w-4 h-4 rounded bg-gray-100 shrink-0" />}
-                          <span className="font-medium text-gray-800 text-xs">
-                            {t.teamId ? <Link href={`/teams/${t.teamId}`} className="hover:text-yellow-600">{t.teamName}</Link> : t.teamName}
-                          </span>
-                        </div>
-                      </td>
+                    <tr key={t.teamId ?? t.teamName} className="group border-b border-gray-50 last:border-0 hover:bg-gray-50">
+                      {teamFixedCells(t, i)}
                       {category === 'combat' && (
                         <>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.wwcd}</td>
                           <td className="px-3 py-2 text-right font-bold text-gray-900 text-xs">{t.totalPoints}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.avgPlacement < 99 ? t.avgPlacement.toFixed(1) : '—'}</td>
@@ -837,7 +856,6 @@ export default function TeamStatsTable({
                       )}
                       {category === 'utility' && (
                         <>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
                           <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{fmt(t.grenadesThrown)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.smokesThrown)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.flashbangsThrown)}</td>
@@ -853,7 +871,6 @@ export default function TeamStatsTable({
                       )}
                       {category === 'survival' && (
                         <>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
                           <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{formatSurvival(t.avgSurvival, 1)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.deaths > 0 ? t.deaths : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.damageTaken > 0 ? Math.round(t.damageTaken).toLocaleString() : '—'}</td>
@@ -868,7 +885,6 @@ export default function TeamStatsTable({
                       )}
                       {category === 'movement' && (
                         <>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmtDist(t.walkDistance)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmtDist(t.rideDistance)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmtDist(t.swimDistance)}</td>
@@ -878,7 +894,6 @@ export default function TeamStatsTable({
                       )}
                       {category === 'teamplay' && (
                         <>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
                           <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{t.assists}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.knocks}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.tradeKillRate > 0 ? t.tradeKillRate.toFixed(1) + '%' : '—'}</td>
@@ -889,7 +904,6 @@ export default function TeamStatsTable({
                       )}
                       {category === 'positioning' && (
                         <>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
                           <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{t.zoneEdgePct > 0 ? t.zoneEdgePct.toFixed(1) + '%' : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.avgDistToZone > 0 ? fmtDist(t.avgDistToZone) : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.zoneOutsidePct > 0 ? t.zoneOutsidePct.toFixed(1) + '%' : '—'}</td>
