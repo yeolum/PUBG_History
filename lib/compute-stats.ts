@@ -94,6 +94,53 @@ interface PlayerStatsEntry {
   zone_dist_sum: number
 }
 
+interface TeamStatsExtEntry {
+  team_id: string | null
+  team_name: string
+  logo_url: string | null
+  games: number
+  wwcd: number
+  kills: number
+  assists: number
+  knocks: number
+  headshot_kills: number
+  damage: number
+  survival_time: number
+  deaths: number
+  longest_kill: number
+  knock_damage_sum: number
+  engagement_dist_sum: number
+  engagement_dist_count: number
+  first_blood_kills: number
+  first_blood_knocks: number
+  grenades_thrown: number
+  smokes_thrown: number
+  flashbangs_thrown: number
+  molotovs_thrown: number
+  grenade_damage: number
+  molotov_damage: number
+  grenade_hit_events: number
+  damage_taken: number
+  blue_zone_damage: number
+  heals_used: number
+  boosts_used: number
+  total_heal_amount: number
+  revives: number
+  blue_zone_time: number
+  walk_distance: number
+  ride_distance: number
+  swim_distance: number
+  vehicle_time: number
+  revives_given: number
+  assist_damage: number
+  trade_kills: number
+  tradeable_deaths: number
+  zone_edge_samples: number
+  zone_total_samples: number
+  zone_outside_samples: number
+  zone_dist_sum: number
+}
+
 function aggregatePlayerStats(
   rows: AnyRow[],
   displayNameByTeam: Map<string, string>,
@@ -176,6 +223,85 @@ function aggregatePlayerStats(
   return map
 }
 
+function buildTeamExtMap(
+  playerRows: AnyRow[],
+  teamResultRows: AnyRow[],
+  displayNameByTeam: Map<string, string>,
+): Map<string, TeamStatsExtEntry> {
+  const map = new Map<string, TeamStatsExtEntry>()
+  for (const d of playerRows) {
+    const key = (d.team_id ?? null) as string | null
+    if (!key) continue
+    if (!map.has(key)) {
+      const teamName = displayNameByTeam.get(key) ?? ((d.teams as AnyRow | null)?.name ?? key) as string
+      map.set(key, {
+        team_id: key, team_name: teamName,
+        logo_url: ((d.teams as AnyRow | null)?.logo_url ?? null) as string | null,
+        games: 0, wwcd: 0,
+        kills: 0, assists: 0, knocks: 0, headshot_kills: 0, damage: 0, survival_time: 0,
+        deaths: 0, longest_kill: 0,
+        knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
+        first_blood_kills: 0, first_blood_knocks: 0,
+        grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
+        grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0,
+        damage_taken: 0, blue_zone_damage: 0,
+        heals_used: 0, boosts_used: 0, total_heal_amount: 0, revives: 0, blue_zone_time: 0,
+        walk_distance: 0, ride_distance: 0, swim_distance: 0, vehicle_time: 0,
+        revives_given: 0, assist_damage: 0, trade_kills: 0, tradeable_deaths: 0,
+        zone_edge_samples: 0, zone_total_samples: 0, zone_outside_samples: 0, zone_dist_sum: 0,
+      })
+    }
+    const e = map.get(key)!
+    e.kills += (d.kills as number) ?? 0
+    e.assists += (d.assists as number) ?? 0
+    e.knocks += (d.knocks as number) ?? 0
+    e.headshot_kills += (d.headshot_kills as number) ?? 0
+    e.damage += Number(d.damage_dealt ?? 0)
+    e.survival_time += Number(d.survival_time ?? 0)
+    e.longest_kill = Math.max(e.longest_kill, Number(d.longest_kill ?? 0))
+    e.deaths += (d.deaths as number) ?? 0
+    e.knock_damage_sum += Number(d.knock_damage_sum ?? 0)
+    e.engagement_dist_sum += Number(d.engagement_dist_sum ?? 0)
+    e.engagement_dist_count += (d.engagement_dist_count as number) ?? 0
+    e.first_blood_kills += (d.first_blood_kill ? 1 : 0)
+    e.first_blood_knocks += (d.first_blood_knock ? 1 : 0)
+    e.grenades_thrown += (d.grenades_thrown as number) ?? 0
+    e.smokes_thrown += (d.smokes_thrown as number) ?? 0
+    e.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
+    e.molotovs_thrown += (d.molotovs_thrown as number) ?? 0
+    e.grenade_damage += Number(d.grenade_damage ?? 0)
+    e.molotov_damage += Number(d.molotov_damage ?? 0)
+    e.grenade_hit_events += (d.grenade_hit_events as number) ?? 0
+    e.damage_taken += Number(d.damage_taken ?? 0)
+    e.blue_zone_damage += Number(d.blue_zone_damage ?? 0)
+    e.heals_used += (d.heals_used as number) ?? 0
+    e.boosts_used += (d.boosts_used as number) ?? 0
+    e.total_heal_amount += Number(d.total_heal_amount ?? 0)
+    e.revives += (d.revives as number) ?? 0
+    e.blue_zone_time += (d.blue_zone_time as number) ?? 0
+    e.walk_distance += Number(d.walk_distance ?? 0)
+    e.ride_distance += Number(d.ride_distance ?? 0)
+    e.swim_distance += Number(d.swim_distance ?? 0)
+    e.vehicle_time += (d.vehicle_time as number) ?? 0
+    e.revives_given += (d.revives_given as number) ?? 0
+    e.assist_damage += Number(d.assist_damage ?? 0)
+    e.trade_kills += (d.trade_kills as number) ?? 0
+    e.tradeable_deaths += (d.tradeable_deaths as number) ?? 0
+    e.zone_edge_samples += (d.zone_edge_samples as number) ?? 0
+    e.zone_total_samples += (d.zone_total_samples as number) ?? 0
+    e.zone_outside_samples += (d.zone_outside_samples as number) ?? 0
+    e.zone_dist_sum += Number(d.zone_dist_sum ?? 0)
+  }
+  for (const r of teamResultRows) {
+    const key = (r.team_id ?? null) as string | null
+    if (!key || !map.has(key)) continue
+    const e = map.get(key)!
+    e.games++
+    if ((r.placement as number) === 1) e.wwcd++
+  }
+  return map
+}
+
 async function insertPlayerRows(db: DB, table: string, rows: AnyRow[]): Promise<void> {
   for (let off = 0; off < rows.length; off += BATCH) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -209,6 +335,12 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       : Promise.resolve(),
     seriesIds.length > 0
       ? db.from('series_player_stats').delete().in('series_id', seriesIds)
+      : Promise.resolve(),
+    stageIds.length > 0
+      ? db.from('stage_team_stats').delete().in('stage_id', stageIds)
+      : Promise.resolve(),
+    seriesIds.length > 0
+      ? db.from('series_team_stats').delete().in('series_id', seriesIds)
       : Promise.resolve(),
     db.from('tournament_team_stats').delete().eq('tournament_id', tournamentId),
     db.from('tournament_player_stats').delete().eq('tournament_id', tournamentId),
@@ -358,6 +490,18 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     return toInsert.length > 0 ? insertPlayerRows(db, 'stage_player_stats', toInsert as AnyRow[]) : Promise.resolve()
   }))
 
+  // ── 1b. Stage team stats ──────────────────────────────────────────
+  await Promise.all(stages.map((stage) => {
+    const matchIds = matchIdsByStage.get(stage.id as string) ?? []
+    if (matchIds.length === 0) return Promise.resolve()
+    const matchIdSet = new Set(matchIds)
+    const psRows = matchIds.flatMap((mid) => psByMatch.get(mid) ?? [])
+    const trRows = allTrData.filter((r) => matchIdSet.has(r.match_id as string))
+    const teamExtStage = buildTeamExtMap(psRows, trRows, displayNameByTeam)
+    const toInsert = [...teamExtStage.values()].map((e) => ({ ...e, stage_id: stage.id, updated_at: now }))
+    return toInsert.length > 0 ? insertPlayerRows(db, 'stage_team_stats', toInsert as AnyRow[]) : Promise.resolve()
+  }))
+
   // ── 2. Series player stats ────────────────────────────────────────
   await Promise.all(seriesList.map((sr) => {
     const srStages = stages.filter((s) => s.series_id === sr.id)
@@ -369,32 +513,33 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
     return toInsert.length > 0 ? insertPlayerRows(db, 'series_player_stats', toInsert as AnyRow[]) : Promise.resolve()
   }))
 
+  // ── 2b. Series team stats ─────────────────────────────────────────
+  await Promise.all(seriesList.map((sr) => {
+    const srStages = stages.filter((s) => s.series_id === sr.id)
+    const matchIds = srStages.flatMap((s) => matchIdsByStage.get(s.id as string) ?? [])
+    if (matchIds.length === 0) return Promise.resolve()
+    const matchIdSet = new Set(matchIds)
+    const psRows = matchIds.flatMap((mid) => psByMatch.get(mid) ?? [])
+    const trRows = allTrData.filter((r) => matchIdSet.has(r.match_id as string))
+    const teamExtSeries = buildTeamExtMap(psRows, trRows, displayNameByTeam)
+    const toInsert = [...teamExtSeries.values()].map((e) => ({ ...e, series_id: sr.id, updated_at: now }))
+    return toInsert.length > 0 ? insertPlayerRows(db, 'series_team_stats', toInsert as AnyRow[]) : Promise.resolve()
+  }))
+
   // ── 3. Tournament team stats (total matches only) ─────────────────
-  const teamStatsMap = new Map<string, {
-    team_id: string | null; team_name: string; logo_url: string | null
-    games: number; wwcd: number; total_kills: number; total_damage: number
-  }>()
-  for (const r of trData) {
-    const key = (r.team_id ?? r.pubg_team_name ?? '?') as string
-    const ex = teamStatsMap.get(key) ?? {
-      team_id: (r.team_id ?? null) as string | null,
-      team_name: (r.team_id ? (displayNameByTeam.get(r.team_id as string) ?? null) : null) ??
-        (r.teams as AnyRow | null)?.name ?? (r.pubg_team_name as string) ?? '?',
-      logo_url: ((r.teams as AnyRow | null)?.logo_url ?? null) as string | null,
-      games: 0, wwcd: 0, total_kills: 0, total_damage: 0,
-    }
-    ex.games++
-    if ((r.placement as number) === 1) ex.wwcd++
-    ex.total_kills += (r.total_kills as number) ?? 0
-    ex.total_damage += Number(r.total_damage ?? 0)
-    teamStatsMap.set(key, ex)
-  }
+  const totalPsData = totalMatchIds.flatMap((mid) => psByMatch.get(mid) ?? [])
+  const teamExtMap = buildTeamExtMap(totalPsData, trData, displayNameByTeam)
 
   // ── 4. Tournament player stats (total matches only) ───────────────
-  const totalPsData = totalMatchIds.flatMap((mid) => psByMatch.get(mid) ?? [])
   const playerStatsMap = aggregatePlayerStats(totalPsData, displayNameByTeam, accountIdToPlayerId)
 
-  const teamRows = [...teamStatsMap.values()].map((e) => ({ ...e, tournament_id: tournamentId, updated_at: now }))
+  const teamRows = [...teamExtMap.values()].map((e) => ({
+    ...e,
+    total_kills: e.kills,
+    total_damage: e.damage,
+    tournament_id: tournamentId,
+    updated_at: now,
+  }))
   const playerRows = [...playerStatsMap.values()].map((e) => ({ ...e, tournament_id: tournamentId, updated_at: now }))
 
   // ── 5. 100킬 클럽 (tournament_player_stats에서 kills >= 100인 선수) ─────

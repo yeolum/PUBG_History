@@ -36,7 +36,7 @@ export interface DropLocationRow {
   totalMatches?: number
 }
 
-interface TeamExtRow {
+export interface TeamExtRow {
   teamId: string | null
   kills: number
   assists: number
@@ -250,6 +250,8 @@ export default function TeamStatsTable({
   stagePlayerStats = {},
   seriesPlayerStats = {},
   playerStatsByMatch = {},
+  stageTeamStats = {},
+  seriesTeamStats = {},
 }: {
   teamStats: TeamStatRow[]
   dropLocations: DropLocationRow[]
@@ -261,6 +263,8 @@ export default function TeamStatsTable({
   stagePlayerStats?: Record<string, PlayerStatRow[]>
   seriesPlayerStats?: Record<string, PlayerStatRow[]>
   playerStatsByMatch?: Record<string, PlayerMatchStat[]>
+  stageTeamStats?: Record<string, TeamExtRow[]>
+  seriesTeamStats?: Record<string, TeamExtRow[]>
 }) {
   const [category, setCategory] = useState<Category>('combat')
   const [sortKey, setSortKey] = useState<ExtSortKey>('kills')
@@ -370,6 +374,12 @@ export default function TeamStatsTable({
       return aggregateFromMatchStats(new Set([selectedMatchId]), playerStatsByMatch)
     }
     if (selectedStageId) {
+      const preTeam = stageTeamStats[selectedStageId]
+      if (preTeam && preTeam.length > 0) {
+        const m = new Map<string, TeamExtRow>()
+        for (const r of preTeam) { if (r.teamId) m.set(r.teamId, r) }
+        return m
+      }
       const pre = stagePlayerStats[selectedStageId]
       if (pre && pre.length > 0) return aggregateFromPlayerRows(pre)
       const stage = stages.find(s => s.id === selectedStageId)
@@ -377,13 +387,19 @@ export default function TeamStatsTable({
       return aggregateFromMatchStats(ids, playerStatsByMatch)
     }
     if (selectedSeriesId) {
+      const preTeam = seriesTeamStats[selectedSeriesId]
+      if (preTeam && preTeam.length > 0) {
+        const m = new Map<string, TeamExtRow>()
+        for (const r of preTeam) { if (r.teamId) m.set(r.teamId, r) }
+        return m
+      }
       const pre = seriesPlayerStats[selectedSeriesId]
       if (pre && pre.length > 0) return aggregateFromPlayerRows(pre)
       const ids = new Set(stages.filter(s => s.series_id === selectedSeriesId).flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id)))
       return aggregateFromMatchStats(ids, playerStatsByMatch)
     }
     return aggregateFromPlayerRows(playerStats)
-  }, [selectedMatchId, selectedStageId, selectedSeriesId, playerStats, stagePlayerStats, seriesPlayerStats, playerStatsByMatch, stages])
+  }, [selectedMatchId, selectedStageId, selectedSeriesId, playerStats, stagePlayerStats, seriesPlayerStats, playerStatsByMatch, stageTeamStats, seriesTeamStats, stages])
 
   // Merge displayTeamStats (games/wwcd/points) + displayExtStats (player-aggregated) per team
   const enrichedRows = useMemo(() => {

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import TournamentStagesView from './TournamentStagesView'
 import PlayerStatsTable, { type PlayerStatRow, type PlayerMatchStat } from './PlayerStatsTable'
-import TeamStatsTable, { type TeamStatRow, type DropLocationRow } from './TeamStatsTable'
+import TeamStatsTable, { type TeamStatRow, type DropLocationRow, type TeamExtRow } from './TeamStatsTable'
 import type { Stage, Match } from '@/lib/types'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -38,6 +38,8 @@ interface Props {
   teamStats: TeamStatRow[]
   dropLocations: DropLocationRow[]
   mapKeys: string[]
+  stageTeamStats: Record<string, TeamExtRow[]>
+  seriesTeamStats: Record<string, TeamExtRow[]>
   dqTeamIds: string[]
 }
 
@@ -108,6 +110,8 @@ export default function TournamentDetailTabs(props: Props) {
           stagePlayerStats={props.stagePlayerStats}
           seriesPlayerStats={props.seriesPlayerStats}
           playerStatsByMatch={props.playerStatsByMatch}
+          stageTeamStats={props.stageTeamStats}
+          seriesTeamStats={props.seriesTeamStats}
         />
       )}
     </div>

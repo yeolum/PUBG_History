@@ -6,7 +6,7 @@ import { stripTagPrefix } from '@/lib/pubg-api'
 import TournamentRoster from './TournamentRoster'
 import TournamentDetailTabs from './TournamentDetailTabs'
 import type { PlayerStatRow, PlayerMatchStat } from './PlayerStatsTable'
-import type { TeamStatRow, DropLocationRow } from './TeamStatsTable'
+import type { TeamStatRow, DropLocationRow, TeamExtRow } from './TeamStatsTable'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyRow = Record<string, any>
@@ -132,8 +132,11 @@ const loadTournamentData = unstable_cache(
     // Side queries that don't depend on matchIds — start them now so they
     // run alongside the matches + trData + psData fetches.
     const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, road_kills, vehicle_destroys, team_kills, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
+    const EXTENDED_TEAM_COLS = 'games, wwcd, kills, assists, knocks, headshot_kills, damage, survival_time, deaths, longest_kill, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, damage_taken, blue_zone_damage, heals_used, boosts_used, total_heal_amount, revives, blue_zone_time, walk_distance, ride_distance, swim_distance, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
     const SPS_SELECT = `stage_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const SRPS_SELECT = `series_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
+    const STS_SELECT = `stage_id, team_id, team_name, logo_url, ${EXTENDED_TEAM_COLS}`
+    const SRTS_SELECT = `series_id, team_id, team_name, logo_url, ${EXTENDED_TEAM_COLS}`
     const sideQueriesPromise = Promise.all([
       aliasQueriesPromise,
       stageIds.length === 0 ? Promise.resolve({ data: [] }) : svcSupabase.from('stage_additional_points').select('id, stage_id, team_id, team_name, points').in('stage_id', stageIds),
@@ -147,6 +150,8 @@ const loadTournamentData = unstable_cache(
       stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(supabase.from('combined_scoreboard_stages').select('combined_scoreboard_id, stage_id').in('stage_id', stageIds)),
       stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('stage_player_stats').select(SPS_SELECT).in('stage_id', stageIds)),
       seriesIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('series_player_stats').select(SRPS_SELECT).in('series_id', seriesIds)),
+      stageIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('stage_team_stats').select(STS_SELECT).in('stage_id', stageIds)),
+      seriesIds.length === 0 ? Promise.resolve({ data: [] as AnyRow[] }) : fetchAllRows<AnyRow>(svcSupabase.from('series_team_stats').select(SRTS_SELECT).in('series_id', seriesIds)),
     ])
 
     const allMatches = await matchesPromise
@@ -167,7 +172,7 @@ const loadTournamentData = unstable_cache(
 
     // Now run the matchId-dependent fetches, which can also overlap with the
     // tail of any still-in-flight side queries.
-    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }, { data: stagePsData }, { data: seriesPsData }], { data: tpsData }] = await Promise.all([
+    const [trData, psData, [[{ data: allAliasData }, { data: dropLocData }, { data: playerAliasData }], { data: additionalPtsData }, { data: wwcdRewardsData }, { data: specialAwardsData }, { data: stagePrizeConfigData }, { data: seriesPrizeConfigData }, { data: rosterTeamsData }, { data: rosterPlayersData }, { data: combinedData }, { data: combinedStageData }, { data: stagePsData }, { data: seriesPsData }, { data: stageTeamStatsData }, { data: seriesTeamStatsData }], { data: tpsData }] = await Promise.all([
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_team_results', TR_SELECT, allImportedMatchIds),
       allImportedMatchIds.length === 0 ? Promise.resolve([]) : fetchAllPages(supabase, 'match_player_stats', PS_SELECT, allImportedMatchIds),
       sideQueriesPromise,
@@ -175,7 +180,7 @@ const loadTournamentData = unstable_cache(
       fetchAllRows<AnyRow>((supabase as any).from('tournament_player_stats').select('*').eq('tournament_id', id)),
     ])
 
-    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData }
+    return { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData, stageTeamStatsData, seriesTeamStatsData }
   },
   ['tournament-data'],
   // Tag lets admin saves call revalidateTag('tournament-data') for an
@@ -191,7 +196,7 @@ function resolveLogoUrl(teamId: string | null, name: string, lookup: Record<stri
 export default async function TournamentContent({ id, tournament }: { id: string; tournament: Tournament }) {
   const t = tournament
 
-  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData } = await loadTournamentData(id)
+  const { stagesData, prizeConfigData, seriesData, trData, psData, allAliasData, dropLocData, playerAliasData, additionalPtsData, wwcdRewardsData, specialAwardsData, stagePrizeConfigData, seriesPrizeConfigData, rosterTeamsData, rosterPlayersData, combinedData, combinedStageData, tpsData, stagePsData, seriesPsData, stageTeamStatsData, seriesTeamStatsData } = await loadTournamentData(id)
 
   // stageId → { teamId|teamNameLower → extraPts }
   const stageAdditionalPts: Record<string, Record<string, number>> = {}
@@ -654,6 +659,65 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const sid = r.series_id as string
     if (!seriesPlayerStats[sid]) seriesPlayerStats[sid] = []
     seriesPlayerStats[sid].push(mapPlayerRow({ ...r, player_id: r.player_id, team_id: r.team_id, team_name: r.team_name, logo_url: r.logo_url }))
+  }
+
+  function mapTeamExtRow(r: AnyRow): TeamExtRow {
+    return {
+      teamId: (r.team_id ?? null) as string | null,
+      kills: (r.kills as number) ?? 0,
+      assists: (r.assists as number) ?? 0,
+      knocks: (r.knocks as number) ?? 0,
+      headshotKills: (r.headshot_kills as number) ?? 0,
+      damage: Number(r.damage ?? 0),
+      survivalTime: Number(r.survival_time ?? 0),
+      deaths: (r.deaths as number) ?? 0,
+      longestKill: Number(r.longest_kill ?? 0),
+      knockDamageSum: Number(r.knock_damage_sum ?? 0),
+      engagementDistSum: Number(r.engagement_dist_sum ?? 0),
+      engagementDistCount: (r.engagement_dist_count as number) ?? 0,
+      firstBloodKills: (r.first_blood_kills as number) ?? 0,
+      firstBloodKnocks: (r.first_blood_knocks as number) ?? 0,
+      grenadesThrown: (r.grenades_thrown as number) ?? 0,
+      smokesThrown: (r.smokes_thrown as number) ?? 0,
+      flashbangsThrown: (r.flashbangs_thrown as number) ?? 0,
+      molotovsThrown: (r.molotovs_thrown as number) ?? 0,
+      grenadeDamage: Number(r.grenade_damage ?? 0),
+      molotovDamage: Number(r.molotov_damage ?? 0),
+      grenadeHitEvents: (r.grenade_hit_events as number) ?? 0,
+      damageTaken: Number(r.damage_taken ?? 0),
+      blueZoneDamage: Number(r.blue_zone_damage ?? 0),
+      healsUsed: (r.heals_used as number) ?? 0,
+      boostsUsed: (r.boosts_used as number) ?? 0,
+      totalHealAmount: Number(r.total_heal_amount ?? 0),
+      revives: (r.revives as number) ?? 0,
+      blueZoneTime: (r.blue_zone_time as number) ?? 0,
+      walkDistance: Number(r.walk_distance ?? 0),
+      rideDistance: Number(r.ride_distance ?? 0),
+      swimDistance: Number(r.swim_distance ?? 0),
+      vehicleTime: (r.vehicle_time as number) ?? 0,
+      revivesGiven: (r.revives_given as number) ?? 0,
+      assistDamage: Number(r.assist_damage ?? 0),
+      tradeKills: (r.trade_kills as number) ?? 0,
+      tradeableDeaths: (r.tradeable_deaths as number) ?? 0,
+      zoneEdgeSamples: (r.zone_edge_samples as number) ?? 0,
+      zoneTotalSamples: (r.zone_total_samples as number) ?? 0,
+      zoneOutsideSamples: (r.zone_outside_samples as number) ?? 0,
+      zoneDistSum: Number(r.zone_dist_sum ?? 0),
+    }
+  }
+
+  const stageTeamStats: Record<string, TeamExtRow[]> = {}
+  for (const r of (stageTeamStatsData ?? []) as AnyRow[]) {
+    const sid = r.stage_id as string
+    if (!stageTeamStats[sid]) stageTeamStats[sid] = []
+    stageTeamStats[sid].push(mapTeamExtRow(r))
+  }
+
+  const seriesTeamStats: Record<string, TeamExtRow[]> = {}
+  for (const r of (seriesTeamStatsData ?? []) as AnyRow[]) {
+    const sid = r.series_id as string
+    if (!seriesTeamStats[sid]) seriesTeamStats[sid] = []
+    seriesTeamStats[sid].push(mapTeamExtRow(r))
   }
 
   const teamStats: TeamStatRow[] = [...teamStatsMap.values()].sort((a, b) => b.totalPoints - a.totalPoints)
@@ -1219,6 +1283,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
         teamStats={teamStats}
         dropLocations={dropLocations}
         mapKeys={mapKeys}
+        stageTeamStats={stageTeamStats}
+        seriesTeamStats={seriesTeamStats}
         dqTeamIds={[...dqTeamIds]}
       />
     </>
