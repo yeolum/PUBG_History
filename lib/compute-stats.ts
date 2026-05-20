@@ -69,6 +69,8 @@ interface PlayerStatsEntry {
   engagement_dist_count: number
   first_blood_kills: number
   first_blood_knocks: number
+  steal_kills: number
+  stolen_kills: number
   // Telemetry-derived (utility)
   grenades_thrown: number
   smokes_thrown: number
@@ -113,6 +115,8 @@ interface TeamStatsExtEntry {
   engagement_dist_count: number
   first_blood_kills: number
   first_blood_knocks: number
+  steal_kills: number
+  stolen_kills: number
   grenades_thrown: number
   smokes_thrown: number
   flashbangs_thrown: number
@@ -168,7 +172,7 @@ function aggregatePlayerStats(
       revives: 0, heals_used: 0, boosts_used: 0, road_kills: 0, vehicle_destroys: 0, team_kills: 0,
       deaths: 0, damage_taken: 0, blue_zone_damage: 0,
       knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
-      first_blood_kills: 0, first_blood_knocks: 0,
+      first_blood_kills: 0, first_blood_knocks: 0, steal_kills: 0, stolen_kills: 0,
       grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
       grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0,
       total_heal_amount: 0, blue_zone_time: 0,
@@ -201,6 +205,8 @@ function aggregatePlayerStats(
     ex.engagement_dist_count += (d.engagement_dist_count as number) ?? 0
     ex.first_blood_kills += (d.first_blood_kill ? 1 : 0)
     ex.first_blood_knocks += (d.first_blood_knock ? 1 : 0)
+    ex.steal_kills += (d.steal_kills as number) ?? 0
+    ex.stolen_kills += (d.stolen_kills as number) ?? 0
     ex.grenades_thrown += (d.grenades_thrown as number) ?? 0
     ex.smokes_thrown += (d.smokes_thrown as number) ?? 0
     ex.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
@@ -242,7 +248,7 @@ function buildTeamExtMap(
         kills: 0, assists: 0, knocks: 0, headshot_kills: 0, damage: 0, survival_time: 0,
         deaths: 0, longest_kill: 0,
         knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
-        first_blood_kills: 0, first_blood_knocks: 0,
+        first_blood_kills: 0, first_blood_knocks: 0, steal_kills: 0, stolen_kills: 0,
         grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
         grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0,
         damage_taken: 0, blue_zone_damage: 0,
@@ -268,6 +274,8 @@ function buildTeamExtMap(
     e.engagement_dist_count += (d.engagement_dist_count as number) ?? 0
     e.first_blood_kills += (d.first_blood_kill ? 1 : 0)
     e.first_blood_knocks += (d.first_blood_knock ? 1 : 0)
+    e.steal_kills += (d.steal_kills as number) ?? 0
+    e.stolen_kills += (d.stolen_kills as number) ?? 0
     e.grenades_thrown += (d.grenades_thrown as number) ?? 0
     e.smokes_thrown += (d.smokes_thrown as number) ?? 0
     e.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
@@ -416,7 +424,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       allImportedMatchIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
+      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, steal_kills, stolen_kills, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
       allImportedMatchIds,
       'match_id',
     ),
@@ -458,6 +466,8 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       d.engagement_dist_count = tel.engagement_dist_count
       d.first_blood_kill = tel.first_blood_kill
       d.first_blood_knock = tel.first_blood_knock
+      d.steal_kills = tel.steal_kills
+      d.stolen_kills = tel.stolen_kills
       d.grenades_thrown = tel.grenades_thrown
       d.smokes_thrown = tel.smokes_thrown
       d.flashbangs_thrown = tel.flashbangs_thrown

@@ -49,8 +49,8 @@ export interface TeamExtRow {
   knockDamageSum: number
   engagementDistSum: number
   engagementDistCount: number
-  firstBloodKills: number
-  firstBloodKnocks: number
+  stealKills: number
+  stolenKills: number
   grenadesThrown: number
   smokesThrown: number
   flashbangsThrown: number
@@ -84,7 +84,7 @@ function emptyExt(teamId: string | null): TeamExtRow {
   return {
     teamId, kills: 0, assists: 0, knocks: 0, headshotKills: 0, damage: 0, survivalTime: 0,
     deaths: 0, longestKill: 0, knockDamageSum: 0, engagementDistSum: 0, engagementDistCount: 0,
-    firstBloodKills: 0, firstBloodKnocks: 0,
+    stealKills: 0, stolenKills: 0,
     grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
     grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
     damageTaken: 0, blueZoneDamage: 0, healsUsed: 0, boostsUsed: 0, totalHealAmount: 0, revives: 0, blueZoneTime: 0,
@@ -113,8 +113,8 @@ function aggregateFromPlayerRows(rows: PlayerStatRow[]): Map<string, TeamExtRow>
     e.knockDamageSum += p.knockDamageSum ?? 0
     e.engagementDistSum += p.engagementDistSum ?? 0
     e.engagementDistCount += p.engagementDistCount ?? 0
-    e.firstBloodKills += p.firstBloodKills ?? 0
-    e.firstBloodKnocks += p.firstBloodKnocks ?? 0
+    e.stealKills += p.stealKills ?? 0
+    e.stolenKills += p.stolenKills ?? 0
     e.grenadesThrown += p.grenadesThrown ?? 0
     e.smokesThrown += p.smokesThrown ?? 0
     e.flashbangsThrown += p.flashbangsThrown ?? 0
@@ -195,7 +195,7 @@ type ExtSortKey =
   | 'teamName' | 'games' | 'wwcd' | 'totalPoints' | 'avgPlacement'
   | 'kills' | 'kpg' | 'deaths' | 'kd' | 'assists' | 'knocks' | 'kkRatio' | 'dpk'
   | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'longestKill' | 'avgEngDist'
-  | 'firstBloodKills' | 'firstBloodKnocks'
+  | 'stealKills' | 'stolenKills'
   | 'grenadesThrown' | 'smokesThrown' | 'flashbangsThrown' | 'molotovsThrown'
   | 'grenadeDamage' | 'molotovDamage' | 'utilityDamage' | 'grenadeHitRate'
   | 'avgSurvival' | 'damageTaken' | 'blueZoneDamage' | 'blueZoneTimePerGame'
@@ -427,7 +427,7 @@ export default function TeamStatsTable({
         hsPercent: kills > 0 ? (ext.headshotKills / kills) * 100 : 0,
         longestKill: ext.longestKill,
         avgEngDist: ext.engagementDistCount > 0 ? ext.engagementDistSum / ext.engagementDistCount : 0,
-        firstBloodKills: ext.firstBloodKills, firstBloodKnocks: ext.firstBloodKnocks,
+        stealKills: ext.stealKills, stolenKills: ext.stolenKills,
         grenadesThrown: ext.grenadesThrown, smokesThrown: ext.smokesThrown,
         flashbangsThrown: ext.flashbangsThrown, molotovsThrown: ext.molotovsThrown,
         grenadeDamage: ext.grenadeDamage, molotovDamage: ext.molotovDamage,
@@ -708,8 +708,8 @@ export default function TeamStatsTable({
                       {thR('adr', 'ADR', 'Avg per Round')}
                       {thR('longestKill', 'Longest Kill')}
                       {thR('avgEngDist', 'Avg Eng Dist', 'Engagement Dist')}
-                      {thR('firstBloodKills', 'FB Kills', 'First Blood')}
-                      {thR('firstBloodKnocks', 'FB Knocks', 'First Blood')}
+                      {thR('stealKills', 'Steal Kills', 'Finished Ally Knock')}
+                      {thR('stolenKills', 'Stolen Kills', 'Knock Taken by Ally')}
                     </tr>
                   )}
                   {category === 'utility' && (
@@ -818,8 +818,8 @@ export default function TeamStatsTable({
                           <td className="px-3 py-2 text-right font-medium text-gray-700 text-xs">{Math.round(t.adr).toLocaleString()}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.longestKill > 0 ? `${Math.round(t.longestKill)}m` : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.avgEngDist > 0 ? `${Math.round(t.avgEngDist)}m` : '—'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.firstBloodKills > 0 ? t.firstBloodKills : '—'}</td>
-                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.firstBloodKnocks > 0 ? t.firstBloodKnocks : '—'}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.stealKills > 0 ? t.stealKills : '—'}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.stolenKills > 0 ? t.stolenKills : '—'}</td>
                         </>
                       )}
                       {category === 'utility' && (

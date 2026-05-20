@@ -257,7 +257,7 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         pubgAccountId: accountId,
         deaths: 0, damageTaken: 0, blueZoneDamage: 0,
         knockDamageSum: 0, engagementDistSum: 0, engagementDistCount: 0,
-        firstBloodKill: false, firstBloodKnock: false,
+        firstBloodKill: false, firstBloodKnock: false, stealKills: 0, stolenKills: 0,
         grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
         grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
         healsUsed: 0, boostsUsed: 0, totalHealAmount: 0, blueZoneTime: 0,
@@ -369,6 +369,17 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
             if (recent.some(d => d.killer === victimId && t - d.time <= 10)) {
               get(killerId).tradeKills++
             }
+          }
+        }
+
+        // Steal/stolen kills: dBNOMaker knocked, finisher is different teammate
+        const dBNOMakerId: string | undefined = ev.dBNOMaker?.accountId
+        if (dBNOMakerId && killerId && dBNOMakerId !== killerId) {
+          const dBNOMakerTeam = accountTeam.get(dBNOMakerId)
+          const killerTeamId = accountTeam.get(killerId)
+          if (dBNOMakerTeam != null && dBNOMakerTeam === killerTeamId) {
+            if (track(killerId)) get(killerId).stealKills++
+            if (track(dBNOMakerId)) get(dBNOMakerId).stolenKills++
           }
         }
 

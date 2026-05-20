@@ -37,6 +37,8 @@ export interface PlayerStatRow {
   engagementDistCount?: number
   firstBloodKills?: number
   firstBloodKnocks?: number
+  stealKills?: number
+  stolenKills?: number
   // Telemetry-derived (utility)
   grenadesThrown?: number
   smokesThrown?: number
@@ -91,7 +93,7 @@ type SortKey =
   // Combat
   | 'nickname' | 'teamName' | 'games' | 'kills' | 'kpg' | 'assists' | 'knocks'
   | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'longestKill' | 'deaths' | 'kd'
-  | 'dpk' | 'kkRatio' | 'avgEngagementDist' | 'firstBloodKills' | 'firstBloodKnocks'
+  | 'dpk' | 'kkRatio' | 'avgEngagementDist' | 'stealKills' | 'stolenKills'
   // Utility
   | 'grenadesThrown' | 'smokesThrown' | 'flashbangsThrown' | 'molotovsThrown'
   | 'grenadeDamage' | 'molotovDamage' | 'utilityDamage' | 'grenadeHitRate'
@@ -267,8 +269,8 @@ export default function PlayerStatsTable({
     dpk: (p.knocks ?? 0) > 0 ? (p.knockDamageSum ?? 0) / (p.knocks ?? 1) : 0,
     kkRatio: (p.knocks ?? 0) > 0 ? p.kills / (p.knocks ?? 1) : 0,
     avgEngagementDist: (p.engagementDistCount ?? 0) > 0 ? (p.engagementDistSum ?? 0) / (p.engagementDistCount ?? 1) : 0,
-    firstBloodKills: p.firstBloodKills ?? 0,
-    firstBloodKnocks: p.firstBloodKnocks ?? 0,
+    stealKills: p.stealKills ?? 0,
+    stolenKills: p.stolenKills ?? 0,
     utilityDamage: (p.grenadeDamage ?? 0) + (p.molotovDamage ?? 0),
     grenadeHitRate: (p.grenadesThrown ?? 0) + (p.molotovsThrown ?? 0) + (p.flashbangsThrown ?? 0) > 0
       ? ((p.grenadeHitEvents ?? 0) / ((p.grenadesThrown ?? 0) + (p.molotovsThrown ?? 0) + (p.flashbangsThrown ?? 0))) * 100
@@ -529,8 +531,8 @@ export default function PlayerStatsTable({
                 {thR('adr', 'ADR', 'Avg per Round')}
                 {thR('longestKill', 'Longest Kill')}
                 {thR('avgEngagementDist', 'Avg Eng Dist', 'Engagement Dist')}
-                {thR('firstBloodKills', 'FB Kills', 'First Blood')}
-                {thR('firstBloodKnocks', 'FB Knocks', 'First Blood')}
+                {thR('stealKills', 'Steal Kills', 'Finished Ally Knock')}
+                {thR('stolenKills', 'Stolen Kills', 'Knock Taken by Ally')}
               </tr>
             )}
             {category === 'utility' && (
@@ -619,8 +621,8 @@ export default function PlayerStatsTable({
                     <td className="px-3 py-2 text-right font-medium text-gray-700">{Math.round(p.adr).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.longestKill > 0 ? `${Math.round(p.longestKill)}m` : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.avgEngagementDist > 0 ? `${Math.round(p.avgEngagementDist)}m` : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-500">{p.firstBloodKills > 0 ? p.firstBloodKills : '—'}</td>
-                    <td className="px-3 py-2 text-right text-gray-500">{p.firstBloodKnocks > 0 ? p.firstBloodKnocks : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.stealKills > 0 ? p.stealKills : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.stolenKills > 0 ? p.stolenKills : '—'}</td>
                   </>
                 )}
                 {category === 'utility' && (

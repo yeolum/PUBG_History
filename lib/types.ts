@@ -247,6 +247,8 @@ export interface TelemetryPlayerStats {
   engagementDistCount: number
   firstBloodKill: boolean
   firstBloodKnock: boolean
+  stealKills: number
+  stolenKills: number
   // Utility
   grenadesThrown: number
   smokesThrown: number
