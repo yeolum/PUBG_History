@@ -314,7 +314,6 @@ export default function PlayerStatsTable({
       const av = (a as Record<string, number | string>)[sortKey]
       const bv = (b as Record<string, number | string>)[sortKey]
       if (typeof av === 'string') return dir * av.localeCompare(bv as string)
-      if (sortKey === 'avgSurvival') return -dir * ((av as number) - (bv as number))
       return dir * ((av as number) - (bv as number))
     })
   }, [enriched, sortKey, sortDir, search])
