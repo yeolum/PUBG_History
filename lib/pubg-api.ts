@@ -329,6 +329,9 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
     teamDeaths.get(tid)!.push({ killer, time })
   }
 
+  // Grenade hit tracking: unique attackId per thrower → "threw and hit" count
+  const grenadeHitAttackIds = new Map<string, Set<number>>()
+
   // First blood tracking
   let firstKillTime = Infinity, firstKillAcc = ''
   let firstKnockTime = Infinity, firstKnockAcc = ''
@@ -427,7 +430,14 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
 
         if (attackerId && track(attackerId)) {
           const s = get(attackerId)
-          if (isGrenadeDamage(ev)) { s.grenadeDamage += dmg; s.grenadeHitEvents++ }
+          if (isGrenadeDamage(ev)) {
+            s.grenadeDamage += dmg
+            const attackId = ev.attackId as number | undefined
+            if (attackId != null) {
+              if (!grenadeHitAttackIds.has(attackerId)) grenadeHitAttackIds.set(attackerId, new Set())
+              grenadeHitAttackIds.get(attackerId)!.add(attackId)
+            }
+          }
           else if (isMolotovDamage(ev)) { s.molotovDamage += dmg }
           // LogPlayerTakeDamage has no .distance field — compute from positions (cm → m)
           const ax = ev.attacker?.location?.x as number | undefined
@@ -527,6 +537,11 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
   // Finalise vehicle time for players still in a vehicle at match end
   for (const [accountId, start] of vehicleStart.entries()) {
     if (track(accountId)) get(accountId).vehicleTime += Math.max(0, Math.round((events.at(-1)?.elapsedTime ?? start) - start))
+  }
+
+  // Grenade hit count: unique throws that hit at least one player
+  for (const [accountId, ids] of grenadeHitAttackIds.entries()) {
+    if (track(accountId)) get(accountId).grenadeHitEvents = ids.size
   }
 
   // First blood flags
