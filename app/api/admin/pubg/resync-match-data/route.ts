@@ -5,7 +5,6 @@ import { revalidateTag } from 'next/cache'
 import { cookies } from 'next/headers'
 import { fetchPubgMatch } from '@/lib/pubg-api'
 import { computeTournamentStats } from '@/lib/compute-stats'
-import { computeDropLocations } from '@/lib/compute-drops'
 
 export const maxDuration = 300
 
@@ -66,16 +65,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ synced: 0, failed: 0 })
   }
 
-  const matchIds = matchesData.map((m) => m.id as string)
-
-  // Force-delete existing telemetry rows so computeDropLocations re-fetches
-  // telemetry and recalculates all columns (knock_damage_sum, engagement_dist,
-  // first_blood_kill/knock, etc. added in migrations 034/035).
-  await Promise.all([
-    db.from('match_player_telemetry_stats').delete().in('match_id', matchIds),
-    db.from('match_team_drop_locations').delete().in('match_id', matchIds),
-    db.from('match_flight_paths').delete().in('match_id', matchIds),
-  ])
+  // No telemetry deletion — telemetry data is immutable once computed.
+  // Deleting + re-downloading was the primary cause of 504 timeouts on large tournaments.
 
   let synced = 0
   let failed = 0
@@ -127,13 +118,6 @@ export async function POST(req: NextRequest) {
       failed++
       errors.push(`${pubgMatchId}: ${err instanceof Error ? err.message : String(err)}`)
     }
-  }
-
-  // Re-fetch telemetry for all matches (computes DPK, engagement dist, first blood, etc.)
-  try {
-    await computeDropLocations(tournamentId, db)
-  } catch (err) {
-    console.error('[resync-match-data] computeDropLocations failed:', err)
   }
 
   // Recompute aggregated stats
