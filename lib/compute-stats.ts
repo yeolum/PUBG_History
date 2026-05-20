@@ -139,6 +139,7 @@ interface TeamStatsExtEntry {
   zone_total_samples: number
   zone_outside_samples: number
   zone_dist_sum: number
+  player_entries: number
 }
 
 function aggregatePlayerStats(
@@ -249,9 +250,11 @@ function buildTeamExtMap(
         walk_distance: 0, ride_distance: 0, swim_distance: 0, vehicle_time: 0,
         revives_given: 0, assist_damage: 0, trade_kills: 0, tradeable_deaths: 0,
         zone_edge_samples: 0, zone_total_samples: 0, zone_outside_samples: 0, zone_dist_sum: 0,
+        player_entries: 0,
       })
     }
     const e = map.get(key)!
+    e.player_entries++
     e.kills += (d.kills as number) ?? 0
     e.assists += (d.assists as number) ?? 0
     e.knocks += (d.knocks as number) ?? 0

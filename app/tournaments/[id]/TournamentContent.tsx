@@ -132,7 +132,7 @@ const loadTournamentData = unstable_cache(
     // Side queries that don't depend on matchIds — start them now so they
     // run alongside the matches + trData + psData fetches.
     const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, road_kills, vehicle_destroys, team_kills, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
-    const EXTENDED_TEAM_COLS = 'games, wwcd, kills, assists, knocks, headshot_kills, damage, survival_time, deaths, longest_kill, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, damage_taken, blue_zone_damage, heals_used, boosts_used, total_heal_amount, revives, blue_zone_time, walk_distance, ride_distance, swim_distance, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
+    const EXTENDED_TEAM_COLS = 'games, wwcd, kills, assists, knocks, headshot_kills, damage, survival_time, deaths, longest_kill, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, damage_taken, blue_zone_damage, heals_used, boosts_used, total_heal_amount, revives, blue_zone_time, walk_distance, ride_distance, swim_distance, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum, player_entries'
     const SPS_SELECT = `stage_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const SRPS_SELECT = `series_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const STS_SELECT = `stage_id, team_id, team_name, logo_url, ${EXTENDED_TEAM_COLS}`
@@ -703,6 +703,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
       zoneTotalSamples: (r.zone_total_samples as number) ?? 0,
       zoneOutsideSamples: (r.zone_outside_samples as number) ?? 0,
       zoneDistSum: Number(r.zone_dist_sum ?? 0),
+      playerEntries: (r.player_entries as number) ?? 0,
     }
   }
 

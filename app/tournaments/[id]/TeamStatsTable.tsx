@@ -77,6 +77,7 @@ export interface TeamExtRow {
   zoneTotalSamples: number
   zoneOutsideSamples: number
   zoneDistSum: number
+  playerEntries: number
 }
 
 function emptyExt(teamId: string | null): TeamExtRow {
@@ -90,6 +91,7 @@ function emptyExt(teamId: string | null): TeamExtRow {
     walkDistance: 0, rideDistance: 0, swimDistance: 0, vehicleTime: 0,
     revivesGiven: 0, assistDamage: 0, tradeKills: 0, tradeableDeaths: 0,
     zoneEdgeSamples: 0, zoneTotalSamples: 0, zoneOutsideSamples: 0, zoneDistSum: 0,
+    playerEntries: 0,
   }
 }
 
@@ -99,6 +101,7 @@ function aggregateFromPlayerRows(rows: PlayerStatRow[]): Map<string, TeamExtRow>
     if (!p.teamId) continue
     if (!map.has(p.teamId)) map.set(p.teamId, emptyExt(p.teamId))
     const e = map.get(p.teamId)!
+    e.playerEntries++
     e.kills += p.kills
     e.assists += p.assists
     e.knocks += p.knocks
@@ -150,6 +153,7 @@ function aggregateFromMatchStats(matchIds: Set<string>, psByMatch: Record<string
       if (!p.teamId) continue
       if (!map.has(p.teamId)) map.set(p.teamId, emptyExt(p.teamId))
       const e = map.get(p.teamId)!
+      e.playerEntries++
       e.kills += p.kills
       e.assists += p.assists
       e.knocks += p.knocks
@@ -430,7 +434,7 @@ export default function TeamStatsTable({
         utilityDamage: ext.grenadeDamage + ext.molotovDamage,
         grenadeHitRate: (ext.grenadesThrown + ext.molotovsThrown + ext.flashbangsThrown) > 0
           ? (ext.grenadeHitEvents / (ext.grenadesThrown + ext.molotovsThrown + ext.flashbangsThrown)) * 100 : 0,
-        avgSurvival: ext.survivalTime / g,
+        avgSurvival: ext.playerEntries > 0 ? ext.survivalTime / ext.playerEntries : 0,
         damageTaken: ext.damageTaken, blueZoneDamage: ext.blueZoneDamage,
         blueZoneTimePerGame: ext.blueZoneTime / g,
         dtr: ext.damageTaken > 0 ? damage / ext.damageTaken : 0,
@@ -834,7 +838,7 @@ export default function TeamStatsTable({
                       {category === 'survival' && (
                         <>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.games}</td>
-                          <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{formatSurvival(t.avgSurvival * t.games, t.games)}</td>
+                          <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{formatSurvival(t.avgSurvival, 1)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.deaths > 0 ? t.deaths : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.damageTaken > 0 ? Math.round(t.damageTaken).toLocaleString() : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.blueZoneDamage > 0 ? Math.round(t.blueZoneDamage).toLocaleString() : '—'}</td>
