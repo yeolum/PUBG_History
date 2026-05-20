@@ -350,8 +350,16 @@ export default function TeamStatsTable({
     return result
   }, [dropScopeKey, dropLocations, rawCentroidsCache, matchDropCache, teamInfoById])
 
-  const mapsWithDrops = [...new Set(dropLocations.map((d) => d.mapName))].filter((m) => mapKeys.includes(m))
-  const allDropMaps = [...new Set([...mapKeys, ...mapsWithDrops])]
+  const mapsWithDrops = useMemo(() => [...new Set(dropLocations.map((d) => d.mapName))].filter((m) => mapKeys.includes(m)), [dropLocations, mapKeys])
+  const allDropMaps = useMemo(() => [...new Set([...mapKeys, ...mapsWithDrops])], [mapKeys, mapsWithDrops])
+
+  // Preload all map images so switching maps is instant
+  useEffect(() => {
+    for (const k of allDropMaps) {
+      const img = new window.Image()
+      img.src = mapImageUrl(k)
+    }
+  }, [allDropMaps])
   const currentMapDrops = dropsForScope.filter((d) => d.mapName === selectedMap)
 
   // Deduplicated team list: spread teams (clusterCount > 1) sorted to top
@@ -514,8 +522,9 @@ export default function TeamStatsTable({
                       setSelectedMap(mapKey)
                       setVisibleTeams(null)
                       setExpandedTeams(new Set())
-                      setDropScopeKey('total')
-                      setDropStageId(null)
+                      if (dropScopeKey.startsWith('match:')) {
+                        setDropScopeKey(dropStageId ? `stage:${dropStageId}` : 'total')
+                      }
                     }}
                     className={`px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors ${selectedMap === mapKey ? 'bg-yellow-400 border-yellow-400 text-gray-900' : 'bg-white border-gray-200 text-gray-600 hover:border-yellow-300'}`}
                   >
