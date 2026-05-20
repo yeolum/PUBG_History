@@ -57,6 +57,9 @@ interface PlayerStatsEntry {
   revives: number
   heals_used: number
   boosts_used: number
+  road_kills: number
+  vehicle_destroys: number
+  team_kills: number
   // Telemetry-derived (combat)
   deaths: number
   damage_taken: number
@@ -114,7 +117,7 @@ function aggregatePlayerStats(
       logo_url: ((d.teams as AnyRow | null)?.logo_url ?? null) as string | null,
       games: 0, kills: 0, assists: 0, knocks: 0, headshot_kills: 0, damage: 0, survival_time: 0,
       walk_distance: 0, ride_distance: 0, longest_kill: 0, swim_distance: 0,
-      revives: 0, heals_used: 0, boosts_used: 0,
+      revives: 0, heals_used: 0, boosts_used: 0, road_kills: 0, vehicle_destroys: 0, team_kills: 0,
       deaths: 0, damage_taken: 0, blue_zone_damage: 0,
       knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
       first_blood_kills: 0, first_blood_knocks: 0,
@@ -139,6 +142,9 @@ function aggregatePlayerStats(
     ex.revives += (d.revives as number) ?? 0
     ex.heals_used += (d.heals_used as number) ?? 0
     ex.boosts_used += (d.boosts_used as number) ?? 0
+    ex.road_kills += (d.road_kills as number) ?? 0
+    ex.vehicle_destroys += (d.vehicle_destroys as number) ?? 0
+    ex.team_kills += (d.team_kills as number) ?? 0
     ex.deaths += (d.deaths as number) ?? 0
     ex.damage_taken += Number(d.damage_taken ?? 0)
     ex.blue_zone_damage += Number(d.blue_zone_damage ?? 0)
@@ -256,7 +262,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
   }
 
   // Fetch ALL player stats (match, teams, players joins) for all imported matches
-  const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, players(id, nickname), teams(id, name, logo_url)'
+  const PS_SELECT = 'match_id, player_id, team_id, pubg_account_id, pubg_player_name, kills, assists, knocks, headshot_kills, damage_dealt, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, road_kills, vehicle_destroys, team_kills, players(id, nickname), teams(id, name, logo_url)'
 
   const [allTrData, allPsData, allTelData] = await Promise.all([
     // Fetch team results for ALL imported matches (needed for stage standings + final standings)

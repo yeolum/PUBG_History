@@ -230,6 +230,9 @@ export interface PubgParticipant {
   revives: number
   healsUsed: number
   boostsUsed: number
+  roadKills: number
+  vehicleDestroys: number
+  teamKills: number
   winPlace: number
 }
 

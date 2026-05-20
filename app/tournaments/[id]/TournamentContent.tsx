@@ -131,7 +131,7 @@ const loadTournamentData = unstable_cache(
 
     // Side queries that don't depend on matchIds — start them now so they
     // run alongside the matches + trData + psData fetches.
-    const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
+    const EXTENDED_PLAYER_COLS = 'games, kills, assists, knocks, headshot_kills, damage, survival_time, walk_distance, ride_distance, longest_kill, swim_distance, revives, heals_used, boosts_used, road_kills, vehicle_destroys, team_kills, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kills, first_blood_knocks, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum'
     const SPS_SELECT = `stage_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const SRPS_SELECT = `series_id, player_id, nickname, team_id, team_name, logo_url, ${EXTENDED_PLAYER_COLS}`
     const sideQueriesPromise = Promise.all([
@@ -582,6 +582,9 @@ export default async function TournamentContent({ id, tournament }: { id: string
       totalHealAmount: Number(r.total_heal_amount ?? 0),
       blueZoneTime: (r.blue_zone_time as number) ?? 0,
       vehicleTime: (r.vehicle_time as number) ?? 0,
+      roadKills: (r.road_kills as number) ?? 0,
+      vehicleDestroys: (r.vehicle_destroys as number) ?? 0,
+      teamKills: (r.team_kills as number) ?? 0,
       revivesGiven: (r.revives_given as number) ?? 0,
       assistDamage: Number(r.assist_damage ?? 0),
       tradeKills: (r.trade_kills as number) ?? 0,

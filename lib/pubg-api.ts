@@ -70,6 +70,9 @@ function parsePubgMatch(apiResponse: any): PubgMatchData {
       revives: s.revives ?? 0,
       healsUsed: s.heals ?? 0,
       boostsUsed: s.boosts ?? 0,
+      roadKills: s.roadKills ?? 0,
+      vehicleDestroys: s.vehicleDestroys ?? 0,
+      teamKills: s.teamKills ?? 0,
       winPlace: s.winPlace ?? 0,
     }
   }

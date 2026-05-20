@@ -240,6 +240,9 @@ export async function POST(req: NextRequest) {
       revives: p.revives,
       heals_used: p.healsUsed,
       boosts_used: p.boostsUsed,
+      road_kills: p.roadKills,
+      vehicle_destroys: p.vehicleDestroys,
+      team_kills: p.teamKills,
       placement: roster.placement,
       _rosterId: roster.pubgRosterId,
     }))

@@ -25,6 +25,9 @@ export interface PlayerStatRow {
   revives?: number
   healsUsed?: number
   boostsUsed?: number
+  roadKills?: number
+  vehicleDestroys?: number
+  teamKills?: number
   // Telemetry-derived (combat)
   deaths?: number
   damageTaken?: number
