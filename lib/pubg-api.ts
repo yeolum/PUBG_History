@@ -227,16 +227,23 @@ export function extractPlanePath(events: any[], mapSize: number): PlanePath | nu
 export { type PlanePath, type TelemetryPlayerStats } from './types'
 
 // Item ID prefixes for throw events (LogItemUse fires when item is actually thrown/consumed)
-function classifyThrowable(itemId: string): 'grenade' | 'smoke' | 'flashbang' | 'molotov' | null {
+function classifyThrowable(itemId: string): 'grenade' | 'smoke' | 'flashbang' | 'molotov' | 'bzgrenade' | 'decoy' | null {
   if (itemId.includes('Molotov')) return 'molotov'
   if (itemId.includes('SmokeBomb') || (itemId.includes('Smoke') && itemId.includes('Item_Weapon'))) return 'smoke'
   if (itemId.includes('FlashBang') || itemId.includes('Flashbang')) return 'flashbang'
+  if (itemId.includes('BZGrenade') || itemId.includes('BZ_Grenade') || itemId.includes('BlueZoneGrenade')) return 'bzgrenade'
+  if (itemId.includes('Decoy') && itemId.includes('Item_Weapon')) return 'decoy'
   if (itemId.includes('Grenade') && itemId.includes('Item_Weapon')) return 'grenade'
   return null
 }
 
 function isGrenadeDamage(ev: { damageTypeCategory?: string; damageCauserName?: string }): boolean {
   return ev.damageTypeCategory === 'Damage_Explosion_Grenade' || (ev.damageCauserName ?? '').includes('Grenade')
+}
+
+function isBZGrenadeDamage(ev: { damageCauserName?: string; damageTypeCategory?: string }): boolean {
+  const cn = ev.damageCauserName ?? ''
+  return cn.includes('BZGrenade') || cn.includes('BZ_Grenade') || cn.includes('BlueZoneGrenade')
 }
 
 function isMolotovDamage(ev: { damageCauserName?: string; damageTypeCategory?: string }): boolean {
@@ -259,7 +266,8 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
         knockDamageSum: 0, engagementDistSum: 0, engagementDistCount: 0,
         firstBloodKill: false, firstBloodKnock: false, stealKills: 0, stolenKills: 0,
         grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
-        grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
+        bzGrenadesThrown: 0, decoyGrenadesThrown: 0,
+        grenadeDamage: 0, molotovDamage: 0, bzGrenadeDamage: 0, grenadeHitEvents: 0,
         healsUsed: 0, boostsUsed: 0, totalHealAmount: 0, blueZoneTime: 0,
         vehicleTime: 0,
         revivesGiven: 0, assistDamage: 0, tradeKills: 0, tradeableDeaths: 0,
@@ -430,15 +438,16 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
 
         if (attackerId && track(attackerId)) {
           const s = get(attackerId)
-          if (isGrenadeDamage(ev)) {
+          if (isBZGrenadeDamage(ev)) {
+            s.bzGrenadeDamage += dmg
+          } else if (isGrenadeDamage(ev)) {
             s.grenadeDamage += dmg
             const attackId = ev.attackId as number | undefined
             if (attackId != null) {
               if (!grenadeHitAttackIds.has(attackerId)) grenadeHitAttackIds.set(attackerId, new Set())
               grenadeHitAttackIds.get(attackerId)!.add(attackId)
             }
-          }
-          else if (isMolotovDamage(ev)) { s.molotovDamage += dmg }
+          } else if (isMolotovDamage(ev)) { s.molotovDamage += dmg }
           // LogPlayerTakeDamage has no .distance field — compute from positions (cm → m)
           const ax = ev.attacker?.location?.x as number | undefined
           const ay = ev.attacker?.location?.y as number | undefined
@@ -471,6 +480,8 @@ export function extractPlayerTelemetryStats(events: any[], trackedAccountIds?: S
           else if (kind === 'smoke') s.smokesThrown++
           else if (kind === 'flashbang') s.flashbangsThrown++
           else if (kind === 'molotov') s.molotovsThrown++
+          else if (kind === 'bzgrenade') s.bzGrenadesThrown++
+          else if (kind === 'decoy') s.decoyGrenadesThrown++
         }
         break
       }

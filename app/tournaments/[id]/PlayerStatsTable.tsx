@@ -44,8 +44,11 @@ export interface PlayerStatRow {
   smokesThrown?: number
   flashbangsThrown?: number
   molotovsThrown?: number
+  bzGrenadesThrown?: number
+  decoyGrenadesThrown?: number
   grenadeDamage?: number
   molotovDamage?: number
+  bzGrenadeDamage?: number
   grenadeHitEvents?: number
   // Telemetry-derived (survival)
   totalHealAmount?: number
@@ -96,7 +99,8 @@ type SortKey =
   | 'dpk' | 'kkRatio' | 'avgEngagementDist' | 'stealKills' | 'stolenKills'
   // Utility
   | 'grenadesThrown' | 'smokesThrown' | 'flashbangsThrown' | 'molotovsThrown'
-  | 'grenadeDamage' | 'molotovDamage' | 'utilityDamage' | 'grenadeHitRate'
+  | 'bzGrenadesThrown' | 'decoyGrenadesThrown'
+  | 'grenadeDamage' | 'molotovDamage' | 'bzGrenadeDamage' | 'utilityDamage' | 'grenadeHitRate'
   // Survival
   | 'avgSurvival' | 'healsUsed' | 'boostsUsed' | 'damageTaken' | 'blueZoneDamage' | 'dtr'
   | 'healEfficiency' | 'blueZoneTimePerGame'
@@ -271,7 +275,10 @@ export default function PlayerStatsTable({
     avgEngagementDist: (p.engagementDistCount ?? 0) > 0 ? (p.engagementDistSum ?? 0) / (p.engagementDistCount ?? 1) : 0,
     stealKills: p.stealKills ?? 0,
     stolenKills: p.stolenKills ?? 0,
-    utilityDamage: (p.grenadeDamage ?? 0) + (p.molotovDamage ?? 0),
+    utilityDamage: (p.grenadeDamage ?? 0) + (p.molotovDamage ?? 0) + (p.bzGrenadeDamage ?? 0),
+    bzGrenadesThrown: p.bzGrenadesThrown ?? 0,
+    decoyGrenadesThrown: p.decoyGrenadesThrown ?? 0,
+    bzGrenadeDamage: p.bzGrenadeDamage ?? 0,
     grenadeHitRate: (p.grenadesThrown ?? 0) + (p.molotovsThrown ?? 0) + (p.flashbangsThrown ?? 0) > 0
       ? ((p.grenadeHitEvents ?? 0) / ((p.grenadesThrown ?? 0) + (p.molotovsThrown ?? 0) + (p.flashbangsThrown ?? 0))) * 100
       : 0,
@@ -542,8 +549,11 @@ export default function PlayerStatsTable({
                 {thR('smokesThrown', 'Smokes', 'Thrown')}
                 {thR('flashbangsThrown', 'Flashes', 'Thrown')}
                 {thR('molotovsThrown', 'Molotovs', 'Thrown')}
+                {thR('bzGrenadesThrown', 'BZ Nade', 'Thrown')}
+                {thR('decoyGrenadesThrown', 'Decoy', 'Thrown')}
                 {thR('grenadeDamage', 'Grenade', 'Damage')}
                 {thR('molotovDamage', 'Molotov', 'Damage')}
+                {thR('bzGrenadeDamage', 'BZ Dmg', 'BZ Grenade')}
                 {thR('utilityDamage', 'Utility', 'Total Damage')}
                 {thR('grenadeHitRate', 'Hit Rate', 'Throw → Hit %')}
               </tr>
@@ -632,8 +642,11 @@ export default function PlayerStatsTable({
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.smokesThrown)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.flashbangsThrown)}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{fmt(p.molotovsThrown)}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{fmt(p.bzGrenadesThrown)}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{fmt(p.decoyGrenadesThrown)}</td>
                     <td className="px-3 py-2 text-right text-gray-700 font-medium">{p.grenadeDamage > 0 ? Math.round(p.grenadeDamage).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.molotovDamage > 0 ? Math.round(p.molotovDamage).toLocaleString() : '—'}</td>
+                    <td className="px-3 py-2 text-right text-gray-500">{p.bzGrenadeDamage > 0 ? Math.round(p.bzGrenadeDamage).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.utilityDamage > 0 ? Math.round(p.utilityDamage).toLocaleString() : '—'}</td>
                     <td className="px-3 py-2 text-right text-gray-500">{p.grenadeHitRate > 0 ? p.grenadeHitRate.toFixed(1) + '%' : '—'}</td>
                   </>

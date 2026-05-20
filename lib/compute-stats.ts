@@ -76,8 +76,11 @@ interface PlayerStatsEntry {
   smokes_thrown: number
   flashbangs_thrown: number
   molotovs_thrown: number
+  bz_grenades_thrown: number
+  decoy_grenades_thrown: number
   grenade_damage: number
   molotov_damage: number
+  bz_grenade_damage: number
   grenade_hit_events: number
   // Telemetry-derived (survival)
   total_heal_amount: number
@@ -121,8 +124,11 @@ interface TeamStatsExtEntry {
   smokes_thrown: number
   flashbangs_thrown: number
   molotovs_thrown: number
+  bz_grenades_thrown: number
+  decoy_grenades_thrown: number
   grenade_damage: number
   molotov_damage: number
+  bz_grenade_damage: number
   grenade_hit_events: number
   damage_taken: number
   blue_zone_damage: number
@@ -174,7 +180,8 @@ function aggregatePlayerStats(
       knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
       first_blood_kills: 0, first_blood_knocks: 0, steal_kills: 0, stolen_kills: 0,
       grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
-      grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0,
+      bz_grenades_thrown: 0, decoy_grenades_thrown: 0,
+      grenade_damage: 0, molotov_damage: 0, bz_grenade_damage: 0, grenade_hit_events: 0,
       total_heal_amount: 0, blue_zone_time: 0,
       vehicle_time: 0,
       revives_given: 0, assist_damage: 0, trade_kills: 0, tradeable_deaths: 0,
@@ -211,8 +218,11 @@ function aggregatePlayerStats(
     ex.smokes_thrown += (d.smokes_thrown as number) ?? 0
     ex.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
     ex.molotovs_thrown += (d.molotovs_thrown as number) ?? 0
+    ex.bz_grenades_thrown += (d.bz_grenades_thrown as number) ?? 0
+    ex.decoy_grenades_thrown += (d.decoy_grenades_thrown as number) ?? 0
     ex.grenade_damage += Number(d.grenade_damage ?? 0)
     ex.molotov_damage += Number(d.molotov_damage ?? 0)
+    ex.bz_grenade_damage += Number(d.bz_grenade_damage ?? 0)
     ex.grenade_hit_events += (d.grenade_hit_events as number) ?? 0
     ex.total_heal_amount += Number(d.total_heal_amount ?? 0)
     ex.blue_zone_time += (d.blue_zone_time as number) ?? 0
@@ -250,7 +260,8 @@ function buildTeamExtMap(
         knock_damage_sum: 0, engagement_dist_sum: 0, engagement_dist_count: 0,
         first_blood_kills: 0, first_blood_knocks: 0, steal_kills: 0, stolen_kills: 0,
         grenades_thrown: 0, smokes_thrown: 0, flashbangs_thrown: 0, molotovs_thrown: 0,
-        grenade_damage: 0, molotov_damage: 0, grenade_hit_events: 0,
+        bz_grenades_thrown: 0, decoy_grenades_thrown: 0,
+        grenade_damage: 0, molotov_damage: 0, bz_grenade_damage: 0, grenade_hit_events: 0,
         damage_taken: 0, blue_zone_damage: 0,
         heals_used: 0, boosts_used: 0, total_heal_amount: 0, revives: 0, blue_zone_time: 0,
         walk_distance: 0, ride_distance: 0, swim_distance: 0, vehicle_time: 0,
@@ -280,8 +291,11 @@ function buildTeamExtMap(
     e.smokes_thrown += (d.smokes_thrown as number) ?? 0
     e.flashbangs_thrown += (d.flashbangs_thrown as number) ?? 0
     e.molotovs_thrown += (d.molotovs_thrown as number) ?? 0
+    e.bz_grenades_thrown += (d.bz_grenades_thrown as number) ?? 0
+    e.decoy_grenades_thrown += (d.decoy_grenades_thrown as number) ?? 0
     e.grenade_damage += Number(d.grenade_damage ?? 0)
     e.molotov_damage += Number(d.molotov_damage ?? 0)
+    e.bz_grenade_damage += Number(d.bz_grenade_damage ?? 0)
     e.grenade_hit_events += (d.grenade_hit_events as number) ?? 0
     e.damage_taken += Number(d.damage_taken ?? 0)
     e.blue_zone_damage += Number(d.blue_zone_damage ?? 0)
@@ -424,7 +438,7 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       allImportedMatchIds,
     ),
     fetchInChunked<AnyRow>(
-      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, steal_kills, stolen_kills, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, grenade_damage, molotov_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
+      (chunk) => db.from('match_player_telemetry_stats').select('match_id, pubg_account_id, deaths, damage_taken, blue_zone_damage, knock_damage_sum, engagement_dist_sum, engagement_dist_count, first_blood_kill, first_blood_knock, steal_kills, stolen_kills, grenades_thrown, smokes_thrown, flashbangs_thrown, molotovs_thrown, bz_grenades_thrown, decoy_grenades_thrown, grenade_damage, molotov_damage, bz_grenade_damage, grenade_hit_events, heals_used, boosts_used, total_heal_amount, blue_zone_time, vehicle_time, revives_given, assist_damage, trade_kills, tradeable_deaths, zone_edge_samples, zone_total_samples, zone_outside_samples, zone_dist_sum').in('match_id', chunk),
       allImportedMatchIds,
       'match_id',
     ),
@@ -472,8 +486,11 @@ export async function computeTournamentStats(tournamentId: string, db: DB): Prom
       d.smokes_thrown = tel.smokes_thrown
       d.flashbangs_thrown = tel.flashbangs_thrown
       d.molotovs_thrown = tel.molotovs_thrown
+      d.bz_grenades_thrown = tel.bz_grenades_thrown
+      d.decoy_grenades_thrown = tel.decoy_grenades_thrown
       d.grenade_damage = tel.grenade_damage
       d.molotov_damage = tel.molotov_damage
+      d.bz_grenade_damage = tel.bz_grenade_damage
       d.grenade_hit_events = tel.grenade_hit_events
       d.heals_used = tel.heals_used
       d.boosts_used = tel.boosts_used

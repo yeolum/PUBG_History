@@ -55,8 +55,11 @@ export interface TeamExtRow {
   smokesThrown: number
   flashbangsThrown: number
   molotovsThrown: number
+  bzGrenadesThrown: number
+  decoyGrenadesThrown: number
   grenadeDamage: number
   molotovDamage: number
+  bzGrenadeDamage: number
   grenadeHitEvents: number
   damageTaken: number
   blueZoneDamage: number
@@ -86,7 +89,8 @@ function emptyExt(teamId: string | null): TeamExtRow {
     deaths: 0, longestKill: 0, knockDamageSum: 0, engagementDistSum: 0, engagementDistCount: 0,
     stealKills: 0, stolenKills: 0,
     grenadesThrown: 0, smokesThrown: 0, flashbangsThrown: 0, molotovsThrown: 0,
-    grenadeDamage: 0, molotovDamage: 0, grenadeHitEvents: 0,
+    bzGrenadesThrown: 0, decoyGrenadesThrown: 0,
+    grenadeDamage: 0, molotovDamage: 0, bzGrenadeDamage: 0, grenadeHitEvents: 0,
     damageTaken: 0, blueZoneDamage: 0, healsUsed: 0, boostsUsed: 0, totalHealAmount: 0, revives: 0, blueZoneTime: 0,
     walkDistance: 0, rideDistance: 0, swimDistance: 0, vehicleTime: 0,
     revivesGiven: 0, assistDamage: 0, tradeKills: 0, tradeableDeaths: 0,
@@ -119,8 +123,11 @@ function aggregateFromPlayerRows(rows: PlayerStatRow[]): Map<string, TeamExtRow>
     e.smokesThrown += p.smokesThrown ?? 0
     e.flashbangsThrown += p.flashbangsThrown ?? 0
     e.molotovsThrown += p.molotovsThrown ?? 0
+    e.bzGrenadesThrown += p.bzGrenadesThrown ?? 0
+    e.decoyGrenadesThrown += p.decoyGrenadesThrown ?? 0
     e.grenadeDamage += p.grenadeDamage ?? 0
     e.molotovDamage += p.molotovDamage ?? 0
+    e.bzGrenadeDamage += p.bzGrenadeDamage ?? 0
     e.grenadeHitEvents += p.grenadeHitEvents ?? 0
     e.damageTaken += p.damageTaken ?? 0
     e.blueZoneDamage += p.blueZoneDamage ?? 0
@@ -197,7 +204,8 @@ type ExtSortKey =
   | 'headshotKills' | 'hsPercent' | 'damage' | 'adr' | 'longestKill' | 'avgEngDist'
   | 'stealKills' | 'stolenKills'
   | 'grenadesThrown' | 'smokesThrown' | 'flashbangsThrown' | 'molotovsThrown'
-  | 'grenadeDamage' | 'molotovDamage' | 'utilityDamage' | 'grenadeHitRate'
+  | 'bzGrenadesThrown' | 'decoyGrenadesThrown'
+  | 'grenadeDamage' | 'molotovDamage' | 'bzGrenadeDamage' | 'utilityDamage' | 'grenadeHitRate'
   | 'avgSurvival' | 'damageTaken' | 'blueZoneDamage' | 'blueZoneTimePerGame'
   | 'dtr' | 'healsUsed' | 'boostsUsed' | 'healEfficiency' | 'revives'
   | 'walkDistance' | 'rideDistance' | 'swimDistance' | 'totalDistance' | 'vehicleTimePerGame'
@@ -430,8 +438,10 @@ export default function TeamStatsTable({
         stealKills: ext.stealKills, stolenKills: ext.stolenKills,
         grenadesThrown: ext.grenadesThrown, smokesThrown: ext.smokesThrown,
         flashbangsThrown: ext.flashbangsThrown, molotovsThrown: ext.molotovsThrown,
+        bzGrenadesThrown: ext.bzGrenadesThrown, decoyGrenadesThrown: ext.decoyGrenadesThrown,
         grenadeDamage: ext.grenadeDamage, molotovDamage: ext.molotovDamage,
-        utilityDamage: ext.grenadeDamage + ext.molotovDamage,
+        bzGrenadeDamage: ext.bzGrenadeDamage,
+        utilityDamage: ext.grenadeDamage + ext.molotovDamage + ext.bzGrenadeDamage,
         grenadeHitRate: (ext.grenadesThrown + ext.molotovsThrown + ext.flashbangsThrown) > 0
           ? (ext.grenadeHitEvents / (ext.grenadesThrown + ext.molotovsThrown + ext.flashbangsThrown)) * 100 : 0,
         avgSurvival: ext.playerEntries > 0 ? ext.survivalTime / ext.playerEntries : 0,
@@ -721,8 +731,11 @@ export default function TeamStatsTable({
                       {thR('smokesThrown', 'Smokes', 'Thrown')}
                       {thR('flashbangsThrown', 'Flashes', 'Thrown')}
                       {thR('molotovsThrown', 'Molotovs', 'Thrown')}
+                      {thR('bzGrenadesThrown', 'BZ Nade', 'Thrown')}
+                      {thR('decoyGrenadesThrown', 'Decoy', 'Thrown')}
                       {thR('grenadeDamage', 'Grenade', 'Damage')}
                       {thR('molotovDamage', 'Molotov', 'Damage')}
+                      {thR('bzGrenadeDamage', 'BZ Dmg', 'BZ Grenade')}
                       {thR('utilityDamage', 'Utility', 'Total Damage')}
                       {thR('grenadeHitRate', 'Hit Rate', 'Throw → Hit %')}
                     </tr>
@@ -829,8 +842,11 @@ export default function TeamStatsTable({
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.smokesThrown)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.flashbangsThrown)}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.molotovsThrown)}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.bzGrenadesThrown)}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{fmt(t.decoyGrenadesThrown)}</td>
                           <td className="px-3 py-2 text-right text-gray-700 font-medium text-xs">{t.grenadeDamage > 0 ? Math.round(t.grenadeDamage).toLocaleString() : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.molotovDamage > 0 ? Math.round(t.molotovDamage).toLocaleString() : '—'}</td>
+                          <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.bzGrenadeDamage > 0 ? Math.round(t.bzGrenadeDamage).toLocaleString() : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.utilityDamage > 0 ? Math.round(t.utilityDamage).toLocaleString() : '—'}</td>
                           <td className="px-3 py-2 text-right text-gray-500 text-xs">{t.grenadeHitRate > 0 ? t.grenadeHitRate.toFixed(1) + '%' : '—'}</td>
                         </>

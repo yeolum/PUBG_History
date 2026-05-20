@@ -138,8 +138,11 @@ export async function computeDropLocations(tournamentId: string, db: SupabaseCli
                   smokes_thrown: s.smokesThrown,
                   flashbangs_thrown: s.flashbangsThrown,
                   molotovs_thrown: s.molotovsThrown,
+                  bz_grenades_thrown: s.bzGrenadesThrown,
+                  decoy_grenades_thrown: s.decoyGrenadesThrown,
                   grenade_damage: s.grenadeDamage,
                   molotov_damage: s.molotovDamage,
+                  bz_grenade_damage: s.bzGrenadeDamage,
                   grenade_hit_events: s.grenadeHitEvents,
                   // Survival
                   heals_used: s.healsUsed,

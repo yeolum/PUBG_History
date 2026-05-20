@@ -254,8 +254,11 @@ export interface TelemetryPlayerStats {
   smokesThrown: number
   flashbangsThrown: number
   molotovsThrown: number
+  bzGrenadesThrown: number
+  decoyGrenadesThrown: number
   grenadeDamage: number
   molotovDamage: number
+  bzGrenadeDamage: number
   grenadeHitEvents: number
   // Survival
   healsUsed: number
