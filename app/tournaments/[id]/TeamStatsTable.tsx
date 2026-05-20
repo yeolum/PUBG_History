@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useRef, useLayoutEffect } from 'react'
 import Link from 'next/link'
 import { getMapDisplayName } from '@/lib/pubg-api'
 import { createClient } from '@/lib/supabase/client'
@@ -304,6 +304,18 @@ export default function TeamStatsTable({
   const [expandedTeams, setExpandedTeams] = useState<Set<string>>(new Set())
   const [matchDropCache, setMatchDropCache] = useState<Map<string, DropLocationRow[]>>(new Map())
   const [flightPathCache, setFlightPathCache] = useState<Map<string, PlanePath | null>>(new Map())
+
+  const teamTableRef = useRef<HTMLTableElement>(null)
+  const [teamColLefts, setTeamColLefts] = useState({ team: T_LEFT_TEAM, games: T_LEFT_GAMES })
+
+  useLayoutEffect(() => {
+    if (!teamTableRef.current) return
+    const ths = teamTableRef.current.querySelectorAll('thead tr:first-child th')
+    if (ths.length < 3) return
+    const rankW = (ths[0] as HTMLElement).offsetWidth
+    const teamW = (ths[1] as HTMLElement).offsetWidth
+    setTeamColLefts({ team: rankW, games: rankW + teamW })
+  }, [category, search])
 
   function toggleSort(key: ExtSortKey) {
     if (sortKey === key) setSortDir((d) => d === 'desc' ? 'asc' : 'desc')
@@ -614,11 +626,11 @@ export default function TeamStatsTable({
   const teamFixedHeaders = (
     <>
       <th className={`${T_STICKY_HEAD} w-8 px-3 py-2 text-center text-[11px] font-semibold text-gray-400`} style={{ left: T_LEFT_RANK }}>#</th>
-      <th className={`${T_STICKY_HEAD} w-[180px] px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide`} style={{ left: T_LEFT_TEAM }}>Team</th>
+      <th className={`${T_STICKY_HEAD} w-[180px] px-3 py-2 text-left text-[11px] font-semibold text-gray-400 uppercase tracking-wide`} style={{ left: teamColLefts.team }}>Team</th>
       <th
         onClick={() => toggleSort('games')}
         className={`${T_STICKY_HEAD} w-20 px-3 py-2 text-right text-[11px] font-semibold uppercase tracking-wide cursor-pointer select-none hover:text-gray-700 transition-colors border-r border-gray-200 ${sortKey === 'games' ? 'text-yellow-600' : 'text-gray-400'}`}
-        style={{ left: T_LEFT_GAMES }}
+        style={{ left: teamColLefts.games }}
       >
         Matches{sortKey === 'games' ? (sortDir === 'desc' ? ' ↓' : ' ↑') : ''}
       </th>
@@ -629,7 +641,7 @@ export default function TeamStatsTable({
     return (
       <>
         <td className={`${T_STICKY_BODY} w-8 px-3 py-2 text-center text-gray-400 text-xs`} style={{ left: T_LEFT_RANK }}>{i + 1}</td>
-        <td className={`${T_STICKY_BODY} w-[180px] px-3 py-2`} style={{ left: T_LEFT_TEAM }}>
+        <td className={`${T_STICKY_BODY} w-[180px] px-3 py-2`} style={{ left: teamColLefts.team }}>
           <div className="flex items-center gap-1.5">
             {t.logoUrl ? (
               // eslint-disable-next-line @next/next/no-img-element
@@ -640,7 +652,7 @@ export default function TeamStatsTable({
             </span>
           </div>
         </td>
-        <td className={`${T_STICKY_BODY} w-20 px-3 py-2 text-right text-gray-500 text-xs border-r border-gray-200`} style={{ left: T_LEFT_GAMES }}>{t.games}</td>
+        <td className={`${T_STICKY_BODY} w-20 px-3 py-2 text-right text-gray-500 text-xs border-r border-gray-200`} style={{ left: teamColLefts.games }}>{t.games}</td>
       </>
     )
   }
@@ -737,7 +749,7 @@ export default function TeamStatsTable({
           <>
             {scopeNav}
             <div className="overflow-x-auto">
-              <table className="w-full text-xs border-collapse">
+              <table ref={teamTableRef} className="w-full text-xs border-collapse">
                 <thead>
                   {category === 'combat' && (
                     <tr className="border-b border-gray-100 bg-gray-50/50">
