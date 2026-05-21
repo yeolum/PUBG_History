@@ -604,6 +604,50 @@ export default function TeamStatsTable({
     if ((drop.clusterIndex ?? 0) > 0) return expandedTeams.has(drop.teamId)
     return visibleTeams === null || visibleTeams.has(drop.teamId)
   })
+
+  // Spread overlapping logos into a circle so all logos are visible
+  const OVERLAP_THRESHOLD = 0.055
+  const SPREAD_RADIUS = 0.042
+  const displayDrops: (DropLocationRow & { displayX: number; displayY: number })[] = (() => {
+    const visited = new Set<string>()
+    const result: (DropLocationRow & { displayX: number; displayY: number })[] = []
+    for (const drop of visibleDrops) {
+      if (visited.has(drop.id)) continue
+      const group: DropLocationRow[] = [drop]
+      visited.add(drop.id)
+      let gi = 0
+      while (gi < group.length) {
+        const cur = group[gi]
+        for (const other of visibleDrops) {
+          if (visited.has(other.id)) continue
+          const dx = cur.x - other.x
+          const dy = cur.y - other.y
+          if (Math.sqrt(dx * dx + dy * dy) < OVERLAP_THRESHOLD) {
+            group.push(other)
+            visited.add(other.id)
+          }
+        }
+        gi++
+      }
+      if (group.length === 1) {
+        result.push({ ...drop, displayX: drop.x, displayY: drop.y })
+      } else {
+        group.sort((a, b) => a.teamId.localeCompare(b.teamId))
+        const cx = group.reduce((s, d) => s + d.x, 0) / group.length
+        const cy = group.reduce((s, d) => s + d.y, 0) / group.length
+        group.forEach((d, idx) => {
+          const angle = (idx / group.length) * 2 * Math.PI - Math.PI / 2
+          result.push({
+            ...d,
+            displayX: Math.max(0.015, Math.min(0.985, cx + Math.cos(angle) * SPREAD_RADIUS)),
+            displayY: Math.max(0.015, Math.min(0.985, cy + Math.sin(angle) * SPREAD_RADIUS)),
+          })
+        })
+      }
+    }
+    return result
+  })()
+
   function toggleTeamVisibility(teamId: string) {
     const isSpread = currentMapDrops.some((d) => d.teamId === teamId && (d.clusterCount ?? 1) > 1)
     if (isSpread) {
@@ -1029,11 +1073,11 @@ export default function TeamStatsTable({
                     const fp = flightPathCache.get(dropScopeKey.slice(6))
                     return fp ? <FlightPathOverlay path={fp} /> : null
                   })()}
-                  {visibleDrops.map((drop) => {
+                  {displayDrops.map((drop) => {
                     const isSpread = (drop.clusterCount ?? 1) > 1
                     const isPrimary = (drop.clusterIndex ?? 0) === 0
                     return (
-                      <div key={drop.id} className="absolute -translate-x-1/2 -translate-y-1/2 group" style={{ left: `${drop.x * 100}%`, top: `${drop.y * 100}%` }}>
+                      <div key={drop.id} className="absolute -translate-x-1/2 -translate-y-1/2 group" style={{ left: `${drop.displayX * 100}%`, top: `${drop.displayY * 100}%` }}>
                         {drop.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img src={drop.logoUrl} alt={drop.teamName} className={`rounded border-2 shadow-md object-contain ${isSpread ? isPrimary ? 'w-8 h-8 border-orange-400' : 'w-6 h-6 border-orange-300 opacity-70' : 'w-8 h-8 border-white'}`} />
