@@ -676,7 +676,7 @@ export default function TeamStatsTable({
         })
       })
     }
-    return result
+    return result.sort(() => Math.random() - 0.5)
   })()
 
   function toggleTeamVisibility(teamId: string) {
