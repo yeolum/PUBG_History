@@ -115,7 +115,12 @@ export default function TeamHistoryClient({
 
   const filteredTours = useMemo(() => {
     const list = tourList.filter(t => matchesFilter(t.year, t.tourType))
-    return list.sort((a, b) => (b.year ?? 0) - (a.year ?? 0))
+    return list.sort((a, b) => {
+      const aDate = a.endDate ?? a.startDate ?? ''
+      const bDate = b.endDate ?? b.startDate ?? ''
+      if (bDate !== aDate) return bDate > aDate ? 1 : -1
+      return (a.name ?? '').localeCompare(b.name ?? '')
+    })
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tourList, selectedYear, typeFilter])
 
@@ -371,31 +376,35 @@ export default function TeamHistoryClient({
         <p className="text-gray-400 text-sm">No match records</p>
       ) : viewMode === 'match' ? (
         <div>
-          <div className="space-y-1.5">
+          <div className="space-y-1">
             {pagedMatches.map((r) => (
-              <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-4 py-2.5">
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex flex-wrap items-center gap-1.5 text-sm min-w-0">
+              <div key={r.id} className="bg-white rounded-lg border border-gray-200 px-3 py-2 flex items-center gap-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-1 text-xs">
                     {r.subTeamName && (
-                      <span className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-medium shrink-0">{r.subTeamName}</span>
+                      <span className="text-[10px] bg-gray-100 text-gray-500 rounded px-1.5 py-0.5 font-medium">{r.subTeamName}</span>
                     )}
-                    {r.tourId && (
-                      <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600 shrink-0">
-                        {r.tourName}
-                      </Link>
-                    )}
-                    {r.stageName && <span className="text-gray-300">·</span>}
-                    {r.stageName && <span className="text-xs text-gray-500 shrink-0">{r.stageName}</span>}
-                    {r.matchNum > 0 && <span className="text-gray-300">·</span>}
-                    {r.matchNum > 0 && <span className="font-mono text-xs text-gray-500 shrink-0">M{r.matchNum}</span>}
-                    {r.mapName && <span className="text-gray-300">·</span>}
-                    {r.mapName && <span className="text-xs text-gray-400 shrink-0">{getMapDisplayName(r.mapName)}</span>}
+                    {r.tourId ? (
+                      <Link href={`/tournaments/${r.tourId}`} className="font-medium text-gray-800 hover:text-yellow-600">{r.tourName}</Link>
+                    ) : null}
+                    {r.stageName && <><span className="text-gray-300">·</span><span className="text-gray-500">{r.stageName}</span></>}
+                    {r.matchNum > 0 && <><span className="text-gray-300">·</span><span className="font-mono text-gray-500">M{r.matchNum}</span></>}
                   </div>
-                  <span className="text-sm font-bold text-gray-700 shrink-0 ml-4">#{r.placement}</span>
+                  {r.mapName && <p className="text-[11px] text-gray-400 mt-0.5">{getMapDisplayName(r.mapName)}</p>}
                 </div>
-                <div className="grid grid-cols-2 gap-2 text-xs text-center">
-                  <div><p className="text-gray-400">Kills</p><p className="font-semibold text-gray-800">{r.total_kills}</p></div>
-                  <div><p className="text-gray-400">Damage</p><p className="font-semibold text-gray-800">{r.total_damage.toFixed(0)}</p></div>
+                <div className="flex items-center gap-4 shrink-0 text-xs">
+                  <div className="text-center w-8">
+                    <p className="text-[10px] text-gray-400">Rank</p>
+                    <p className="font-bold text-gray-900">{r.placement != null ? `#${r.placement}` : '—'}</p>
+                  </div>
+                  <div className="text-center w-7">
+                    <p className="text-[10px] text-gray-400">Kills</p>
+                    <p className="font-semibold text-gray-700">{r.total_kills}</p>
+                  </div>
+                  <div className="text-center w-16">
+                    <p className="text-[10px] text-gray-400">Dmg</p>
+                    <p className="font-semibold text-gray-700">{Math.round(r.total_damage).toLocaleString()}</p>
+                  </div>
                 </div>
               </div>
             ))}

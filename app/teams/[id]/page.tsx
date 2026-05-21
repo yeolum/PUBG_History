@@ -20,6 +20,20 @@ export async function generateMetadata({ params }: { params: Promise<{ id: strin
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function paginateQuery(q: any): Promise<AnyObj[]> {
+  const all: AnyObj[] = []
+  let page = 0
+  while (true) {
+    const { data: batch } = await q.order('id').range(page * 1000, (page + 1) * 1000 - 1)
+    if (!batch || batch.length === 0) break
+    all.push(...(batch as AnyObj[]))
+    if (batch.length < 1000) break
+    page++
+  }
+  return all
+}
+
 type ChildTeam = { id: string; name: string; short_name: string | null }
 type SubTeamResult = { teamId: string; teamName: string; rank: number | null; rankLabel: string | null; prize: number | null }
 
@@ -104,30 +118,30 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
 
   // Fetch parent + all child team results in parallel
   const parentFetch = Promise.all([
-    supabase.from('match_team_results').select(RESULT_SELECT).eq('team_id', id).order('created_at', { ascending: false }).limit(2000),
+    paginateQuery(supabase.from('match_team_results').select(RESULT_SELECT).eq('team_id', id)),
     uniqueTags.length > 0
-      ? supabase.from('match_team_results').select(RESULT_SELECT).in('pubg_team_name', uniqueTags).is('team_id', null).limit(2000)
-      : Promise.resolve({ data: [] as AnyObj[] }),
+      ? paginateQuery(supabase.from('match_team_results').select(RESULT_SELECT).in('pubg_team_name', uniqueTags).is('team_id', null))
+      : Promise.resolve([] as AnyObj[]),
   ])
   const childFetches = childTeams.map((ct) => {
     const ctTags = childTeamTagsMap.get(ct.id) ?? []
     return Promise.all([
-      supabase.from('match_team_results').select(RESULT_SELECT).eq('team_id', ct.id).order('created_at', { ascending: false }).limit(2000),
+      paginateQuery(supabase.from('match_team_results').select(RESULT_SELECT).eq('team_id', ct.id)),
       ctTags.length > 0
-        ? supabase.from('match_team_results').select(RESULT_SELECT).in('pubg_team_name', ctTags).is('team_id', null).limit(2000)
-        : Promise.resolve({ data: [] as AnyObj[] }),
+        ? paginateQuery(supabase.from('match_team_results').select(RESULT_SELECT).in('pubg_team_name', ctTags).is('team_id', null))
+        : Promise.resolve([] as AnyObj[]),
     ])
   })
 
-  const [[{ data: linkedData }, { data: tagData }], ...childResultPairs] = await Promise.all([parentFetch, ...childFetches])
+  const [[linkedData, tagData], ...childResultPairs] = await Promise.all([parentFetch, ...childFetches])
 
   // Combine: parent results first, then child results (deduplicated globally)
   const seenIds = new Set<string>()
   type TaggedResult = AnyObj & { _subTeamId: string | null; _subTeamName: string | null }
   const allResults: TaggedResult[] = []
 
-  const linkedResults = (linkedData ?? []) as AnyObj[]
-  const tagResults = (tagData ?? []) as AnyObj[]
+  const linkedResults = linkedData as AnyObj[]
+  const tagResults = tagData as AnyObj[]
   for (const r of linkedResults) { seenIds.add(r.id); allResults.push({ ...r, _subTeamId: null, _subTeamName: null }) }
   for (const r of tagResults) {
     if (!seenIds.has(r.id)) { seenIds.add(r.id); allResults.push({ ...r, _subTeamId: null, _subTeamName: null }) }
@@ -135,9 +149,7 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   for (let i = 0; i < childTeams.length; i++) {
     const ct = childTeams[i]
     const ctName = ct.short_name ?? ct.name
-    const [{ data: ctLinked }, { data: ctTag }] = childResultPairs[i]
-    const ctLinkedArr = (ctLinked ?? []) as AnyObj[]
-    const ctTagArr = (ctTag ?? []) as AnyObj[]
+    const [ctLinkedArr, ctTagArr] = childResultPairs[i] as [AnyObj[], AnyObj[]]
     const ctSeen = new Set(ctLinkedArr.map((r) => r.id))
     const ctResults = [...ctLinkedArr, ...ctTagArr.filter((r) => !ctSeen.has(r.id))]
     for (const r of ctResults) {
@@ -308,96 +320,82 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
           <Link href="/teams" className="text-sm text-gray-400 hover:text-gray-600">← Teams</Link>
         </div>
 
-        <div className="grid gap-8 lg:grid-cols-[1fr_2fr]">
-          <aside>
-            <div className="bg-white rounded-xl border border-gray-200 p-6">
-              <div className="w-20 h-20 bg-gray-100 rounded-xl mb-4 flex items-center justify-center overflow-hidden">
-                {team.logo_url ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={team.logo_url} alt={team.name} className="w-full h-full object-contain" />
-                ) : (
-                  <span className="text-3xl font-bold text-gray-300">{team.name[0]}</span>
-                )}
+        {/* Team info + roster - 한 카드 안에 70% / 30% */}
+        <div className="bg-white rounded-xl border border-gray-200 p-6 mb-8">
+          <div className="flex gap-8">
+            {/* 왼쪽 70% - 팀 정보 */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-start gap-4 mb-4">
+                <div className="w-16 h-16 bg-gray-100 rounded-xl flex items-center justify-center overflow-hidden shrink-0">
+                  {team.logo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={team.logo_url} alt={team.name} className="w-full h-full object-contain" />
+                  ) : (
+                    <span className="text-3xl font-bold text-gray-300">{team.name[0]}</span>
+                  )}
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900">{team.name}</h1>
+                  {team.short_name && <p className="text-sm font-mono text-gray-500 mt-0.5">{team.short_name}</p>}
+                  {team.nationality && <p className="text-sm text-gray-500 mt-1">{team.nationality}</p>}
+                  {(team as AnyObj).league && <p className="text-sm text-blue-500 mt-0.5">{(team as AnyObj).league}</p>}
+                </div>
               </div>
-              <h1 className="text-xl font-bold text-gray-900">{team.name}</h1>
-              {team.short_name && (
-                <p className="text-sm font-mono text-gray-500 mt-0.5">{team.short_name}</p>
-              )}
-              {team.nationality && (
-                <p className="text-sm text-gray-500 mt-2">{team.nationality}</p>
-              )}
-              {(team as AnyObj).league && (
-                <p className="text-sm text-blue-500 mt-1">{(team as AnyObj).league}</p>
-              )}
-              {team.description && (
-                <p className="text-sm text-gray-600 mt-3 leading-relaxed">{team.description}</p>
-              )}
-
-              {/* Parent team link */}
+              {team.description && <p className="text-sm text-gray-600 mb-4 leading-relaxed">{team.description}</p>}
               {parentTeam && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="mb-3">
                   <p className="text-xs font-medium text-gray-400 mb-1">소속 조직</p>
-                  <Link href={`/teams/${parentTeam.id}`} className="text-sm font-medium text-yellow-600 hover:text-yellow-700">
-                    {parentTeam.name}
-                  </Link>
+                  <Link href={`/teams/${parentTeam.id}`} className="text-sm font-medium text-yellow-600 hover:text-yellow-700">{parentTeam.name}</Link>
                 </div>
               )}
-
               {aliases.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
+                <div className="mb-3">
                   <p className="text-xs font-medium text-gray-400 mb-2">Former Names / Aliases</p>
                   <div className="flex flex-wrap gap-1">
                     {aliases.map((a) => (
-                      <span key={a.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">
-                        {a.alias}
-                      </span>
+                      <span key={a.id} className="text-xs bg-gray-100 text-gray-600 px-2 py-0.5 rounded">{a.alias}</span>
                     ))}
                   </div>
                 </div>
               )}
-
-              {/* Child teams */}
               {childTeams.length > 0 && (
-                <div className="mt-4 pt-4 border-t border-gray-100">
+                <div>
                   <p className="text-xs font-medium text-gray-400 mb-2">산하 팀</p>
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-wrap gap-2">
                     {childTeams.map((ct) => (
                       <Link key={ct.id} href={`/teams/${ct.id}`} className="text-sm text-gray-700 hover:text-yellow-600 transition-colors">
-                        {ct.name}
-                        {ct.short_name && <span className="text-xs text-gray-400 ml-1">({ct.short_name})</span>}
+                        {ct.name}{ct.short_name && <span className="text-xs text-gray-400 ml-1">({ct.short_name})</span>}
                       </Link>
                     ))}
                   </div>
                 </div>
               )}
             </div>
-
+            {/* 오른쪽 30% - 로스터 */}
             {players.length > 0 && (
-              <div className="bg-white rounded-xl border border-gray-200 p-6 mt-4">
+              <div className="w-[30%] shrink-0 border-l border-gray-100 pl-6">
                 <h2 className="text-sm font-semibold text-gray-700 mb-3">Current Roster</h2>
                 <ul className="space-y-2">
                   {players.map((p) => (
                     <li key={p.id}>
                       <Link href={`/players/${p.id}`} className="flex items-center gap-2 hover:text-yellow-600">
                         <span className="text-sm font-medium text-gray-800">{p.nickname}</span>
-                        {p.real_name && (
-                          <span className="text-xs text-gray-400">{p.real_name}</span>
-                        )}
+                        {p.real_name && <span className="text-xs text-gray-400">{p.real_name}</span>}
                       </Link>
                     </li>
                   ))}
                 </ul>
               </div>
             )}
-          </aside>
-
-          <TeamHistoryClient
-            tourList={tourListSerialized}
-            matchResults={matchResults}
-            isPnc={isPnc}
-            tourRosters={tourRosters}
-          />
+          </div>
         </div>
+
+        <TeamHistoryClient
+          tourList={tourListSerialized}
+          matchResults={matchResults}
+          isPnc={isPnc}
+          tourRosters={tourRosters}
+        />
 
         {dropZones.length > 0 && (
           <section className="mt-8">
