@@ -1,7 +1,7 @@
 export const PLACEMENT_PTS = [10, 6, 5, 4, 3, 2, 1, 1]
 
-export type ScoringRuleType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2' | 'smash'
-export type SmashSubType = 'super' | 'super_v1' | 'chicken' | 'chicken_v2'
+export type ScoringRuleType = 'super' | 'super_v1' | 'super_v2' | 'chicken' | 'chicken_v2' | 'smash'
+export type SmashSubType = 'super' | 'super_v1' | 'super_v2' | 'chicken' | 'chicken_v2'
 
 export interface ScoringRuleConfig {
   type?: ScoringRuleType
