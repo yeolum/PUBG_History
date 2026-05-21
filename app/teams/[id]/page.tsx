@@ -210,35 +210,70 @@ export default async function TeamDetailPage({ params }: { params: Promise<{ id:
   }
 
   // --- Resolve final rank + prize for parent team and each child team ---
-  await Promise.all(
-    [...tourMap.values()].map(async (te) => {
+  // Rank: read from pre-computed tournament_final_standings table (reliable, single query)
+  // Prize: computed on-the-fly via getTournamentFinalStandings
+  const tourIds = [...tourMap.keys()]
+  const allTeamIdsForStandings = [id, ...childTeams.map((ct) => ct.id)]
+
+  const [{ data: preRankRows }, ...standingsList] = await Promise.all([
+    tourIds.length > 0
+      ? supabase
+          .from('tournament_final_standings')
+          .select('tournament_id, team_id, rank')
+          .in('tournament_id', tourIds)
+          .in('team_id', allTeamIdsForStandings)
+      : Promise.resolve({ data: [] as { tournament_id: string; team_id: string; rank: number }[] }),
+    ...[...tourMap.values()].map(async (te) => {
       try {
-        const standings = await getTournamentFinalStandings(te.id)
-        // Parent team's standing
-        const my = standings.get(id)
-        if (my) {
-          te.finalStageRank = my.rank === 'DQ' ? null : (my.rank as number)
-          te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
-          te.finalStagePrize = my.prize
-        }
-        // Child teams' standings (shown per-team in breakdown)
-        for (const ct of childTeams) {
-          const ctS = standings.get(ct.id)
-          if (ctS) {
-            te.subTeamResults.push({
-              teamId: ct.id,
-              teamName: ct.short_name ?? ct.name,
-              rank: ctS.rank === 'DQ' ? null : (ctS.rank as number),
-              rankLabel: ctS.rank === 'DQ' ? 'DQ' : null,
-              prize: ctS.prize,
-            })
-          }
-        }
+        return { tourId: te.id, standings: await getTournamentFinalStandings(te.id) }
       } catch {
-        // standings unavailable — skip
+        return { tourId: te.id, standings: new Map() }
       }
     }),
-  )
+  ])
+
+  // Build pre-computed rank lookup: tourId → teamId → rank
+  const preRankByTour = new Map<string, Map<string, number>>()
+  for (const r of (preRankRows ?? []) as { tournament_id: string; team_id: string; rank: number }[]) {
+    if (!preRankByTour.has(r.tournament_id)) preRankByTour.set(r.tournament_id, new Map())
+    preRankByTour.get(r.tournament_id)!.set(r.team_id, r.rank)
+  }
+
+  for (const { tourId, standings } of standingsList as { tourId: string; standings: Map<string, { rank: number | 'DQ'; prize: number | null }> }[]) {
+    const te = tourMap.get(tourId)
+    if (!te) continue
+    const preByTeam = preRankByTour.get(tourId)
+
+    // Parent team rank: prefer pre-computed, fall back to getTournamentFinalStandings
+    const preRank = preByTeam?.get(id)
+    if (preRank != null) {
+      te.finalStageRank = preRank
+    } else {
+      const my = standings.get ? standings.get(id) : (standings as AnyObj)[id]
+      if (my) {
+        te.finalStageRank = my.rank === 'DQ' ? null : (my.rank as number)
+        te.finalStageRankLabel = my.rank === 'DQ' ? 'DQ' : null
+      }
+    }
+    // Prize always comes from getTournamentFinalStandings (has WWCD bonus logic)
+    const myForPrize = standings.get ? standings.get(id) : (standings as AnyObj)[id]
+    if (myForPrize) te.finalStagePrize = myForPrize.prize
+
+    // Child teams
+    for (const ct of childTeams) {
+      const ctPreRank = preByTeam?.get(ct.id)
+      const ctS = standings.get ? standings.get(ct.id) : (standings as AnyObj)[ct.id]
+      if (ctPreRank != null || ctS) {
+        te.subTeamResults.push({
+          teamId: ct.id,
+          teamName: ct.short_name ?? ct.name,
+          rank: ctPreRank ?? (ctS?.rank === 'DQ' ? null : (ctS?.rank as number | null) ?? null),
+          rankLabel: ctS?.rank === 'DQ' ? 'DQ' : null,
+          prize: ctS?.prize ?? null,
+        })
+      }
+    }
+  }
 
   const tourList = [...tourMap.values()]
 
