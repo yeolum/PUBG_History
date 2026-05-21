@@ -605,12 +605,13 @@ export default function TeamStatsTable({
     return visibleTeams === null || visibleTeams.has(drop.teamId)
   })
 
-  // Spread overlapping logos into a circle so all logos are visible
+  // Spread overlapping logos into a circle, rotating to avoid nearby logos
   const OVERLAP_THRESHOLD = 0.02
   const SPREAD_RADIUS = 0.016
   const displayDrops: (DropLocationRow & { displayX: number; displayY: number })[] = (() => {
+    // Pass 1: build groups via BFS
     const visited = new Set<string>()
-    const result: (DropLocationRow & { displayX: number; displayY: number })[] = []
+    const groups: DropLocationRow[][] = []
     for (const drop of visibleDrops) {
       if (visited.has(drop.id)) continue
       const group: DropLocationRow[] = [drop]
@@ -629,21 +630,48 @@ export default function TeamStatsTable({
         }
         gi++
       }
+      groups.push(group)
+    }
+
+    // Pass 2: assign display positions, choosing rotation to avoid other logos
+    const result: (DropLocationRow & { displayX: number; displayY: number })[] = []
+    for (const group of groups) {
       if (group.length === 1) {
-        result.push({ ...drop, displayX: drop.x, displayY: drop.y })
-      } else {
-        group.sort((a, b) => a.teamId.localeCompare(b.teamId))
-        const cx = group.reduce((s, d) => s + d.x, 0) / group.length
-        const cy = group.reduce((s, d) => s + d.y, 0) / group.length
-        group.forEach((d, idx) => {
-          const angle = (idx / group.length) * 2 * Math.PI - Math.PI / 2
-          result.push({
-            ...d,
-            displayX: Math.max(0.015, Math.min(0.985, cx + Math.cos(angle) * SPREAD_RADIUS)),
-            displayY: Math.max(0.015, Math.min(0.985, cy + Math.sin(angle) * SPREAD_RADIUS)),
-          })
-        })
+        result.push({ ...group[0], displayX: group[0].x, displayY: group[0].y })
+        continue
       }
+      group.sort((a, b) => a.teamId.localeCompare(b.teamId))
+      const cx = group.reduce((s, d) => s + d.x, 0) / group.length
+      const cy = group.reduce((s, d) => s + d.y, 0) / group.length
+      const groupIds = new Set(group.map((d) => d.id))
+      const others = visibleDrops.filter((d) => !groupIds.has(d.id))
+
+      // Try 12 base angles, pick the one with fewest collisions with other logos
+      let bestBase = -Math.PI / 2
+      let minCollisions = Infinity
+      for (let step = 0; step < 12; step++) {
+        const base = (step / 12) * Math.PI  // half-circle covers all unique configs
+        let collisions = 0
+        for (let i = 0; i < group.length; i++) {
+          const a = base + (i / group.length) * 2 * Math.PI
+          const px = cx + Math.cos(a) * SPREAD_RADIUS
+          const py = cy + Math.sin(a) * SPREAD_RADIUS
+          for (const o of others) {
+            const dx = px - o.x; const dy = py - o.y
+            if (dx * dx + dy * dy < OVERLAP_THRESHOLD * OVERLAP_THRESHOLD) collisions++
+          }
+        }
+        if (collisions < minCollisions) { minCollisions = collisions; bestBase = base }
+      }
+
+      group.forEach((d, i) => {
+        const angle = bestBase + (i / group.length) * 2 * Math.PI
+        result.push({
+          ...d,
+          displayX: Math.max(0.015, Math.min(0.985, cx + Math.cos(angle) * SPREAD_RADIUS)),
+          displayY: Math.max(0.015, Math.min(0.985, cy + Math.sin(angle) * SPREAD_RADIUS)),
+        })
+      })
     }
     return result
   })()
