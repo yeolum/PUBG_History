@@ -1324,6 +1324,7 @@ export default async function TournamentContent({ id, tournament }: { id: string
         series={seriesList}
         combined={combinedList.map((c) => ({ id: c.id, name: c.name, order_num: c.order_num, tab_order: c.tab_order, advance_count: c.advance_count ?? null, eliminate_count: c.eliminate_count ?? null, stageIds: [...c.stageIds] }))}
         combinedStandings={Object.fromEntries([...combinedStandingsMap.entries()])}
+        seriesStandings={Object.fromEntries([...seriesStandingsMap.entries()])}
         resultsByMatch={resultsByMatch}
         damageByMatch={damageByMatch}
         rankBoard={rankBoard}

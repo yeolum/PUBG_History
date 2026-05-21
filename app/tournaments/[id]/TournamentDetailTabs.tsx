@@ -19,6 +19,7 @@ interface Props {
   series: SeriesItem[]
   combined: CombinedItem[]
   combinedStandings: Record<string, { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }[]>
+  seriesStandings: Record<string, { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number }[]>
   resultsByMatch: Record<string, AnyObj[]>
   damageByMatch: Record<string, { placement: number; damage_dealt: number }[]>
   rankBoard: RankEntry[]
@@ -71,6 +72,7 @@ export default function TournamentDetailTabs(props: Props) {
           series={props.series}
           combined={props.combined}
           combinedStandings={props.combinedStandings}
+          seriesStandings={props.seriesStandings}
           resultsByMatch={props.resultsByMatch}
           damageByMatch={props.damageByMatch}
           rankBoard={props.rankBoard}

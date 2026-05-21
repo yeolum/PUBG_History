@@ -23,6 +23,7 @@ interface Props {
   series: SeriesItem[]
   combined?: CombinedItem[]
   combinedStandings?: Record<string, CombinedStanding[]>
+  seriesStandings?: Record<string, CombinedStanding[]>
   resultsByMatch: Record<string, AnyObj[]>
   damageByMatch: Record<string, { placement: number; damage_dealt: number }[]>
   rankBoard: RankEntry[]
@@ -54,7 +55,7 @@ function formatDateLabel(dateStr: string) {
 }
 
 export default function TournamentStagesView({
-  stages, series, combined = [], combinedStandings = {},
+  stages, series, combined = [], combinedStandings = {}, seriesStandings: seriesStandingsBySeriesId = {},
   resultsByMatch, damageByMatch, rankBoard, prizeConfig,
   hasPrize, hasPgsPoints, hasPgcPoints, currency, aliasLogoLookup, stageAdditionalPts = {},
   wwcdBonusByTeamId = {}, specialAwards = [], dqTeamIds = [],
@@ -108,48 +109,11 @@ export default function TournamentStagesView({
     [stages]
   )
 
-  // Series combined standings (when series selected, no stage drilled)
-  const seriesStandings = useMemo(() => {
-    if (!selectedSeriesId || selectedStageId) return []
-    const seriesStages = stages.filter(s => s.series_id === selectedSeriesId && (s as AnyObj).include_in_total !== false)
-    const seriesMatchIds = new Set(seriesStages.flatMap(s => s.matches.filter(m => m.status === 'imported').map(m => m.id)))
-    const ptsMap = new Map<string, { teamId: string | null; teamName: string; totalPts: number; placePts: number; killPts: number; matches: number; wwcd: number }>()
-    for (const [matchId, results] of Object.entries(resultsByMatch)) {
-      if (!seriesMatchIds.has(matchId)) continue
-      const rule = matchToRule.get(matchId)!
-      for (const r of results as AnyObj[]) {
-        const key = r.team_id ?? `pubg:${r.pubg_team_name ?? ''}`
-        if (!ptsMap.has(key)) {
-          ptsMap.set(key, { teamId: r.team_id ?? null, teamName: r._resolvedName ?? r.teams?.name ?? stripTagPrefix(r.display_name ?? r.pubg_team_name ?? '?'), totalPts: 0, placePts: 0, killPts: 0, matches: 0, wwcd: 0 })
-        }
-        const e = ptsMap.get(key)!
-        const pp = calcPlacementPtsWithRule(r.placement ?? 99, rule)
-        const kp = Math.round((r.total_kills ?? 0) * rule.kill_pts)
-        e.totalPts += pp + kp
-        e.placePts += pp
-        e.killPts += kp
-        e.matches++
-        if ((r.placement ?? 99) === 1) e.wwcd++
-      }
-    }
-    // Apply additional points from all stages in this series
-    const seriesStageIds = seriesStages.map(s => s.id)
-    for (const e of ptsMap.values()) {
-      for (const stageId of seriesStageIds) {
-        const extra = stageAdditionalPts[stageId]
-        if (extra) e.totalPts += (e.teamId ? extra[e.teamId] : undefined) ?? extra[e.teamName.toLowerCase()] ?? 0
-      }
-    }
-    const seriesRuleType = seriesMatchIds.size > 0
-      ? (matchToRule.get([...seriesMatchIds][0])?.type ?? 'super')
-      : 'super'
-    return [...ptsMap.values()].sort((a, b) =>
-      b.totalPts !== a.totalPts ? b.totalPts - a.totalPts
-        : seriesRuleType === 'super_v1'
-          ? b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts
-          : b.placePts - a.placePts
-    )
-  }, [selectedSeriesId, selectedStageId, stages, resultsByMatch, matchToRule, stageAdditionalPts, excludedMatchIds])
+  // Series combined standings — use server-precomputed standings (includes SUPER V2 pairwise tiebreaker)
+  const seriesStandings = useMemo(
+    () => (!selectedSeriesId || selectedStageId) ? [] : (seriesStandingsBySeriesId[selectedSeriesId] ?? []),
+    [selectedSeriesId, selectedStageId, seriesStandingsBySeriesId]
+  )
 
   // Per-match results for series view
   const seriesMatchResults = useMemo(() => {
