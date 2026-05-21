@@ -13,27 +13,37 @@ const PAGE = 1000
 export default async function TeamsPage() {
   const supabase = createPublicClient()
 
-  const allTeams: Team[] = []
-  let offset = 0
-  while (true) {
-    const { data } = await supabase
-      .from('teams')
-      .select('*, team_aliases(alias)')
-      .eq('is_active', true)
-      .order('name')
-      .range(offset, offset + PAGE - 1)
-    if (!data || data.length === 0) break
-    allTeams.push(...(data as Team[]))
-    if (data.length < PAGE) break
-    offset += PAGE
-  }
+  const [teamsResult, ttResult] = await Promise.all([
+    (async () => {
+      const all: Team[] = []
+      let offset = 0
+      while (true) {
+        const { data } = await supabase
+          .from('teams')
+          .select('*, team_aliases(alias)')
+          .eq('is_active', true)
+          .order('name')
+          .range(offset, offset + PAGE - 1)
+        if (!data || data.length === 0) break
+        all.push(...(data as Team[]))
+        if (data.length < PAGE) break
+        offset += PAGE
+      }
+      return all
+    })(),
+    supabase.from('tournament_teams').select('team_id').limit(5000),
+  ])
+
+  const tournamentTeamIds = new Set(
+    (ttResult.data ?? []).map((r) => r.team_id as string).filter(Boolean)
+  )
 
   return (
     <>
       <Header />
       <main className="max-w-6xl mx-auto px-4 py-10 w-full">
         <h1 className="text-2xl font-bold text-gray-900 mb-8">팀</h1>
-        <TeamListClient teams={allTeams} />
+        <TeamListClient teams={teamsResult} tournamentTeamIds={[...tournamentTeamIds]} />
       </main>
     </>
   )
