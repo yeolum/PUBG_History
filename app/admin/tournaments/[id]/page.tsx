@@ -1636,11 +1636,11 @@ export default function AdminTournamentDetailPage() {
                 <select
                   value={rules.scoringRuleId}
                   onChange={(e) => setSeriesRulesMap((m) => ({ ...m, [s.id]: { ...rules, scoringRuleId: e.target.value } }))}
-                  className="border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 max-w-[120px]"
+                  className="text-xs border border-gray-200 rounded px-1.5 py-0.5 focus:outline-none focus:ring-1 focus:ring-yellow-400"
                 >
-                  <option value="">Rule (inherit)</option>
+                  <option value="">SUPER v2 (기본)</option>
                   {scoringRules.map((r) => (
-                    <option key={r.id} value={r.id}>{r.name}</option>
+                    <option key={r.id} value={r.id}>{r.name} ({r.type === 'chicken' ? 'Chicken' : r.type === 'super_v1' ? 'SUPER v1' : 'SUPER v2'})</option>
                   ))}
                 </select>
                 {dirty && (
