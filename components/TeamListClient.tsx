@@ -13,28 +13,26 @@ const IS_PNC = (t: TeamWithAliases) => t.league?.toLowerCase() === 'pnc'
 
 type Tab = 'teams' | 'national'
 
-export default function TeamListClient({ teams, tournamentTeamIds = [] }: { teams: TeamWithAliases[]; tournamentTeamIds?: string[] }) {
+export default function TeamListClient({ teams, teamLatestDate = {} }: { teams: TeamWithAliases[]; teamLatestDate?: Record<string, string> }) {
   const [tab, setTab] = useState<Tab>('teams')
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(100)
   const [search, setSearch] = useState('')
 
-  const ttIdSet = useMemo(() => new Set(tournamentTeamIds), [tournamentTeamIds])
-
-  const sortByTournamentFirst = (a: TeamWithAliases, b: TeamWithAliases) => {
-    const aIn = ttIdSet.has(a.id) ? 0 : 1
-    const bIn = ttIdSet.has(b.id) ? 0 : 1
-    if (aIn !== bIn) return aIn - bIn
+  const sortByRecentTournament = (a: TeamWithAliases, b: TeamWithAliases) => {
+    const aDate = teamLatestDate[a.id] ?? ''
+    const bDate = teamLatestDate[b.id] ?? ''
+    if (bDate !== aDate) return bDate > aDate ? 1 : -1
     return a.name.localeCompare(b.name)
   }
 
   const regularTeams = useMemo(
-    () => teams.filter(t => !IS_PNC(t)).sort(sortByTournamentFirst),
-    [teams, ttIdSet]
+    () => teams.filter(t => !IS_PNC(t)).sort(sortByRecentTournament),
+    [teams, teamLatestDate]
   )
   const pncTeams = useMemo(
-    () => teams.filter(IS_PNC).sort(sortByTournamentFirst),
-    [teams, ttIdSet]
+    () => teams.filter(IS_PNC).sort(sortByRecentTournament),
+    [teams, teamLatestDate]
   )
 
   const filteredRegular = useMemo(() => {

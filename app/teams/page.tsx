@@ -31,19 +31,28 @@ export default async function TeamsPage() {
       }
       return all
     })(),
-    supabase.from('tournament_teams').select('team_id').limit(5000),
+    supabase.from('tournament_teams').select('team_id, tournaments(end_date, start_date)').limit(5000),
   ])
 
-  const tournamentTeamIds = new Set(
-    (ttResult.data ?? []).map((r) => r.team_id as string).filter(Boolean)
-  )
+  // 팀별 최근 대회 날짜 (end_date 우선, 없으면 start_date)
+  const teamLatestDate: Record<string, string> = {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  for (const r of (ttResult.data ?? []) as any[]) {
+    if (!r.team_id) continue
+    const t = Array.isArray(r.tournaments) ? r.tournaments[0] : r.tournaments
+    const date: string | null = t?.end_date ?? t?.start_date ?? null
+    if (!date) continue
+    if (!teamLatestDate[r.team_id as string] || date > teamLatestDate[r.team_id as string]) {
+      teamLatestDate[r.team_id as string] = date
+    }
+  }
 
   return (
     <>
       <Header />
       <main className="max-w-6xl mx-auto px-4 py-10 w-full">
         <h1 className="text-2xl font-bold text-gray-900 mb-8">팀</h1>
-        <TeamListClient teams={teamsResult} tournamentTeamIds={[...tournamentTeamIds]} />
+        <TeamListClient teams={teamsResult} teamLatestDate={teamLatestDate} />
       </main>
     </>
   )
