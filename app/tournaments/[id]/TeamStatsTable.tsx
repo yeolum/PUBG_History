@@ -1108,9 +1108,9 @@ export default function TeamStatsTable({
                       <div key={drop.id} className="absolute -translate-x-1/2 -translate-y-1/2 group" style={{ left: `${drop.displayX * 100}%`, top: `${drop.displayY * 100}%` }}>
                         {drop.logoUrl ? (
                           // eslint-disable-next-line @next/next/no-img-element
-                          <img src={drop.logoUrl} alt={drop.teamName} className={`rounded border-2 shadow-md object-contain ${isSpread ? isPrimary ? 'w-8 h-8 border-orange-400' : 'w-6 h-6 border-orange-300 opacity-70' : 'w-8 h-8 border-white'}`} />
+                          <img src={drop.logoUrl} alt={drop.teamName} className={`rounded shadow-md object-contain ${isSpread && !isPrimary ? 'w-[29px] h-[29px] opacity-70' : 'w-[38px] h-[38px]'}`} />
                         ) : (
-                          <div className={`rounded border-2 shadow-md flex items-center justify-center text-white font-bold ${isSpread ? isPrimary ? 'w-8 h-8 border-orange-400 bg-orange-600 text-[10px]' : 'w-6 h-6 border-orange-300 bg-orange-400 opacity-70 text-[9px]' : 'w-8 h-8 border-white bg-gray-600 text-[10px]'}`}>
+                          <div className={`rounded shadow-md flex items-center justify-center text-white font-bold ${isSpread && !isPrimary ? 'w-[29px] h-[29px] bg-orange-400 opacity-70 text-[9px]' : 'w-[38px] h-[38px] bg-gray-600 text-[11px]'}`}>
                             {drop.teamName.slice(0, 2).toUpperCase()}
                           </div>
                         )}
