@@ -111,6 +111,7 @@ export interface Series {
   tab_order: number
   advance_count: number | null
   eliminate_count: number | null
+  scoring_rule_id: string | null
   created_at: string
 }
 

@@ -1,0 +1,2 @@
+ALTER TABLE series
+  ADD COLUMN IF NOT EXISTS scoring_rule_id UUID REFERENCES scoring_rules(id) ON DELETE SET NULL;

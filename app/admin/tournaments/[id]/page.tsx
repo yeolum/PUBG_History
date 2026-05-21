@@ -133,7 +133,7 @@ export default function AdminTournamentDetailPage() {
   const [selectedStagePrizeId, setSelectedStagePrizeId] = useState('')
   const [savingStagePrize, setSavingStagePrize] = useState(false)
 
-  type SeriesRulesRow = { advance: string; eliminate: string }
+  type SeriesRulesRow = { advance: string; eliminate: string; scoringRuleId: string }
   const [seriesRulesMap, setSeriesRulesMap] = useState<Record<string, SeriesRulesRow>>({})
   const [savingSeriesRulesId, setSavingSeriesRulesId] = useState<string | null>(null)
 
@@ -193,7 +193,7 @@ export default function AdminTournamentDetailPage() {
         .eq('tournament_id', id)
         .order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', id).order('rank'),
-      supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
+      supabase.from('series').select('*, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('scoring_rules').select('*').order('created_at'),
       supabase.from('tournament_wwcd_rewards').select('*').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_special_awards').select('*, teams(id, name)').eq('tournament_id', id).order('order_num'),
@@ -327,6 +327,7 @@ export default function AdminTournamentDetailPage() {
       srMap[sr.id] = {
         advance: sr.advance_count?.toString() ?? '',
         eliminate: sr.eliminate_count?.toString() ?? '',
+        scoringRuleId: (sr as Series & { scoring_rule_id?: string | null }).scoring_rule_id ?? '',
       }
     }
     setSeriesRulesMap(srMap)
@@ -783,6 +784,7 @@ export default function AdminTournamentDetailPage() {
     const { error } = await supabase.from('series').update({
       advance_count: Number.isFinite(adv) && adv > 0 ? adv : null,
       eliminate_count: Number.isFinite(elim) && elim > 0 ? elim : null,
+      scoring_rule_id: rules.scoringRuleId || null,
     }).eq('id', seriesId)
     setSavingSeriesRulesId(null)
     if (error) { setErr('Save failed: ' + error.message); return }
@@ -1594,7 +1596,8 @@ export default function AdminTournamentDetailPage() {
             const rules = seriesRulesMap[s.id] ?? { advance: '', eliminate: '' }
             const dirty =
               (rules.advance || '0') !== (s.advance_count?.toString() ?? '0') ||
-              (rules.eliminate || '0') !== (s.eliminate_count?.toString() ?? '0')
+              (rules.eliminate || '0') !== (s.eliminate_count?.toString() ?? '0') ||
+              (rules.scoringRuleId || '') !== ((s as Series & { scoring_rule_id?: string | null }).scoring_rule_id ?? '')
             return (
               <div
                 key={s.id}
@@ -1629,6 +1632,17 @@ export default function AdminTournamentDetailPage() {
                   placeholder="0"
                   className="w-12 border border-gray-200 rounded px-1.5 py-0.5 text-xs text-center focus:outline-none focus:ring-1 focus:ring-yellow-400"
                 />
+                <span className="mx-1 h-4 w-px bg-gray-200" />
+                <select
+                  value={rules.scoringRuleId}
+                  onChange={(e) => setSeriesRulesMap((m) => ({ ...m, [s.id]: { ...rules, scoringRuleId: e.target.value } }))}
+                  className="border border-gray-200 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:ring-1 focus:ring-yellow-400 max-w-[120px]"
+                >
+                  <option value="">Rule (inherit)</option>
+                  {scoringRules.map((r) => (
+                    <option key={r.id} value={r.id}>{r.name}</option>
+                  ))}
+                </select>
                 {dirty && (
                   <button
                     onClick={() => saveSeriesAdvancement(s.id)}

@@ -89,7 +89,7 @@ const loadTournamentData = unstable_cache(
       // a big multi-stage tournament's match list, blanking the player data.
       supabase.from('stages').select('*, include_in_total, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
       supabase.from('tournament_prize_config').select('rank, prize, pgs_points, pgc_points, stage_id, series_id, combined_scoreboard_id, stage_rank').eq('tournament_id', id).order('rank'),
-      supabase.from('series').select('*').eq('tournament_id', id).order('order_num'),
+      supabase.from('series').select('*, scoring_rules(*)').eq('tournament_id', id).order('order_num'),
     ])
 
     const stageIds = (stagesData ?? []).map((s: AnyRow) => s.id as string)
@@ -890,7 +890,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
         e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
       }
     }
-    const seriesRule = seriesStages[0] ? ruleFromStage((seriesStages[0] as AnyRow).scoring_rules) : ruleFromStage(null)
+    const seriesOwnRule = (sr as AnyRow).scoring_rules
+    const seriesRule = seriesOwnRule ? ruleFromStage(seriesOwnRule) : seriesStages[0] ? ruleFromStage((seriesStages[0] as AnyRow).scoring_rules) : ruleFromStage(null)
     const seriesRuleType = seriesRule.type ?? 'super'
     const seriesEntries = [...ptsMap.values()]
     if (seriesRuleType === 'super_v2') {
