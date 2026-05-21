@@ -882,7 +882,10 @@ export default async function TournamentContent({ id, tournament }: { id: string
     const seriesRule = seriesOwnRule ? ruleFromStage(seriesOwnRule) : seriesStages[0] ? ruleFromStage((seriesStages[0] as AnyRow).scoring_rules) : ruleFromStage(null)
     const seriesRuleType = seriesRule.type ?? 'super'
     const seriesEntries = [...ptsMap.entries()]
-    if (seriesRuleType === 'super_v2') {
+    if (seriesRuleType === 'super_v1') {
+      seriesEntries.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
+    } else if (seriesRuleType === 'super' || seriesRuleType === 'super_v2') {
+      // SUPER (v2): totalPts → placePts → last mutual match pts → last mutual match placement
       seriesEntries.sort(([aKey, a], [bKey, b]) => {
         if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
         if (b.placePts !== a.placePts) return b.placePts - a.placePts
@@ -899,8 +902,6 @@ export default async function TournamentContent({ id, tournament }: { id: string
         }
         return 0
       })
-    } else if (seriesRuleType === 'super_v1') {
-      seriesEntries.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
     } else {
       seriesEntries.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
     }
