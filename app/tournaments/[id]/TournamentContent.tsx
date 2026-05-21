@@ -839,23 +839,11 @@ export default async function TournamentContent({ id, tournament }: { id: string
   // down can reuse the same map.
   type SeriesStandingEntry = { teamId: string | null; teamName: string; matches: number; wwcd: number; placePts: number; killPts: number; totalPts: number; lastMatchKills: number; lastMatchPlacement: number; lastMatchTotalPts: number }
   const seriesStandingsMap = new Map<string, SeriesStandingEntry[]>()
+  type SeriesMatchRecord = { matchId: string; stageOrder: number; matchOrder: number; totalPts: number; placement: number }
   for (const sr of seriesList) {
     const seriesStages = stagesList.filter((s) => s.series_id === sr.id && (s as AnyRow).include_in_total !== false)
     if (seriesStages.length === 0) continue
-    // Find last imported match across series stages for tiebreaker
-    let lastSeriesMatchId: string | null = null
-    let lastSeriesStageOrder = -Infinity
-    let lastSeriesMatchOrder = -Infinity
-    for (const stage of seriesStages) {
-      for (const m of stage.matches) {
-        if (m.status !== 'imported') continue
-        if (stage.order_num > lastSeriesStageOrder || (stage.order_num === lastSeriesStageOrder && m.order_num > lastSeriesMatchOrder)) {
-          lastSeriesStageOrder = stage.order_num
-          lastSeriesMatchOrder = m.order_num
-          lastSeriesMatchId = m.id
-        }
-      }
-    }
+    const teamMatchHistory = new Map<string, SeriesMatchRecord[]>()
     const ptsMap = new Map<string, SeriesStandingEntry>()
     for (const stage of seriesStages) {
       const rule = ruleFromStage(stage.scoring_rules)
@@ -878,11 +866,8 @@ export default async function TournamentContent({ id, tournament }: { id: string
           e.totalPts += pp + kp
           e.matches++
           if ((r.placement ?? 99) === 1) e.wwcd++
-          if (m.id === lastSeriesMatchId) {
-            e.lastMatchKills = r.total_kills ?? 0
-            e.lastMatchPlacement = r.placement ?? 99
-            e.lastMatchTotalPts = pp + kp
-          }
+          if (!teamMatchHistory.has(key)) teamMatchHistory.set(key, [])
+          teamMatchHistory.get(key)!.push({ matchId: m.id, stageOrder: stage.order_num, matchOrder: m.order_num, totalPts: pp + kp, placement: r.placement ?? 99 })
         }
       }
       const extraForStage = stageAdditionalPts[stage.id] ?? {}
@@ -890,23 +875,36 @@ export default async function TournamentContent({ id, tournament }: { id: string
         e.totalPts += (e.teamId ? extraForStage[e.teamId] : undefined) ?? extraForStage[e.teamName.toLowerCase()] ?? 0
       }
     }
+    for (const hist of teamMatchHistory.values()) {
+      hist.sort((a, b) => a.stageOrder !== b.stageOrder ? a.stageOrder - b.stageOrder : a.matchOrder - b.matchOrder)
+    }
     const seriesOwnRule = (sr as AnyRow).scoring_rules
     const seriesRule = seriesOwnRule ? ruleFromStage(seriesOwnRule) : seriesStages[0] ? ruleFromStage((seriesStages[0] as AnyRow).scoring_rules) : ruleFromStage(null)
     const seriesRuleType = seriesRule.type ?? 'super'
-    const seriesEntries = [...ptsMap.values()]
+    const seriesEntries = [...ptsMap.entries()]
     if (seriesRuleType === 'super_v2') {
-      seriesEntries.sort((a, b) => {
+      seriesEntries.sort(([aKey, a], [bKey, b]) => {
         if (b.totalPts !== a.totalPts) return b.totalPts - a.totalPts
         if (b.placePts !== a.placePts) return b.placePts - a.placePts
-        if (b.lastMatchTotalPts !== a.lastMatchTotalPts) return b.lastMatchTotalPts - a.lastMatchTotalPts
-        return a.lastMatchPlacement - b.lastMatchPlacement
+        const aHist = teamMatchHistory.get(aKey) ?? []
+        const bHist = teamMatchHistory.get(bKey) ?? []
+        const bMatchIdSet = new Set(bHist.map((x) => x.matchId))
+        for (let i = aHist.length - 1; i >= 0; i--) {
+          if (bMatchIdSet.has(aHist[i].matchId)) {
+            const aRec = aHist[i]
+            const bRec = bHist.find((x) => x.matchId === aRec.matchId)!
+            if (aRec.totalPts !== bRec.totalPts) return bRec.totalPts - aRec.totalPts
+            return aRec.placement - bRec.placement
+          }
+        }
+        return 0
       })
     } else if (seriesRuleType === 'super_v1') {
-      seriesEntries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
+      seriesEntries.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.killPts !== a.killPts ? b.killPts - a.killPts : b.placePts - a.placePts)
     } else {
-      seriesEntries.sort((a, b) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
+      seriesEntries.sort(([, a], [, b]) => b.totalPts !== a.totalPts ? b.totalPts - a.totalPts : b.placePts - a.placePts)
     }
-    seriesStandingsMap.set(sr.id, seriesEntries)
+    seriesStandingsMap.set(sr.id, seriesEntries.map(([, e]) => e))
   }
 
   // Combined scoreboards — view-only aggregations of any subset of stages.
