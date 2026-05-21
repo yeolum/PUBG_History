@@ -606,8 +606,9 @@ export default function TeamStatsTable({
   })
 
   // Spread overlapping logos into a circle, rotating to avoid nearby logos
+  // Radius scales with group size so adjacent logos maintain consistent overlap
   const OVERLAP_THRESHOLD = 0.02
-  const SPREAD_RADIUS = 0.016
+  const D_TARGET = 0.032  // target center-to-center distance between adjacent logos (N=2 baseline)
   const displayDrops: (DropLocationRow & { displayX: number; displayY: number })[] = (() => {
     // Pass 1: build groups via BFS
     const visited = new Set<string>()
@@ -643,6 +644,8 @@ export default function TeamStatsTable({
       group.sort((a, b) => a.teamId.localeCompare(b.teamId))
       const cx = group.reduce((s, d) => s + d.x, 0) / group.length
       const cy = group.reduce((s, d) => s + d.y, 0) / group.length
+      // Radius grows with N so adjacent logos keep the same gap regardless of group size
+      const radius = D_TARGET / (2 * Math.sin(Math.PI / group.length))
       const groupIds = new Set(group.map((d) => d.id))
       const others = visibleDrops.filter((d) => !groupIds.has(d.id))
 
@@ -654,8 +657,8 @@ export default function TeamStatsTable({
         let collisions = 0
         for (let i = 0; i < group.length; i++) {
           const a = base + (i / group.length) * 2 * Math.PI
-          const px = cx + Math.cos(a) * SPREAD_RADIUS
-          const py = cy + Math.sin(a) * SPREAD_RADIUS
+          const px = cx + Math.cos(a) * radius
+          const py = cy + Math.sin(a) * radius
           for (const o of others) {
             const dx = px - o.x; const dy = py - o.y
             if (dx * dx + dy * dy < OVERLAP_THRESHOLD * OVERLAP_THRESHOLD) collisions++
@@ -668,8 +671,8 @@ export default function TeamStatsTable({
         const angle = bestBase + (i / group.length) * 2 * Math.PI
         result.push({
           ...d,
-          displayX: Math.max(0.015, Math.min(0.985, cx + Math.cos(angle) * SPREAD_RADIUS)),
-          displayY: Math.max(0.015, Math.min(0.985, cy + Math.sin(angle) * SPREAD_RADIUS)),
+          displayX: Math.max(0.015, Math.min(0.985, cx + Math.cos(angle) * radius)),
+          displayY: Math.max(0.015, Math.min(0.985, cy + Math.sin(angle) * radius)),
         })
       })
     }
