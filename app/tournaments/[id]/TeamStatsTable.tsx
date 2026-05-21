@@ -607,7 +607,7 @@ export default function TeamStatsTable({
 
   // Spread overlapping logos into a circle so all logos are visible
   const OVERLAP_THRESHOLD = 0.02
-  const SPREAD_RADIUS = 0.025
+  const SPREAD_RADIUS = 0.016
   const displayDrops: (DropLocationRow & { displayX: number; displayY: number })[] = (() => {
     const visited = new Set<string>()
     const result: (DropLocationRow & { displayX: number; displayY: number })[] = []
